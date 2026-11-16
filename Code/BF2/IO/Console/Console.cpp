@@ -95,6 +95,16 @@ bool consoleTraceEnabled()
     return on == 1;
 }
 
+// [CHOSEN, not recovered] if/elseIf operands drop one pair of surrounding double quotes, so
+// `if v_arg2 == "meinsurgent"` compares the run argument with the literal's contents. Retail
+// content depends on this (Project Reality's faction_init.con / InitSpawnKits.tweak branch on
+// quoted faction names); the retail site that strips them is not identified yet.
+void stripConditionQuotes(std::string& operand)
+{
+    if (operand.size() >= 2 && operand[0] == '"' && operand[operand.size() - 1] == '"')
+        operand = operand.substr(1, operand.size() - 2);
+}
+
 const int kMaxBlockDepth = 10;
 struct BranchState { bool executing; bool branchTaken; int skipNesting; };
 std::vector<BranchState> s_branch[kMaxBlockDepth + 1];
@@ -531,6 +541,8 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             kin >> lhs; kin >> op; kin >> rhs;
             if (exchangeVariable(lhs, value) || exchangeConstant(lhs, value)) lhs = value;
             if (exchangeVariable(rhs, value) || exchangeConstant(rhs, value)) rhs = value;
+            stripConditionQuotes(lhs);
+            stripConditionQuotes(rhs);
             std::string error;
             const bool cond = console_expr(lhs, op, rhs, error);
             if (consoleTraceEnabled())
@@ -551,6 +563,8 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             kin >> lhs; kin >> op; kin >> rhs;
             if (exchangeVariable(lhs, value) || exchangeConstant(lhs, value)) lhs = value;
             if (exchangeVariable(rhs, value) || exchangeConstant(rhs, value)) rhs = value;
+            stripConditionQuotes(lhs);
+            stripConditionQuotes(rhs);
             std::string error;
             const bool cond = console_expr(lhs, op, rhs, error);
             if (consoleTraceEnabled())
