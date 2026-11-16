@@ -95,6 +95,7 @@
 #include <map>
 #include <cstring>                          // memcpy - updateInput's sample copy
 #include <cstdio>                           // std::fprintf - the [FRONTIER] stop in startGame's client branch
+#include <sys/stat.h>                       // [CHOSEN] stat - the BF2_DEVCMD_FILE dev hook
 #include <cstdlib>                          // std::abort   - the same stop
 #if !DEDICATED
 #include "BF2ClientSeams.h"                 // [FRONTIER] client collaborators without recovered classes
@@ -142,6 +143,62 @@ namespace hfe {
 
 // Singleton bring-up helpers called for their side effects.
 class ISettingsRepostitory { public: static void createSingleton(); };
+
+namespace {
+
+// [CHOSEN, not recovered] Renderer development hooks, inert unless their environment variables are set.
+// BF2_FILE_MONITOR=1 turns on GSFileChangeMonitor, the retail development switch that nothing in the
+// shipped game sets. It lets changed loose shaders and textures reload while the game runs.
+bool devFileMonitorRequested()
+{
+    const char* v = std::getenv("BF2_FILE_MONITOR");
+    return v && *v && *v != '0';
+}
+
+// BF2_DEVCMD_FILE=<path>: when the file's size or write time changes, every non-empty line that is
+// not a `rem` comment runs on the main console. Output goes to stderr as [DEVCMD] lines. This lets
+// tools outside the game drive commands such as shadermanager.reloadAllEffects.
+void devCommandFilePoll()
+{
+    static const char* path = std::getenv("BF2_DEVCMD_FILE");
+    static long long lastStamp = -1;
+    static unsigned int frame = 0;
+    if (!path || !*path || (frame++ % 15) != 0)
+        return;
+
+    struct stat st;
+    if (::stat(path, &st) != 0)
+        return;
+    const long long stamp = static_cast<long long>(st.st_mtime) * 1000003LL + static_cast<long long>(st.st_size);
+    if (lastStamp == -1)
+    {
+        lastStamp = stamp;   // commands already in the file at startup do not run
+        return;
+    }
+    if (stamp == lastStamp)
+        return;
+    lastStamp = stamp;
+
+    FILE* f = std::fopen(path, "rb");
+    if (!f)
+        return;
+    char buf[1024];
+    while (std::fgets(buf, sizeof(buf), f))
+    {
+        std::string line(buf);
+        while (!line.empty() && (line[line.size() - 1] == '\n' || line[line.size() - 1] == '\r'))
+            line.erase(line.size() - 1);
+        if (line.empty() || line.compare(0, 3, "rem") == 0)
+            continue;
+        std::string out;
+        io::mainConsole->executeLine(line, out, false, true, false, false, false);
+        std::fprintf(stderr, "[DEVCMD] %s -> %s\n", line.c_str(), out.c_str());
+    }
+    std::fclose(f);
+    std::fflush(stderr);
+}
+
+} // namespace
 // The engine singleton is published by its constructor, before init() runs.
 extern BF2Engine* bf2Engine;
 
@@ -881,6 +938,8 @@ bool BF2Engine::init(const std::string& commandLine)
     // BY const reference and returns a const bool&; it is not an out-parameter API. 0x813164B
     // materialises the `false` temporary, 0x8131656 is `call [ecx+50h]`, and 0x813165B does
     // `movzx eax, byte ptr [eax]` on the returned reference.
+    if (devFileMonitorRequested())                          // [CHOSEN, not recovered] dev hook, see above
+        settings->boolSet("GSFileChangeMonitor", true);
     if (settings->boolGet("GSFileChangeMonitor", false))    // vptr+0x50
         io::fileChangeManager->setEnable(true);             // +0x1C
 
@@ -2486,6 +2545,7 @@ bool BF2Engine::mainLoop()
         io::fileManager->update();                                  //  vcall +0x44, ds:0x8AC8C80
         io::fileChangeManager->update();                            //  vcall +0x2C, ds:0x8AC8C84
     }
+    devCommandFilePoll();                                           // [CHOSEN, not recovered] dev hook
 
     // The registry stores this singleton as IBase; cast to its concrete interface before updating counters.
     if (debugCounterManager)
