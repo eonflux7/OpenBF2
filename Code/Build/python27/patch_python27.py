@@ -56,3 +56,8 @@ patch("PC/pyconfig.h",
 patch("PC/pyconfig.h",
       '#				pragma comment(lib,"python27.lib")',
       '#				/* dice_py: linked explicitly, no python27.lib auto-link */')
+
+# 4. UCRT only has the underscored timezone globals.
+patch("Modules/timemodule.c",
+      "#if defined(MS_WINDOWS) && !defined(__BORLANDC__)\n/* Win32 has better clock",
+      "#if defined(_MSC_VER) && _MSC_VER >= 1900\n/* dice_py: UCRT names */\n#define timezone _timezone\n#define tzname _tzname\n#define daylight _daylight\n#endif\n\n#if defined(MS_WINDOWS) && !defined(__BORLANDC__)\n/* Win32 has better clock")
