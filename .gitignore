@@ -73,6 +73,7 @@ compile_commands.json
 # Build runs may contain copied source. Only maintained tool subdirectories are public.
 /Code/Build/*/
 !/Code/Build/python/
+!/Code/Build/python27/
 !/Code/Build/pyfixture/
 !/Code/Build/demo/
 !/Code/Build/bf2audio_diff/
