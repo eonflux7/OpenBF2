@@ -502,12 +502,40 @@ bool SwiffHost::setPlayerName(const std::string& name)
     return true;
 }
 
+// [COMPAT] [CHOSEN, not recovered] Project Reality's PRBF2.exe replaces "CommandLine.cmd" with
+// "<modPath>\vars\fci" (its launcher handshake file; the menu RC4-checks +password against it).
+// BF2_CMDLINE_FILE names such a file relative to the mod directory (e.g. "vars/fci"); PR's launcher
+// expects the menu's reply to replace the key, so that path overwrites instead of appending.
+static std::string commandLineFileName(bool& overwrite)
+{
+    overwrite = false;
+    const char* rel = std::getenv("BF2_CMDLINE_FILE");
+    if (!rel || !rel[0])
+        return std::string("CommandLine.cmd");
+    overwrite = true;
+    return settings->stringGet(std::string("GSModDirectory"), std::string("mods/bf2")) + "/" + rel;
+}
+
 // 0x48A110 (328 B): CommandLine.cmd's whole text; a missing file posts a type-1 message.
 bool SwiffHost::getCommandLineFile(std::string& out)
 {
     out = "";
+    bool overwrite;
+    const std::string fileName = commandLineFileName(overwrite);
+    if (overwrite) {   // [COMPAT] plain file under the install root, like PRBF2.exe
+        std::FILE* f = std::fopen(fileName.c_str(), "rb");
+        if (!f) {
+            postMessage(SwiffHostMessage(1, std::string("unable to open commandline file"), 0));
+            return false;
+        }
+        char chunk[512];
+        size_t n;
+        while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0) out.append(chunk, n);
+        std::fclose(f);
+        return true;
+    }
     io::FileInfo info;
-    const bool missing = !io::fileManager->getFileInfo(std::string("CommandLine.cmd"), info);
+    const bool missing = !io::fileManager->getFileInfo(fileName, info);
     if (missing)
     {
         postMessage(SwiffHostMessage(1, std::string("unable to open commandline file"), 0));
@@ -518,7 +546,7 @@ bool SwiffHost::getCommandLineFile(std::string& out)
         char* buffer = new char[info.size + 1];
         std::memset(buffer, 0, info.size + 1);
         unsigned int bytesRead = 0;
-        io::fileManager->readFile(std::string("CommandLine.cmd"), buffer, info.size, bytesRead);
+        io::fileManager->readFile(fileName, buffer, info.size, bytesRead);
         out = buffer;
         delete[] buffer;
     }
@@ -532,7 +560,16 @@ bool SwiffHost::setCommandLineFile(const std::string& commandLine)
     event.type = 5;
     event.args.push_back(commandLine);
     pushEvent(event);
-    io::fileManager->writeFile(std::string("CommandLine.cmd"), commandLine.c_str(),
+    bool overwrite;
+    const std::string fileName = commandLineFileName(overwrite);
+    if (overwrite) {   // [COMPAT] PR's handshake reply replaces the key
+        if (std::FILE* f = std::fopen(fileName.c_str(), "wb")) {
+            std::fwrite(commandLine.c_str(), 1, commandLine.size(), f);
+            std::fclose(f);
+        }
+        return true;
+    }
+    io::fileManager->writeFile(fileName, commandLine.c_str(),
                                static_cast<unsigned int>(std::strlen(commandLine.c_str())), true);
     return true;
 }
