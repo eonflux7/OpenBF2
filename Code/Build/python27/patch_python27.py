@@ -78,3 +78,60 @@ patch("PC/config.c",
 patch("Modules/_ctypes/callbacks.c",
       "#ifndef Py_NO_ENABLE_SHARED\nBOOL WINAPI DllMain",
       "#if !defined(Py_NO_ENABLE_SHARED) && !defined(Py_BUILD_CORE) /* dice_py: built in */\nBOOL WINAPI DllMain")
+
+# 7. Project Reality's socket.py wraps _socket.socket.acceptEx(): a non-raising accept used by
+#    realitynetwork's per-tick poll of a non-blocking listen socket. Contract taken from PR's
+#    docstring ("acceptEx() -> sock, addr, errno") and its caller (adds a client iff errno == 0).
+#    [CHOSEN, not recovered]: on failure it returns (None, None, <WSA error>).
+patch("Modules/socketmodule.c",
+      "PyDoc_STRVAR(accept_doc,",
+      """/* dice_py: Project Reality's acceptEx */
+static PyObject *
+sock_acceptEx(PySocketSockObject *s)
+{
+    sock_addr_t addrbuf;
+    SOCKET_T newfd;
+    socklen_t addrlen;
+    PyObject *sock, *addr, *res;
+    int err = 0;
+
+    if (!getsockaddrlen(s, &addrlen))
+        return NULL;
+    memset(&addrbuf, 0, addrlen);
+    Py_BEGIN_ALLOW_THREADS
+    newfd = accept(s->sock_fd, SAS2SA(&addrbuf), &addrlen);
+#ifdef MS_WINDOWS
+    if (newfd == INVALID_SOCKET)
+        err = WSAGetLastError();
+#else
+    if (newfd == INVALID_SOCKET)
+        err = errno;
+#endif
+    Py_END_ALLOW_THREADS
+    if (newfd == INVALID_SOCKET)
+        return Py_BuildValue("(OOi)", Py_None, Py_None, err);
+    sock = (PyObject *)new_sockobject(newfd, s->sock_family, s->sock_type, s->sock_proto);
+    if (sock == NULL) {
+        SOCKETCLOSE(newfd);
+        return NULL;
+    }
+    addr = makesockaddr(s->sock_fd, SAS2SA(&addrbuf), addrlen, s->sock_proto);
+    if (addr == NULL) {
+        Py_DECREF(sock);
+        return NULL;
+    }
+    res = Py_BuildValue("(OOi)", sock, addr, 0);
+    Py_DECREF(sock);
+    Py_DECREF(addr);
+    return res;
+}
+
+PyDoc_STRVAR(acceptEx_doc,
+"acceptEx() -> sock, addr, errno\\n\\
+\\n\\
+accept a connection, return an error value with a new socket");
+
+PyDoc_STRVAR(accept_doc,""")
+patch("Modules/socketmodule.c",
+      '    {"accept",            (PyCFunction)sock_accept, METH_NOARGS,',
+      '    {"acceptEx",          (PyCFunction)sock_acceptEx, METH_NOARGS,\n                      acceptEx_doc},\n    {"accept",            (PyCFunction)sock_accept, METH_NOARGS,')
