@@ -1856,6 +1856,26 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
     std::string modPath("mods/bf2");
     if (g_Renderer && static_cast<IRenderer*>(g_Renderer)->isExpansionPack())
         modPath = "mods/xpack";
+    // [CHOSEN, not recovered] Retail keys the cache by bf2/xpack only, so every mod shares
+    // mods/bf2/cache. The freshness test compares against the mod's .fx timestamps, and mod archives
+    // usually carry older timestamps than a cache from an earlier vanilla run. Mods with their own
+    // shaders then load stale vanilla blobs. Project Reality's log-depth shaders lose the depth test
+    // against vanilla-compiled meshes. Any non-vanilla mod gets its own cache directory.
+    {
+        std::string modDirectory;
+        readStringSettingDefault("GSModDirectory", "", modDirectory);
+        while (!modDirectory.empty()
+               && (modDirectory[modDirectory.size() - 1] == '/' || modDirectory[modDirectory.size() - 1] == '\\'))
+            modDirectory.erase(modDirectory.size() - 1);
+        std::string lowered(modDirectory);
+        for (std::size_t i = 0; i < lowered.size(); ++i)
+        {
+            const char c = lowered[i];
+            lowered[i] = (c == '\\') ? '/' : ((c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c);
+        }
+        if (!lowered.empty() && lowered != "mods/bf2" && lowered != "mods/xpack")
+            modPath = lowered;
+    }
 
     // Shipped: the cache is under @HOME@ (PE 0x10035054 pushes "@HOME@/"), not the game folder.
     // Retail BF2.exe expands @HOME@ to SHGetFolderPathW(CSIDL_PERSONAL) + "\Battlefield 2" (PE
