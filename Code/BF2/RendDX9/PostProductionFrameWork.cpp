@@ -1055,11 +1055,25 @@ void* postProductionFrameWorkInterface(void* owner)
 
 // sub_1004F1C0 - whether post-production is active, on the published owner (false while none is
 // published): a noise texture, glow, a started tinnitus, TV, +0x220, flashbang or a gas-mask blend.
+// [CHOSEN, not recovered] BF2_FRAME_GRADE=1 keeps post-production running every frame so the
+// final scene -> back buffer copy (FSQuadDrawer pass 0) always runs; the shader side puts the
+// frame's tonemap and colour grade in that pass. Off by default.
+bool postProductionFrameGradeEnabled()
+{
+    static const bool enabled = [] {
+        const char* v = std::getenv("BF2_FRAME_GRADE");
+        return v && *v && *v != '0';
+    }();
+    return enabled;
+}
+
 bool postProductionFrameWorkIsActive()
 {
     PostProductionOwner* const o = publishedOwner();
     if (!o)
         return false;
+    if (postProductionFrameGradeEnabled())
+        return true;
     if (o->noiseTexture || Bt<36>(o))
         return true;
     return o->tinnitus.state == 1

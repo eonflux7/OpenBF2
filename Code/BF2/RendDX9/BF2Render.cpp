@@ -302,6 +302,7 @@ void queryReleaseRef(void* query);
 unsigned int postProductionFrameWorkOwnerSize();
 void* postProductionFrameWorkInterface(void* owner);
 bool  postProductionFrameWorkIsActive();
+bool  postProductionFrameGradeEnabled();   // [CHOSEN] PostProductionFrameWork.cpp
 
 // Code/BF2/Core/Ids.h already carries both, recovered from the ELF, and both are confirmed here:
 // getSingletonList registers the pair (830001, 831001) and queryInterface tests 830001.
@@ -5323,7 +5324,9 @@ bool Renderer::renderScene(double time, const RenderFlags* flags, void* drawObje
     if (g_PostProductionFrameWorkOwner)
         postProductionSetGlowEnabled(postProduction);                             // owner +0x24
 
-    if (m_fullSizeRenderTargets && postProduction && g_PostProductionFrameWorkOwner)
+    // [CHOSEN, not recovered] BF2_FRAME_GRADE also routes this path through post-production.
+    const bool postProductionPath = postProduction || postProductionFrameGradeEnabled();
+    if (m_fullSizeRenderTargets && postProductionPath && g_PostProductionFrameWorkOwner)
     {
         postProductionPrepare();                                                  // sub_1004F210
     }
@@ -5493,7 +5496,7 @@ bool Renderer::renderScene(double time, const RenderFlags* flags, void* drawObje
     if (sw(1714) && sw(1715))
         skyDomeDrawPass(geom::g_SkyDome, 2);
 
-    if (!g_renderSceneSkipPostProduction && postProduction && g_PostProductionFrameWorkOwner)
+    if (!g_renderSceneSkipPostProduction && postProductionPath && g_PostProductionFrameWorkOwner)
     {
         postProductionFinish();                                                   // sub_100512C0
     }
