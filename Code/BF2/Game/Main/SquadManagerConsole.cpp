@@ -28,5 +28,11 @@ BF2_CONSOLE_METHOD_1_RET_ACTIVE(listSquads, consoleListSquads, std::string, game
 BF2_CONSOLE_METHOD_2_RET_ACTIVE(listSquadMembers, consoleListSquadMembers, std::string, game != 0, int, int,
                                 kSquadManagerConsoleTag)
 
+// Handed to the console registry by ModuleGame::init (Core/ModuleRegistry.cpp), next to the sv list.
+ConsoleObjectList& squadManagerConsoleObjects()
+{
+    return consoleBindingList(kSquadManagerConsoleTag);
+}
+
 } // namespace hfe
 } // namespace dice

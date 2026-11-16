@@ -17,6 +17,7 @@ std::list<ConsoleObject*>& gameConsoleObjects();            // Game/Main/GameCon
 std::list<ConsoleObject*>& openBf2ConsoleObjects();         // Game/Main/OpenBF2Console.cpp [CHOSEN, not recovered]
 #endif
 std::list<ConsoleObject*>& serverSettingsConsoleObjects();  // Game/GameServer/ServerSettingsConsole.cpp
+std::list<ConsoleObject*>& squadManagerConsoleObjects();    // Game/Main/SquadManagerConsole.cpp [CHOSEN, not recovered]
 std::list<ConsoleObject*>& pythonHostConsoleObjects();      // Game/Python/PythonHostConsole.cpp
 std::list<ConsoleObject*>& mapListConsoleObjects();         // Game/MapListConsole.cpp
 std::list<ConsoleObject*>& gameLogicConsoleObjects();       // Game/GameLogic/GameLogicConsole.cpp
@@ -994,6 +995,8 @@ bool ModuleGame::init()
     // 0x8B1704C is the hudInformationLayer TU's list (map/sv/python/renderer/SquadManager
     // defaults); this tree's recovered sv bindings live in Game/GameServer/ServerSettingsConsole.cpp.
     consoleObjects()->registerConsoleObjects(serverSettingsConsoleObjects());
+    // [CHOSEN, not recovered] SquadManager query rows, also carried by retail's 0x8B1704C list.
+    consoleObjects()->registerConsoleObjects(squadManagerConsoleObjects());
     // pythonHost.sendCommand, which content scripts use to hand commands to Python.
     consoleObjects()->registerConsoleObjects(pythonHostConsoleObjects());
     // Map-list bindings execute maplist.con commands.
@@ -1134,6 +1137,7 @@ bool ModuleGame::close()
     eventManager->unregisterEventHandler((EventCategory)10, this);
     consoleObjects()->unregisterConsoleObjects(listAt(0x8B1704C));
     consoleObjects()->unregisterConsoleObjects(serverSettingsConsoleObjects());
+    consoleObjects()->unregisterConsoleObjects(squadManagerConsoleObjects());
     consoleObjects()->unregisterConsoleObjects(pythonHostConsoleObjects());
     consoleObjects()->unregisterConsoleObjects(mapListConsoleObjects());
     consoleObjects()->unregisterConsoleObjects(gameLogicConsoleObjects());
