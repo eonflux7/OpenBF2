@@ -598,6 +598,21 @@ else()
     )
 endif()
 
+# [CHOSEN, not recovered] Python 2.7 runtime for mods that ship 2.7 bytecode (Project Reality 1.9).
+# Point BF2_PYTHON27_SRC at a CPython 2.7.12 tree patched by Code/Build/python27/patch_python27.py and
+# BF2_DICE_PY_LIB/BF2_DICE_PY_DLL at build_python27.cmd's output. The engine then compiles against
+# 2.7's own headers (a stock 64-bit 2.7 has 8-byte Py_ssize_t, so 2.3 headers would misplace
+# tp_dealloc and friends) and puts pylib-2.7.12.zip on sys.path. Windows only.
+set(BF2_PYTHON27_SRC "" CACHE PATH "Patched CPython 2.7.12 source tree; empty keeps Python 2.3.4")
+if(BF2_PYTHON27_SRC AND NOT BF2_BUILD_POSIX)
+    if(NOT EXISTS "${BF2_PYTHON27_SRC}/Include/Python.h")
+        message(FATAL_ERROR "BF2_PYTHON27_SRC=${BF2_PYTHON27_SRC} has no Include/Python.h")
+    endif()
+    set(BF2_PYTHON_INCLUDE_DIRS "${BF2_PYTHON27_SRC}/Include" "${BF2_PYTHON27_SRC}/PC")
+    add_compile_definitions(BF2_PYTHON27=1)
+    message(STATUS "Python: 2.7 headers from ${BF2_PYTHON27_SRC}")
+endif()
+
 # The Linux port's system dependencies. ncurses is the retail dependency (the ELF imports initscr,
 # newwin, wgetch, keypad and the rest for Game/Main/StatusMonitorImpl/posix.cpp); pthreads and dl
 # are what Core/Thread.cpp, Core/Mutex.cpp and the POSIX plugin loader call.

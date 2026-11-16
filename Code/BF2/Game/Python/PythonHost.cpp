@@ -2540,7 +2540,12 @@ bool PythonHost::initialize(bool minimal)
         extra = "'" + modDir + "/python' , ";            // omitted for a stock bf2 server
 
     const std::string script =
+#if defined(BF2_PYTHON27)
+        // [CHOSEN, not recovered] The 2.7 runtime (BF2_PYTHON27_SRC) reads Project Reality's stdlib zip.
+        std::string("import sys\nsys.path = [ 'pylib-2.7.12.zip', '") + "python" + "' , "
+#else
         std::string("import sys\nsys.path = [ 'pylib-2.3.4.zip', '") + "python" + "' , "
+#endif
         + extra + "'mods/bf2/python' , 'admin' ]";
     PyRun_SimpleString(const_cast<char*>(script.c_str()));
 
