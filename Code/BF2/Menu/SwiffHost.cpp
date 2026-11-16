@@ -306,8 +306,52 @@ bool SwiffHost::deleteControlMap(const std::string& name)
 
 // the per-frame update SwiffPlayer::update makes - the +0x24 hook, the demo library,
 // the server browser.
+// [CHOSEN, not recovered] BF2_AUTOHOST=<level>:<gameMode>:<size> (e.g. albasrah_2:gpm_coop:16).
+// Developer shortcut for the menu path "Create local -> add map -> Deploy": once a profile is
+// logged in and the menu has run for a while, select the game mode, add the single map entry and
+// call hostServer() exactly as the Deploy button does. Fires once per process.
+static void autoHostFromEnvironment(SwiffHost* host)
+{
+    static int framesWithProfile = 0;
+    static bool done = false;
+    if (done)
+        return;
+    const char* spec = std::getenv("BF2_AUTOHOST");
+    if (!spec || !*spec)
+    {
+        done = true;
+        return;
+    }
+    IBase* profiles = classManager->getSingleton(std::string("LocalProfileManager"));
+    if (!profiles || !static_cast<ILocalProfileManager*>(profiles)->getCurrentProfile())
+        return;
+    if (++framesWithProfile < 120)                      // let the main menu finish its own setup
+        return;
+    done = true;
+
+    std::string level(spec), gameMode("gpm_coop");
+    int size = 16;
+    std::string::size_type c1 = level.find(':');
+    if (c1 != std::string::npos)
+    {
+        std::string rest = level.substr(c1 + 1);
+        level.resize(c1);
+        std::string::size_type c2 = rest.find(':');
+        gameMode = rest.substr(0, c2);
+        if (c2 != std::string::npos)
+            size = std::atoi(rest.c_str() + c2 + 1);
+    }
+    std::fprintf(stderr, "[AUTOHOST] hosting %s %s %d\n", level.c_str(), gameMode.c_str(), size);
+    host->setGameMode(gameMode);
+    host->clearServerEntries();
+    host->addServerEntry(level, gameMode, size);
+    if (!host->hostServer())
+        std::fprintf(stderr, "[AUTOHOST] hostServer() refused (see menu message)\n");
+}
+
 void SwiffHost::update()
 {
+    autoHostFromEnvironment(this);
     onMenuActivated();
     if (m_demoLibrary)
         static_cast<IDemoLibrary*>(m_demoLibrary)->update();
