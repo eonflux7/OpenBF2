@@ -43,7 +43,7 @@ set XF=
 for %%F in (Modules\socketmodule.c Modules\selectmodule.c) do call :cc "%%F"
 set XF=/DMODULE_NAME=\"sqlite3\" /I"%SQLITE_SRC%"
 for %%F in (cache connection cursor microprotocols module prepare_protocol row statement util) do call :cc "Modules\_sqlite\%%F.c"
-cl %CFLAGS% /DSQLITE_OMIT_LOAD_EXTENSION /Fo"%OUT%\sqlite3_amalgamation.obj" "%SQLITE_SRC%\sqlite3.c" >> "%OUT%\compile.log" 2>&1
+cl %CFLAGS% /Fo"%OUT%\sqlite3_amalgamation.obj" "%SQLITE_SRC%\sqlite3.c" >> "%OUT%\compile.log" 2>&1
 if errorlevel 1 ( set /a BAD+=1 & echo   FAIL sqlite3.c ) else ( set /a OK+=1 )
 echo "%OUT%\sqlite3_amalgamation.obj">> "%OUT%\objects.rsp"
 set XF=/I"%PYSRC%\Modules\_ctypes\libffi_msvc"
@@ -57,7 +57,7 @@ if not "!BAD!"=="0" ( echo See %OUT%\compile.log & exit /b 1 )
 
 echo == linking dice_py.dll ==
 link /nologo /DLL /MACHINE:X64 /out:"%OUT%\dice_py.dll" /IMPLIB:"%OUT%\dice_py.lib" /BASE:0x1E000000 ^
-     @"%OUT%\objects.rsp" ws2_32.lib advapi32.lib user32.lib shell32.lib > "%OUT%\link.log" 2>&1
+     @"%OUT%\objects.rsp" ws2_32.lib advapi32.lib user32.lib shell32.lib ole32.lib oleaut32.lib > "%OUT%\link.log" 2>&1
 if errorlevel 1 ( type "%OUT%\link.log" & echo dll link failed & exit /b 1 )
 for %%A in ("%OUT%\dice_py.dll") do echo    dice_py.dll: %%~zA bytes
 exit /b 0

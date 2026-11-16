@@ -74,3 +74,7 @@ patch("PC/config.c",
       '    {"_json", init_json},',
       '    {"_json", init_json},\n    {"_socket", init_socket},\n    {"select", initselect},\n'
       '    {"_sqlite3", init_sqlite3},\n    {"_ctypes", init_ctypes},')
+# 6. Built into dice_py, _ctypes must not bring its own DllMain (PC/dl_nt.c has it).
+patch("Modules/_ctypes/callbacks.c",
+      "#ifndef Py_NO_ENABLE_SHARED\nBOOL WINAPI DllMain",
+      "#if !defined(Py_NO_ENABLE_SHARED) && !defined(Py_BUILD_CORE) /* dice_py: built in */\nBOOL WINAPI DllMain")
