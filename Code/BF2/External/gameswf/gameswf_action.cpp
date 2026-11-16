@@ -4542,9 +4542,15 @@ namespace gameswf
 	// Sets *this to this string plus the given string.
 	{
 		// SwiffPlayer.dll 0x1008B8F0: release, convert, set type, append.
+		// [CHOSEN, not recovered] Convert BEFORE releasing. Retail releases first, but its
+		// collector list keeps the object alive until the next sweep; with native reference
+		// counting (issue #7) drop_refs() can free the last reference (e.g. `new String(x) + ""`,
+		// a temporary on the stack), and the conversion then reads a dead object and yields
+		// "<object 0x...>". Project Reality's launcher handshake depends on this pattern.
+		const tu_string text = to_tu_string();
 		drop_refs();
-		to_tu_string();	// make sure our m_string_value is initialized
 		m_type = STRING;
+		m_string_value = text;
 		m_string_value += str;
 	}
 
