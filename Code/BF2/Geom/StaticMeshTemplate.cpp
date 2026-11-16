@@ -342,6 +342,10 @@ bool staticMeshBuildTechniqueMasks(const std::string& mfxPath,
     }
 
     const unsigned int mask = maskVectorData(maskVector)[quality];
+    // [TEMP] [CHOSEN, not recovered] [RETIRE-WHEN: x64-bundledmesh-miss] Diagnostic.
+    ::renddx9abi::logf("[DIAG-MASK] %s prefix=%s quality=%u(raw %u) maskCount=%u mask=0x%X",
+                       mfxPath.c_str(), techniquePrefix.c_str(), quality, rendererShaderQuality(),
+                       maskCount, mask);
 
     // Numeric bit masks key permutations, collapsing duplicates before ordered registration.
     std::map<unsigned int, std::string> techniqueList;
@@ -383,7 +387,13 @@ bool staticMeshBuildTechniqueMasks(const std::string& mfxPath,
         // sub_1003C960 with ecx = fx. Drops every generated .fx from the effect
         // manager's in-memory file store now that the shaders that wanted them are built.
         fx->dropGeneratedFiles();
+        // [TEMP] [CHOSEN, not recovered] [RETIRE-WHEN: x64-bundledmesh-miss] Diagnostic.
+        ::renddx9abi::logf("[DIAG-MASK] %s permutations=%u registered=%u",
+                           mfxPath.c_str(), static_cast<unsigned int>(techniqueList.size()),
+                           static_cast<unsigned int>(techniqueMap.size()));
     }
+    else
+        ::renddx9abi::logf("[DIAG-MASK] %s buildPermutationBits FAILED", mfxPath.c_str());
 
     return true;                            // mov al, 1
 }

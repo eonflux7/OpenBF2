@@ -19,6 +19,8 @@
 #include "../GeomMisc/Debug.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <new>
@@ -643,6 +645,33 @@ void bundledMeshInitTechniques()
 dx9rend::Ra::RaShader* bundledMeshShaderForBits(unsigned int bits)
 {
     auto i=g_techniques.find(bits); if(i!=g_techniques.end()) return i->second;
+    // [TEMP] [CHOSEN, not recovered] [RETIRE-WHEN: x64-bundledmesh-miss] Diagnostic: the fatal
+    // message below loses its streamed text, so log the miss with the table state first. With
+    // BF2_BM_MISS_CONTINUE=1 the miss falls back to Default instead of aborting.
+    {
+        std::string names("");
+        for(unsigned int b=0;b<32 && kBits[b];++b) if(bits&(1u<<b)) { names+=kBits[b]; names+=" "; }
+        std::string masks("");
+        char buf[32];
+        for(unsigned int q=0;q<g_qualityMasks.size();++q) { std::snprintf(buf,sizeof buf,"%s0x%X",q?",":"",g_qualityMasks[q]); masks+=buf; }
+        ::renddx9abi::logf("[DIAG-BM] miss bits=0x%X (%s) raPath=%u techniques=%u qualityMasks=[%s]",
+                           bits,names.c_str(),dx9rend::rendererRaPath(),
+                           static_cast<unsigned int>(g_techniques.size()),masks.c_str());
+        static bool dumped=false;
+        if(!dumped)
+        {
+            dumped=true;
+            std::string keys("");
+            for(auto k=g_techniques.begin();k!=g_techniques.end();++k) { std::snprintf(buf,sizeof buf,"0x%X ",k->first); keys+=buf; }
+            ::renddx9abi::logf("[DIAG-BM] registered keys: %s",keys.c_str());
+        }
+        const char* cont=std::getenv("BF2_BM_MISS_CONTINUE");
+        if(cont && cont[0]=='1')
+        {
+            i=g_techniques.find(0xF8000000u);
+            if(i!=g_techniques.end()) return i->second;
+        }
+    }
     {
         ::renddx9abi::Debug message(DebugTypeError2,
             "C:\\dice\\Projects\\BF2Branches\\Patch_1_50\\Code\\BF2\\Geom\\BundledMeshTemplate.cpp",
