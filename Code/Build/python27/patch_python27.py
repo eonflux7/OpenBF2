@@ -61,3 +61,16 @@ patch("PC/pyconfig.h",
 patch("Modules/timemodule.c",
       "#if defined(MS_WINDOWS) && !defined(__BORLANDC__)\n/* Win32 has better clock",
       "#if defined(_MSC_VER) && _MSC_VER >= 1900\n/* dice_py: UCRT names */\n#define timezone _timezone\n#define tzname _tzname\n#define daylight _daylight\n#endif\n\n#if defined(MS_WINDOWS) && !defined(__BORLANDC__)\n/* Win32 has better clock")
+
+# 5. Project Reality's dice_py has _socket, select, _sqlite3 and _ctypes built in
+#    (realityadmin imports sqlite3, realitynetwork uses sockets). build_python27.cmd compiles
+#    them into the DLL; register them as built-in modules.
+patch("PC/config.c",
+      "extern void init_json(void);",
+      "extern void init_json(void);\n/* dice_py: built-in extensions, as in Project Reality's dice_py */\n"
+      "extern void init_socket(void);\nextern void initselect(void);\n"
+      "extern void init_sqlite3(void);\nextern void init_ctypes(void);")
+patch("PC/config.c",
+      '    {"_json", init_json},',
+      '    {"_json", init_json},\n    {"_socket", init_socket},\n    {"select", initselect},\n'
+      '    {"_sqlite3", init_sqlite3},\n    {"_ctypes", init_ctypes},')
