@@ -30,6 +30,8 @@
 #include "../GameLogicComp/ArmorGLComp.h"            // armorTemplateCanBeDestroyed
 #include "../GameLogicComp/ArmorGLCompTemplate.h"
 #include "EngineBase.h"                              // m_input - the hold arm's engine test
+#include "../../Python/PythonHost.h"                 // [CHOSEN, not recovered] ObjectSpawned
+#include "../../Python/PyRef.h"
 #include <cmath>                                     // sqrtf / fabsf
 
 #include <cstdlib>
@@ -600,6 +602,11 @@ int ObjectSpawner::spawnObject()
     IObject* object = gameLogic->spawnObject(spawnTemplate, position, rotation, vehicleTeam);   // +0x11C [S]
     if (object)
     {
+        // [CHOSEN, not recovered] Project Reality's spawner callback: scripts hear of the new
+        // object before anything else touches it.
+        python::PyRef args = python::buildArgs(object);
+        python::pythonHost()->handleEvent(static_cast<ScriptEvent>(43), args.get());
+
         playEffectOnObjectSpawner();
         if (object->getFlags() & 8u)
             snapSpawnedObject(object);

@@ -24,6 +24,7 @@
 #include "../Game/GameLogic/SquadManager/SquadOrder.h"
 #include "../RendDX9/RendDX9Base.h"
 #include "../Scene/Object/ObjectPredicator.h"
+#include "NameTagRenderer.h"                  // NameTagRenderer::SlotCapacity
 
 namespace dice {
 namespace hfe {
@@ -67,9 +68,10 @@ enum NametagItemIDs
 // The three renderers - also the `type` of every item and the index of every per-type table.
 enum TagType
 {
-    TTPlayer = 0,     // renderer 0: initialize(0, 64, 4, &s_cullDistances[0])
-    TTOrder  = 1,     // renderer 1: initialize(1, 64, 1, &s_cullDistances[1]) - but only TWO slots
-    TTObject = 2      // renderer 2: initialize(2, 64, 5, &s_cullDistances[2])
+    // Retail initializes every renderer with 64 slots; this fork uses NameTagRenderer::SlotCapacity.
+    TTPlayer = 0,     // renderer 0: initialize(0, SlotCapacity, 4, &s_cullDistances[0])
+    TTOrder  = 1,     // renderer 1: initialize(1, SlotCapacity, 1, &s_cullDistances[1]) - but only TWO slots
+    TTObject = 2      // renderer 2: initialize(2, SlotCapacity, 5, &s_cullDistances[2])
 };
 
 // The item key spaces (the map key is `base + id`). Read from every add/remove body.
@@ -395,7 +397,7 @@ public:
     static world::IObjectComponent* findArmorComponent(world::IObject* object);
     // recompute a player item's icon / colour / visibility. Returns "changed".
     bool  refreshPlayerItem(PlayerNametagItem* item);
-    // the per-type slot count (64 / 2 / 64 / -1). No caller in the image - the ctor
+    // the per-type slot count (SlotCapacity / 2 / SlotCapacity / -1). No caller in the image - the ctor
     // and clearAll inline it.
     int   maxSlotCount(int type);
     // tick an item's m_timer down by the frame delta, resetItem at zero. Unreferenced
@@ -480,7 +482,10 @@ public:
     double                  m_time;                     // +0x010  0.0; update: += frame delta
     NametagTableVector      m_transformations;          // +0x018  float* per TagType (first +0x1C)
     NametagTableVector      m_colors;                   // +0x028  float* per TagType (first +0x2C)
-    float                   m_alphaArrays[3][64];       // +0x038  getAlphaArray(t) = &[t][0]
+    // [CHOSEN, not recovered] Retail's 3 x 64 alpha arrays. They are too small for SlotCapacity, so
+    // they moved to m_alphaArrays at the end of the class (as Ekiso's 100-player patch moved them),
+    // which keeps every retail offset below. Nothing reads this region.
+    float                   m_retiredAlphaArrays[3][64];  // +0x038
     NametagItemMap          m_items;                    // +0x338  key -> item (head +0x33C)
     NameTagRenderer*        m_renderers;                // +0x344  new NameTagRenderer[3]
     bool                    m_bufferingEnabled;         // +0x348  0; enableBuffering sets it; update
@@ -504,6 +509,8 @@ public:
     Frustum                 m_frustum;                  // +0x3E8  update: the view frustum, far 2000
     bool                    m_isDemoPlayback;           // +0x5D0  0; update: game->isPlayingDemo()
     unsigned char           m_pad5D1[7];
+    // [CHOSEN, not recovered] Per-type alpha arrays, sized for SlotCapacity.
+    float                   m_alphaArrays[3][NameTagRenderer::SlotCapacity];   // +0x5D8  getAlphaArray(t) = &[t][0]
 
     // the TU's statics (NametagManager.cpp owns the definitions)
     // Shipped as file-scope .data/.bss in this TU; the update closure and the renderer's draw read
@@ -535,12 +542,15 @@ public:
     static double s_ammoCallTimer;              // 0x1025C220 bss
     static double s_repairCallTimer;            // 0x1025C228 bss
     static bool   s_useVisualRadiusForVehicles; // 0x1025C230 bss    PlayerNametagItem::updatePosition
-    static float  s_transformations1[2][4];     // 0x1025C240        renderer 1's TransformationArray
+    // [CHOSEN, not recovered] All three transformation arrays hold SlotCapacity entries. Retail's
+    // s_transformations1 has 2 rows, so drawNames' 64-row upload read past it; Ekiso's patch
+    // replaced all three with 100-row arrays, and so does this fork.
+    static float  s_transformations1[NameTagRenderer::SlotCapacity][4];   // 0x1025C240 renderer 1's TransformationArray
     static float  s_colors0[5][4];              // 0x1025C260        renderers 0 and 2 ColorArray
     static float  s_colors1[1][4];              // 0x1025C2B0        renderer 1 ColorArray
-    static float  s_transformations0[64][4];    // 0x1025C5B8        renderer 0
+    static float  s_transformations0[NameTagRenderer::SlotCapacity][4];   // 0x1025C5B8 renderer 0
     static float  s_pulseRate;                  // 0x1025C9B8        dynamic init 0x101D3E20
-    static float  s_transformations2[64][4];    // 0x1025C9C0        renderer 2
+    static float  s_transformations2[NameTagRenderer::SlotCapacity][4];   // 0x1025C9C0 renderer 2
     static int    s_lastSeatCount;              // 0x1025CEA0 bss    0x1012FD20 [INFERRED name]
 
 private:

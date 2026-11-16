@@ -1,6 +1,7 @@
 // Path: [INFERRED]; adjacent NametagManager.cpp is attested at RendDX9 0x1021CFB0.
 // Nametag renderer declarations, recovered from RendDX9.dll 1.50 (PE only).
-// The shipped member layout is 0x3860 bytes; the embedded trees are std containers here.
+// Retail member layout is 0x3860 bytes for 64 slots; this fork's 100 slots make it 0x57E0.
+// Embedded trees use VC7.1 layouts.
 #ifndef GEOM_NAMETAGRENDERER_H
 #define GEOM_NAMETAGRENDERER_H
 
@@ -91,7 +92,7 @@ struct NametagBar
                              //        ((fillEnd - fillStart) * fraction + fillStart) / width
 };
 
-// Renders one of NametagManager's three 64-slot atlases; text is buffered into 16-pixel rows.
+// Renders one of NametagManager's three SlotCapacity-slot atlases; text is buffered into 16-pixel rows.
 // Six listener slots, no virtual destructor. The manager owns the array and deletes it.
 // Preserve the constructor's uninitialized buffers/render path and the released-but-not-nulled
 // shared resources; reactivation after all instances die retains the shipped lifetime defect.
@@ -103,10 +104,14 @@ public:
 
     enum
     {
-        SlotCapacity   = 64,     // m_slots / ctor loop / the 0x3800-byte activation memset
+        // [CHOSEN, not recovered] Project Reality's 100-player nametags; retail
+        // is 64. The one capacity for every nametag type: m_slots, the renderers' slot counts,
+        // NametagManager's alpha and transformation arrays and its free-slot sets. The client's
+        // Nametag.fx TransformationArray and AlphaArray must hold at least this many entries.
+        SlotCapacity   = 100,
         RowHeight      = 16,     // pixels per slot row in m_nameTexture (slot << 4)
         TextureWidth   = 512,    // m_nameTexture / m_stagingTexture width  (u = px / 512)
-        TextureHeight  = 1024    // m_nameTexture height                    (v = px / 1024)
+        TextureHeight  = RowHeight * SlotCapacity   // m_nameTexture height; retail 1024
     };
 
     // The two icon keys whose textures load into D3DPOOL_SYSTEMMEM (setTexture swaps the managed
@@ -137,7 +142,7 @@ public:
     virtual std::string getRenderPathListenerName() const;        // +0x14
 
     // forwarded by NametagManager's DeviceLostResetListener subobject (0x1021D0E8), which loops
-    // over the three renderers (renderer + i * 0x3860, i < 3)
+    // over the three renderers (renderer + i * sizeof(NameTagRenderer), i < 3)
     void onDeviceLost();       // drop the default-pool name texture's D3D resource
     void onDeviceReset();      // re-create it into the same wrapper (the manager
                                //              then calls its own rebufferAll, primary +0x40)
