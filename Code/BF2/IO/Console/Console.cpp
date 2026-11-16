@@ -86,6 +86,15 @@ namespace {
 // [CHOSEN interim] Per-depth block state for handleCommand: if/elseIf/else branches, beginRem and
 // beginNoExecution. Retail keeps it in each script's Level; move it there when the Level's
 // [UNRESOLVED] tail fields are identified.
+// [CHOSEN, not recovered] BF2_CONSOLE_TRACE=1: stderr trace of script runs and if/elseIf results
+// (mod bring-up diagnostics).
+bool consoleTraceEnabled()
+{
+    static int on = -1;
+    if (on < 0) { const char* e = std::getenv("BF2_CONSOLE_TRACE"); on = (e && *e == '1') ? 1 : 0; }
+    return on == 1;
+}
+
 const int kMaxBlockDepth = 10;
 struct BranchState { bool executing; bool branchTaken; int skipNesting; };
 std::vector<BranchState> s_branch[kMaxBlockDepth + 1];
@@ -524,6 +533,8 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             if (exchangeVariable(rhs, value) || exchangeConstant(rhs, value)) rhs = value;
             std::string error;
             const bool cond = console_expr(lhs, op, rhs, error);
+            if (consoleTraceEnabled())
+                std::fprintf(stderr, "[CONTRACE] d%d if [%s] %s [%s] -> %d\n", m_depth, lhs.c_str(), op.c_str(), rhs.c_str(), cond ? 1 : 0);
             BranchState next;
             next.executing = cond;
             next.branchTaken = cond;
@@ -542,6 +553,8 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             if (exchangeVariable(rhs, value) || exchangeConstant(rhs, value)) rhs = value;
             std::string error;
             const bool cond = console_expr(lhs, op, rhs, error);
+            if (consoleTraceEnabled())
+                std::fprintf(stderr, "[CONTRACE] d%d elseIf [%s] %s [%s] -> %d\n", m_depth, lhs.c_str(), op.c_str(), rhs.c_str(), cond ? 1 : 0);
             stack.back().executing = cond;
             stack.back().branchTaken = cond;
             return 1;
@@ -1641,6 +1654,8 @@ bool OldConsole::run(const std::string& filePath,
             fileName = m_workingPath + fileName;
     }
     fixPathDelimiters(fileName, '/');
+    if (consoleTraceEnabled())
+        std::fprintf(stderr, "[CONTRACE] d%d run %s [%s] [%s] [%s]\n", m_depth, fileName.c_str(), arg1.c_str(), arg2.c_str(), arg3.c_str());
 
     // FILEMODE_READ = 2. The third and fourth arguments are literal 0 and 2 in the binary;
     // [UNRESOLVED] what FileAccess 0 and flags 2 mean.
