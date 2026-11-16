@@ -160,6 +160,7 @@ if errorlevel 1 set /a RC+=1
 cl %FLAGS% "%~dp0..\BF2\Game\GameServer\ServerSettings.cpp"
 if errorlevel 1 set /a RC+=1
 cl %FLAGS% "%~dp0..\BF2\Game\GameServer\ServerSettingsConsole.cpp"
+cl %FLAGS% "%~dp0..\BF2\Game\Main\SquadManagerConsole.cpp"
 if errorlevel 1 set /a RC+=1
 cl %FLAGS% "%~dp0..\BF2\Game\GameServer\VoipServerConnection.cpp"
 if errorlevel 1 set /a RC+=1
