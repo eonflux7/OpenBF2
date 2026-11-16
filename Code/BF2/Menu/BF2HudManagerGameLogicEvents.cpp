@@ -20,13 +20,36 @@
 #include "../Scene/Object/PlayerManager.h"
 #include "../Scene/Object/ObjectTypes/Base/ObjectTemplateManager.h"
 #include "../Sound/BfSound.h"
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <set>
 #include <utility>
 
 namespace dice { namespace hfe {
 extern IGameLogic* gameLogic;
 namespace hud {
 namespace {
+// [COMPAT] [CHOSEN, not recovered] Mods with a retail-hooking client DLL (Project Reality's
+// rhooks.dll) reuse the assist/replenish/teamdamage/conquest game events as a private channel
+// and send subtypes outside the retail range. The retail release build compiles the Debug()
+// below to nothing, so such events are dropped. With BF2_HUD_AUTOVAR=1 (the same rhooks HUD
+// compat switch) each unknown subtype is reported once as a [FRONTIER] and dropped instead of
+// asserting; without it the attested assertion stands.
+bool modHudEventTolerated(int id, int subtype)
+{
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char* v = std::getenv("BF2_HUD_AUTOVAR");
+        enabled = (v && v[0] == '1') ? 1 : 0;
+    }
+    if (!enabled) return false;
+    static std::set<std::pair<int, int> > seen;
+    if (seen.insert(std::make_pair(id, subtype & 0xFF)).second)
+        std::fprintf(stderr, "[FRONTIER] HUD game event %d subtype 0x%X (low byte 0x%X) is a mod extension; dropped\n",
+                     id, static_cast<unsigned>(subtype), static_cast<unsigned>(subtype & 0xFF));
+    return true;
+}
 // Scalar payload reads retain the shipped unaligned accesses. In particular,
 // event 14 falls through to 3 without acquiring a KilledByData object lifetime.
 template<class T> T eventValue(const void* data, unsigned offset = 0)
@@ -230,7 +253,7 @@ void BF2HudManager::handleGameLogicEvent(unsigned int id, EventNode*, void* data
             case 1: key = "HUD_HUD_ASSIST_KILL_TARGETING"; break;
             case 2: key = "HUD_HUD_ASSIST_KILL_KILL_DAMAGE"; break;
             case 3: key = "HUD_HUD_ASSIST_KILL_DRIVER_PASSENGER"; break;
-            default: Debug(DEBUGTYPE_6, hudSource, 0x151A, "") << "Unknown Assist-type " << subtype; return;
+            default: if (modHudEventTolerated(id, subtype)) return; Debug(DEBUGTYPE_6, hudSource, 0x151A, "") << "Unknown Assist-type " << subtype; return;
             }
         } else if (id == 11) {
             const int targetId = eventValue<int>(data, 4);
@@ -243,7 +266,7 @@ void BF2HudManager::handleGameLogicEvent(unsigned int id, EventNode*, void* data
             switch (subtype) {
             case 0: key = "HUD_HUD_TEAM_DAMAGE_PLAYER"; break;
             case 1: key = "HUD_HUD_TEAM_DAMAGE_VEHICLE"; break;
-            default: Debug(DEBUGTYPE_6, hudSource, 0x152E, "") << "Unknown Teamdamage-type " << subtype; return;
+            default: if (modHudEventTolerated(id, subtype)) return; Debug(DEBUGTYPE_6, hudSource, 0x152E, "") << "Unknown Teamdamage-type " << subtype; return;
             }
         } else if (id == 12) {
             switch (subtype) {
@@ -252,7 +275,7 @@ void BF2HudManager::handleGameLogicEvent(unsigned int id, EventNode*, void* data
             case 2: key = "HUD_HUD_CONQUEST_CAPTURE_ASSIST"; break;
             case 3: key = "HUD_HUD_CONQUEST_NEUTRALIZE"; break;
             case 4: key = "HUD_HUD_CONQUEST_NEUTRALIZE_ASSIST"; break;
-            default: Debug(DEBUGTYPE_6, hudSource, 0x1548, "") << "Unknown Conquest-type " << subtype; return;
+            default: if (modHudEventTolerated(id, subtype)) return; Debug(DEBUGTYPE_6, hudSource, 0x1548, "") << "Unknown Conquest-type " << subtype; return;
             }
         } else {
             switch (subtype) {
@@ -262,7 +285,7 @@ void BF2HudManager::handleGameLogicEvent(unsigned int id, EventNode*, void* data
             case 3: key = "HUD_HUD_REPLENISH_DRIVER"; break;
             case 4: key = "HUD_HUD_REPLENISH_REVIVE_SCORE"; break;
             case 5: key = "HUD_HUD_DESTROY_STRATEGIC"; break;
-            default: Debug(DEBUGTYPE_6, hudSource, 0x1564, "") << "Unknown Replenish-type " << subtype; return;
+            default: if (modHudEventTolerated(id, subtype)) return; Debug(DEBUGTYPE_6, hudSource, 0x1564, "") << "Unknown Replenish-type " << subtype; return;
             }
         }
         const int team = local->getTeam();
