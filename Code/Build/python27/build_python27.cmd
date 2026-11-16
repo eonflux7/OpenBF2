@@ -51,6 +51,10 @@ for %%F in (_ctypes callbacks callproc cfield malloc_closure stgdict libffi_msvc
 ml64 /nologo /c /Fo"%OUT%\ctypes_win64.obj" "%PYSRC%\Modules\_ctypes\libffi_msvc\win64.asm" >> "%OUT%\compile.log" 2>&1
 if errorlevel 1 ( set /a BAD+=1 & echo   FAIL win64.asm ) else ( set /a OK+=1 )
 echo "%OUT%\ctypes_win64.obj">> "%OUT%\objects.rsp"
+rem Project Reality's _realitycore math module (realitycore.c in this directory)
+cl %CFLAGS% /Fo"%OUT%\realitycore.obj" "%~dp0realitycore.c" >> "%OUT%\compile.log" 2>&1
+if errorlevel 1 ( set /a BAD+=1 & echo   FAIL realitycore.c ) else ( set /a OK+=1 )
+echo "%OUT%\realitycore.obj">> "%OUT%\objects.rsp"
 
 echo compiled: !OK!   failed: !BAD!
 if not "!BAD!"=="0" ( echo See %OUT%\compile.log & exit /b 1 )

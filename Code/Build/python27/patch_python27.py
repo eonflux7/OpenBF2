@@ -135,3 +135,11 @@ PyDoc_STRVAR(accept_doc,""")
 patch("Modules/socketmodule.c",
       '    {"accept",            (PyCFunction)sock_accept, METH_NOARGS,',
       '    {"acceptEx",          (PyCFunction)sock_acceptEx, METH_NOARGS,\n                      acceptEx_doc},\n    {"accept",            (PyCFunction)sock_accept, METH_NOARGS,')
+
+# 8. Project Reality's _realitycore math module (realitycore.c beside this script).
+patch("PC/config.c",
+      "extern void init_ctypes(void);",
+      "extern void init_ctypes(void);\nextern void init_realitycore(void);")
+patch("PC/config.c",
+      '    {"_ctypes", init_ctypes},',
+      '    {"_ctypes", init_ctypes},\n    {"_realitycore", init_realitycore},')
