@@ -71,6 +71,7 @@ private:
     };
     template<class T> int registerValue(Storage<T>&, const std::string&, T*, int);
     template<class T> T* findValue(Storage<T>&, int);
+    template<class T> T* autoRegister(Storage<T>&, const std::string&, const char*, T);   // [COMPAT] BF2_HUD_AUTOVAR
     void handleHudEvent(unsigned int, EventNode*, void*);
     void updateHitDirection(bool, float);
     void findClosestControlPoint();

@@ -1240,6 +1240,32 @@ void* HudInformationLayer::queryInterface(unsigned int iid) const
 {
     return iid == 1 || iid == 120008 ? const_cast<HudInformationLayer*>(this) : 0;
 }
+
+// [COMPAT] [CHOSEN, not recovered] Mods such as Project Reality reference HUD variables that a
+// retail-hooking DLL (PR's rhooks.dll) registers at runtime. With BF2_HUD_AUTOVAR=1 an unknown
+// name is registered on first lookup with a zero/empty dummy so the HUD loads; off by default.
+namespace {
+bool hudAutoVarEnabled()
+{
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char* v = std::getenv("BF2_HUD_AUTOVAR");
+        enabled = (v && v[0] == '1') ? 1 : 0;
+    }
+    return enabled == 1;
+}
+}
+
+template<class T>
+T* HudInformationLayer::autoRegister(Storage<T>& storage, const std::string& name, const char* kind, T init)
+{
+    if (!hudAutoVarEnabled() || m_names.find(name) != m_names.end()) return 0;
+    T* value = new T(init);   // lives for the process, like the hooked DLL's own storage
+    registerValue(storage, name, value, 0);
+    std::fprintf(stderr, "[HUD-AUTOVAR] registered dummy %s %s\n", kind, name.c_str());
+    return value;
+}
+
 template<class T>
 int HudInformationLayer::registerValue(Storage<T>& storage, const std::string& name,
                                        T* value, int line)
@@ -1275,7 +1301,7 @@ bool* HudInformationLayer::getBoolById(int id)
 bool* HudInformationLayer::getBoolByName(const std::string& name)
 {
     const auto it = m_names.find(name);
-    return it == m_names.end() ? 0 : getBoolById(it->second);
+    return it == m_names.end() ? autoRegister(m_bools, name, "bool", false) : getBoolById(it->second);
 }
 
 int HudInformationLayer::registerInt(const std::string& name, int* value)
@@ -1285,7 +1311,7 @@ int* HudInformationLayer::getIntById(int id)
 int* HudInformationLayer::getIntByName(const std::string& name)
 {
     const auto it = m_names.find(name);
-    return it == m_names.end() ? 0 : getIntById(it->second);
+    return it == m_names.end() ? autoRegister(m_ints, name, "int", 0) : getIntById(it->second);
 }
 
 int HudInformationLayer::registerFloat(const std::string& name, float* value)
@@ -1295,7 +1321,7 @@ float* HudInformationLayer::getFloatById(int id)
 float* HudInformationLayer::getFloatByName(const std::string& name)
 {
     const auto it = m_names.find(name);
-    return it == m_names.end() ? 0 : getFloatById(it->second);
+    return it == m_names.end() ? autoRegister(m_floats, name, "float", 0.0f) : getFloatById(it->second);
 }
 
 int HudInformationLayer::registerString(const std::string& name, const char** value)
@@ -1305,7 +1331,7 @@ const char** HudInformationLayer::getStringById(int id)
 const char** HudInformationLayer::getStringByName(const std::string& name)
 {
     const auto it = m_names.find(name);
-    return it == m_names.end() ? 0 : getStringById(it->second);
+    return it == m_names.end() ? autoRegister(m_strings, name, "string", static_cast<const char*>("")) : getStringById(it->second);
 }
 
 int HudInformationLayer::registerWideString(const std::string& name, const wchar_t** value)
@@ -1315,7 +1341,7 @@ const wchar_t** HudInformationLayer::getWideStringById(int id)
 const wchar_t** HudInformationLayer::getWideStringByName(const std::string& name)
 {
     const auto it = m_names.find(name);
-    return it == m_names.end() ? 0 : getWideStringById(it->second);
+    return it == m_names.end() ? autoRegister(m_wideStrings, name, "wstring", static_cast<const wchar_t*>(L"")) : getWideStringById(it->second);
 }
 
 void HudInformationLayer::handleEvent(EventCategory category, unsigned int id, EventNode* node, void* data)
