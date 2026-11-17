@@ -3,6 +3,7 @@
 // Coordinates startup, the frame loop and shutdown. Preserve the explicit retail Debug line numbers.
 
 #include "BF2Engine.h"
+#include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../PunkBuster/PbGlue.h"
 #include "PerformanceLogging.h"             // +0x74, deleted in shutdownGame and shutdownEngine (every image)
 #include "BF2EngineSetup.h"
@@ -823,6 +824,7 @@ static bool s_parsingProcessArguments = false;
 
 bool BF2Engine::init(const std::string& commandLine)
 {
+    loadtrace::Scope loadTrace("phase", "boot");         // [DEV] BF2_LOAD_TRACE
     bf2Log = new BF2Log();                              // operator new(0x20) == 32 bytes
 
     ISettingsRepostitory::createSingleton();
@@ -1652,6 +1654,7 @@ bool BF2Engine::startGame(bool noAutoJoin, bool startFromMenu)   // 2nd bool fro
                                                                  //   it selects the menu flow below; BF2::init passes true,
                                                                  //   playDemo/hostServer/joinServer/startMission pass false
 {
+    loadtrace::Scope loadTrace("phase", "game.start");  // [DEV] BF2_LOAD_TRACE
     bool ok = true;                                     // var_192, set to 1 at 0x81382d3
 
     // [UNRESOLVED] One-byte game-present allocation; only nullness is tested.
@@ -1918,6 +1921,7 @@ bool BF2Engine::hostServer(const std::string& level,
 // renderer, console, and networking. Each failing stage stops initialization.
 bool BF2Engine::initEngine()
 {
+    loadtrace::Scope loadTrace("phase", "engine.init");  // [DEV] BF2_LOAD_TRACE
     // Retain the optional profiler query even though its result is discarded.
     if (profilerClient)
         profilerClient->getEnable();            // vtable +0x28
@@ -2164,6 +2168,16 @@ bool BF2Engine::mainLoop()
     // Runs one frame per call. A pending quit returns false before any frame work.
     if (quitNextFrameFlag)
         return false;
+    // [DEV] BF2_LOAD_TRACE: frames over 50 ms (loads run inside a frame; after a load, the long
+    // frames show what was deferred to first use, such as pipeline creation in the driver).
+    if (loadtrace::enabled())
+    {
+        static long long s_lastFrame = 0;
+        const long long t = loadtrace::now();
+        if (s_lastFrame && t - s_lastFrame > 50000)
+            loadtrace::span("frame", "long", s_lastFrame, t);
+        s_lastFrame = t;
+    }
 #if defined(__APPLE__) && !DEDICATED
     frametrace::begin();                                            // [TEMP] BF2_FRAME_TRACE
     bf2warmup::tick();                                              // [CHOSEN] +warmupLevel: progress / exit
@@ -3202,6 +3216,12 @@ void BF2Engine::checkMovie()
 // open), pump the menu's input, then execute at most one queued menu command.
 void BF2Engine::renderMenu(int renderTicks, float renderDt, double wallDelta, bool draw)
 {
+    static bool s_menuTraced = false;                   // [DEV] BF2_LOAD_TRACE: first menu frame
+    if (!s_menuTraced)
+    {
+        s_menuTraced = true;
+        loadtrace::mark("menu.first");
+    }
 #if !DEDICATED
     if (!menuLogic)
         return;

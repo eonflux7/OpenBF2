@@ -11,6 +11,7 @@
 
 #include "../../RendDX9Abi/ThunkAbi.h"
 #include "../../RendDX9Abi/HfeAbi.h"
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../../RendDX9Abi/ModuleCommon.h"
 #include "../../RendDX9Abi/PluginEntry.h"
 #include "../../RendDX9Abi/BfMemory.h"
@@ -117,6 +118,7 @@ void DiceEffect::buildDefines()
 // Retry on any failure dialog returns false; Cancel continues with the shipped unchecked state.
 bool DiceEffect::compile(unsigned int technique)
 {
+    ::dice::hfe::loadtrace::Scope loadTrace("fx.dice", name.c_str());   // [DEV] BF2_LOAD_TRACE
     const std::string techniqueLabel = formatString(" techName: %u", technique);
     const std::string cacheName = formatString("%s_%u_dfx.bin", name.c_str(), technique);
     updateLiteralSubstitutions();
@@ -183,6 +185,7 @@ bool DiceEffect::compile(unsigned int technique)
     ID3DXBuffer* errors = 0;
     if (!cached)
     {
+        ::dice::hfe::loadtrace::Scope compileTrace("fx.compile", name.c_str());   // [DEV] BF2_LOAD_TRACE
         std::vector<const char*> macros;
         for (unsigned int i = 0; i < defines.size(); ++i)
             macros.push_back(defines[i].c_str());

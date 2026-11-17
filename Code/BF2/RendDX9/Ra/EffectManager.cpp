@@ -4,6 +4,7 @@
 
 #include "../../../RendDX9Abi/ThunkAbi.h"
 #include "../../../RendDX9Abi/HfeAbi.h"
+#include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../../../RendDX9Abi/ModuleCommon.h"
 #include "../../../RendDX9Abi/BfMemory.h"
 #include "../../../RendDX9Abi/Frontier.h"
@@ -1935,6 +1936,8 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
 {
     // PE 0x10034F60.
     (void)unused;   // arg_4: passed by getEffect as 0, never read by the shipped body
+    // [DEV] BF2_LOAD_TRACE: the whole effect; fx.key, fx.cacheload, fx.compile and fx.create below.
+    ::dice::hfe::loadtrace::Scope loadTrace("fx.ra", name.c_str());
 
     loadStat->m_unknown08 = true;
 
@@ -2074,6 +2077,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
             ++keyPs;
         if (keyPs < 5)
         {
+            ::dice::hfe::loadtrace::Scope keyTrace("fx.key", name.c_str());   // [DEV] BF2_LOAD_TRACE
             D3DXMACRO keyDefines[7];
             fillProfileDefines(0, keyPs, keyDefines);
             cacheKey = raEffectContentKey(reinterpret_cast<const char*>(source), sourceLen,
@@ -2097,6 +2101,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
 
     if (useCache)
     {
+        ::dice::hfe::loadtrace::Scope cacheTrace("fx.cacheload", name.c_str());   // [DEV] BF2_LOAD_TRACE
         // Read the cached effect again into D3DX-owned storage.
         // Local failure guards report a bad cache and leave a null effect for build failure.
         ID3DXBuffer* buffer = 0;
@@ -2182,20 +2187,27 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
                 raRelease(errors);
 
                 unsigned long passFlags = flags;      // the shipped body passes a copy by pointer
+                const long long compileT0 = ::dice::hfe::loadtrace::enabled() ? ::dice::hfe::loadtrace::now() : -1;   // [DEV]
                 ID3DXBuffer* const blob = compileEffectSource(
                     reinterpret_cast<const char*>(source), sourceLen, defines, &passFlags, &errors);
+                if (compileT0 >= 0)   // [DEV] BF2_LOAD_TRACE: one span per profile attempted
+                    ::dice::hfe::loadtrace::span(blob ? "fx.compile" : "fx.compile.fail", name.c_str(), compileT0,
+                                                ::dice::hfe::loadtrace::now());
                 if (!blob)
                     continue;
 
                 const unsigned long createFlags = flags | (m_byte62 ? 0x800u : 0u);
                 raRelease(errors);
 
+                const long long createT0 = ::dice::hfe::loadtrace::enabled() ? ::dice::hfe::loadtrace::now() : -1;
                 const long hr = D3DXCreateEffect(
                     m_device,
                     blob->GetBufferPointer(),
                     blob->GetBufferSize(),
                     0, 0, createFlags, static_cast<LPD3DXEFFECTPOOL>(m_effectPool), &effect,
                     &errors);
+                if (createT0 >= 0)   // [DEV] BF2_LOAD_TRACE
+                    ::dice::hfe::loadtrace::span("fx.create", name.c_str(), createT0, ::dice::hfe::loadtrace::now());
 
                 // NOT reproduced, AND nothing IS lost. 0x1003573D and 0x10035743 call
                 // DXGetErrorStringA (sub_1005F380, 48,672 B) and DXGetErrorDescription9A

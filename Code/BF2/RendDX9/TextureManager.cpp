@@ -4,6 +4,7 @@
 
 #include "../../RendDX9Abi/ThunkAbi.h"
 #include "../Core/StringUtil.h"         // extractFileExt (sub_10075180)
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../../RendDX9Abi/HfeAbi.h"
 #include "../../RendDX9Abi/BfMemory.h"
 #include "../../RendDX9Abi/PluginEntry.h"
@@ -835,6 +836,7 @@ EngineTexture* TextureManager::createCubeTexture(unsigned int w, unsigned int fo
 EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, EngineTexture* tex,
                                                    bool skipChangeWatch, bool useFallback)
 {
+    ::dice::hfe::loadtrace::Scope loadTrace("tex", name.c_str());   // [DEV] BF2_LOAD_TRACE
     std::string path;
     findTexturePath(path, name);
 

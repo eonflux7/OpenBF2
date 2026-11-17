@@ -7,6 +7,7 @@
 #ifdef BF2_IMAGE_RENDDX9
 
 #include "MeshTemplate.h"
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../RendDX9/RendDX9Math.h"   // rendmath::unitScale (sub_1007B220)
 
 #include "../../RendDX9Abi/BfMemory.h"
@@ -462,6 +463,7 @@ void MeshTemplate::releaseDeviceResources()
 // PE 0x10191A00
 bool MeshTemplate::loadFromStream(renddx9abi::HostNonlinearStream* stream)
 {
+    ::dice::hfe::loadtrace::Scope loadTrace("mesh", m_name.c_str());   // [DEV] BF2_LOAD_TRACE
     if (!readHeader(stream))
         return false;
 

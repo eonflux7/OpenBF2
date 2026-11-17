@@ -2,6 +2,7 @@
 
 #include "Console.h"
 #include "ConsoleCompiler.h"                 // [INFERRED] path
+#include "../../Core/LoadTrace.h"            // [DEV] BF2_LOAD_TRACE
 #include "../Input/GameInput.h"
 #include "../File/FileManager.h"             // [INFERRED] path; IO/File/FileManager.cpp attested
 #include "../File/File.h"                    // io::File - the raii handle run() loads a script with
@@ -1668,6 +1669,7 @@ bool OldConsole::run(const std::string& filePath,
             fileName = m_workingPath + fileName;
     }
     fixPathDelimiters(fileName, '/');
+    loadtrace::Scope loadTrace("con", fileName.c_str());   // [DEV] BF2_LOAD_TRACE
     if (consoleTraceEnabled())
         std::fprintf(stderr, "[CONTRACE] d%d run %s [%s] [%s] [%s]\n", m_depth, fileName.c_str(), arg1.c_str(), arg2.c_str(), arg3.c_str());
 

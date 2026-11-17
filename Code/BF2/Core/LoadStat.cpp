@@ -5,6 +5,7 @@
 #include "System.h"     // g_system and its getWallClockTime - executeLoadCallback's clock source
 #include "SystemInfo.h" // systemInfo() - setNextLoadPart's discarded getMemoryUsage call
 #include <cstring>     // strlen - setNextLoadPart
+#include "LoadTrace.h"  // [DEV] BF2_LOAD_TRACE
 
 namespace dice {
 namespace hfe {
@@ -156,6 +157,9 @@ void LoadStat::setNextLoadPart(NextLoadPart* part)
 
     if (!part || !part->steps)
         return;
+
+    if (loadtrace::enabled())                 // [DEV] BF2_LOAD_TRACE: phase boundary
+        loadtrace::mark((std::string("part:") + (part->name ? part->name : "")).c_str());
 
     m_loadCounter = 0;                       // +0x20
     m_unknown24   = part->steps;             // +0x24 - the phase's expected total

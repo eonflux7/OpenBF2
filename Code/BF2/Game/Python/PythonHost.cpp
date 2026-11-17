@@ -3,6 +3,7 @@
 // Callback order, reference ownership and exception handling follow the shipped host.
 
 #include "PyRef.h"
+#include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "py/PyArg.h"                     // py_arg<std::string> - log_write unpacks with it
 #include "PythonComp.h"
 #include "PythonHost.h"
@@ -837,6 +838,11 @@ void PythonHost::handleEvent(ScriptEvent eventId, PyObject* args)
         return;
     if (m_data->m_byte01)
         return;
+    // [DEV] BF2_LOAD_TRACE: handler runs of 1 ms or more, named by event id.
+    char traceName[16] = "";
+    if (loadtrace::enabled())
+        std::snprintf(traceName, sizeof(traceName), "event %d", static_cast<int>(eventId));
+    loadtrace::Scope loadTrace("py.event", traceName, 1000);
     std::vector<std::pair<PyRef, bool> >& handlers = m_data->m_vector28[static_cast<int>(eventId)];
     for (std::vector<std::pair<PyRef, bool> >::iterator it = handlers.begin(); it != handlers.end(); ++it)
     {
@@ -2518,6 +2524,7 @@ void createHostModule()
 // A failing bf2.init_module produces a fatal diagnostic.
 bool PythonHost::initialize(bool minimal)
 {
+    loadtrace::Scope loadTrace("py.init", minimal ? "minimal" : "full");   // [DEV] BF2_LOAD_TRACE
     PythonHostData* const d = m_data;
 
     if (d->m_initialized)                                // +0x00 - already up
@@ -2674,6 +2681,7 @@ void PythonHost::shutdown()
 // Borrowed dictionary entries are retained across init(), which may replace those entries.
 bool PythonHost::initializeAdminMod(const std::string& moduleName)
 {
+    loadtrace::Scope loadTrace("py.admin", moduleName.c_str());            // [DEV] BF2_LOAD_TRACE
     PyObject* module = PyImport_ImportModule(const_cast<char*>(moduleName.c_str()));
     if (!module)
     {

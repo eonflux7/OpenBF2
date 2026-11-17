@@ -3,6 +3,7 @@
 // Script order and event registration are part of the content contract.
 
 #include "GameLogic.h"
+#include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../Main/Game.h"        // isDedicated - loadCallback's client/server split
 #if !DEDICATED
 #include "../VoipClient/BF2VoipClient.h"   // bf2VoipClient (ds:0x9A4DA0)
@@ -416,6 +417,8 @@ bool runScriptArg1(const std::string& file, const std::string& arg1)
 // receive free cameras before the client prediction path can use their vehicles.
 bool GameLogic::load(const std::string& levelPath)
 {
+    // [DEV] BF2_LOAD_TRACE: the whole level load, with a mark at each section below.
+    loadtrace::Scope loadTrace("phase", "level.load");
     // teardown of the previous level, and the re-entry gates (0x80CE18A-0x80CE1B0)
     if (world::triggerableManager)
         world::triggerableManager->reset();
@@ -475,6 +478,7 @@ bool GameLogic::load(const std::string& levelPath)
 
     // Mount level archives and run their scripts within the shared permit window.
     // Client runtime also mounts client.zip. Store the level path without its trailing slash.
+    loadtrace::mark("load:archives");                          // [DEV] BF2_LOAD_TRACE
     m_levelPath = levelPath.substr(0, levelPath.size() - 1);
     io::fileManager->permitMountArchives(true);
     io::fileManager->mountArchive(m_levelPath + "/server.zip", m_levelPath, true);
@@ -537,6 +541,7 @@ bool GameLogic::load(const std::string& levelPath)
     game->setCurrentMapSize(chosenSize);                       // +0x104
     settings->stringSet(std::string("GLGameLevelPath"), levelPath);
 
+    loadtrace::mark("load:setup");                             // [DEV] BF2_LOAD_TRACE
     // stats, sun, and the first scripted phase (0x80CEC4A-0x80CEE12)
     beginLoadStats(levelPath);
     createSunTemplate();                                       // virtual +0x2F8
@@ -554,6 +559,7 @@ bool GameLogic::load(const std::string& levelPath)
         runScript(std::string("AI/AIBehaviours.ai"));
     }
 
+    loadtrace::mark("load:objects");                           // [DEV] BF2_LOAD_TRACE
     // the object sweep and the material settings (0x80CEF28-0x80CF1B0)
     if (!loadAllConFiles(std::string("Objects/")))             // virtual +0x2EC - ITS bool gates
         return false;
@@ -561,6 +567,7 @@ bool GameLogic::load(const std::string& levelPath)
     if (m_byte1B0)
         return false;
 
+    loadtrace::mark("load:init");                              // [DEV] BF2_LOAD_TRACE
     // the level's own Init.con, voices, and the side tag (0x80CF264-0x80CF2B9)
     if (!loadInitFile(levelPath))                              // virtual +0x2E8 - gates the rest
         return false;
@@ -569,6 +576,7 @@ bool GameLogic::load(const std::string& levelPath)
         return false;
     const char* side = isServer() ? "host" : "client";         // the cmov at 0x80CF2B9
 
+    loadtrace::mark("load:ai");                                // [DEV] BF2_LOAD_TRACE
     // the AI chain (0x80D0514-0x80D1D5A, hoisted; runs here, before the object scripts)
     if (ai::g_aiInstance && ai::aiInstance()->isBotsGame())
     {
@@ -592,11 +600,13 @@ bool GameLogic::load(const std::string& levelPath)
 
     // the object scripts (0x80CF2E0-0x80CFA92): tear down the old world at the fork point,
     //      then StaticObjects -> convert -> GamePlayObjects -> score
+    loadtrace::mark("load:staticobjects");                     // [DEV] BF2_LOAD_TRACE
     world::objectManager->destroyObjects();                    // +0x98
     runScript(levelPath + "StaticObjects.con");
     if (m_byte1B0 || !convertDynamicObjects())
         return false;
 
+    loadtrace::mark("load:gameplayobjects");                   // [DEV] BF2_LOAD_TRACE
     const std::string sizeDir = formatString("GameModes/%s/%d/", gameMode.c_str(), chosenSize);
     const bool gpoLoaded = runScriptArg1(levelPath + sizeDir + "GamePlayObjects.con",
                                          std::string(side));   // v_arg1 = host/client
@@ -614,6 +624,7 @@ bool GameLogic::load(const std::string& levelPath)
     if (isServer())
         runScriptArg1(levelPath + "Triggerables.con", std::string(side));
 
+    loadtrace::mark("load:precache");                          // [DEV] BF2_LOAD_TRACE
     // the precache bracket (0x80CFBB2-0x80CFC8C)
     world::objectManager->destroyObjects();
     world::objectManager->getAllRegisteredObjects();           // +0xB4, result discarded
@@ -630,6 +641,7 @@ bool GameLogic::load(const std::string& levelPath)
     m_isPrecaching = false;
     world::ObjectTemplate::setIsPreCaching(false);
 
+    loadtrace::mark("load:tail");                              // [DEV] BF2_LOAD_TRACE
     // the tail (0x80CFD0C-0x80CFD90)
     if (isServer())
         VoipServerConnection::GetInstance()->ResetPlayerRouting();
@@ -655,6 +667,7 @@ bool GameLogic::load(const std::string& levelPath)
 
     m_isLevelLoaded   = true;                                  // +0x38
     m_isLevelLoadedXP = true;                                  // +0x39
+    loadtrace::mark("load:done");                              // [DEV] BF2_LOAD_TRACE
     return true;
 }
 

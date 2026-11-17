@@ -10,6 +10,7 @@
 #include "../../Core/StringUtil.h"
 #include "../../Core/Hash.h"
 #include "../../Core/LoadStat.h"
+#include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -407,6 +408,7 @@ IArchive* FileManager::mountArchive(const std::string& archiveName,
                                     bool contentCheck)
 {
     typedef std::map<std::string, std::vector<IArchive*>, NoCaseStringCompare> ArchiveMap;
+    loadtrace::Scope trace("mount", archiveName.c_str());   // [DEV] BF2_LOAD_TRACE
 
     // 1. runtime mounting must be permitted
     if (!m_permitMountArchives)
@@ -474,6 +476,8 @@ IStream* FileManager::open(const std::string& name, IFileSystem::FileMode mode,
     }
 
     // Read: layered
+    // [DEV] BF2_LOAD_TRACE: one span per read open; the category says where it resolved.
+    loadtrace::Scope trace("open.miss", name.c_str());
     m_isLastFileOpenedFromArchive = false;
 
     std::string path;
@@ -498,6 +502,7 @@ IStream* FileManager::open(const std::string& name, IFileSystem::FileMode mode,
             IStream* f = (*a)->open(path, IFileSystem::FILEMODE_READ, access, a6);
             if (f)
             {
+                trace.setCategory("open.arc");
                 loadStat->setCurrentFile(path);
                 loadStat->incLoadCounter(1);
                 m_isLastFileOpenedFromArchive = true;      // set only on this branch
@@ -527,6 +532,7 @@ IStream* FileManager::open(const std::string& name, IFileSystem::FileMode mode,
         IStream* f = m_fileSystem->open(full, IFileSystem::FILEMODE_READ, access, a6);
         if (f)
         {
+            trace.setCategory("open.loose");
             loadStat->setCurrentFile(path);
             loadStat->incLoadCounter(1);
             return f;
@@ -546,6 +552,7 @@ std::string FileManager::fileExistsEx(const std::string& name, bool skipArchives
         return getEmptyString();
 
     loadStat->incExistsCounter();                    // dword 11
+    loadtrace::Scope trace("exists.miss", name.c_str());   // [DEV] BF2_LOAD_TRACE
 
     std::string stripped = stripModPath(path);
     goUpInPath(stripped);
@@ -561,7 +568,10 @@ std::string FileManager::fileExistsEx(const std::string& name, bool skipArchives
             for (ArcIter a = arcs->begin(); a != arcs->end(); ++a)
             {
                 if ((*a)->fileExists(stripped))
+                {
+                    trace.setCategory("exists.arc");
                     return stripped;
+                }
             }
         }
     }
@@ -576,7 +586,10 @@ std::string FileManager::fileExistsEx(const std::string& name, bool skipArchives
         goUpInExpandedPath(full);
 
         if (m_fileSystem->fileExists(full))
+        {
+            trace.setCategory("exists.loose");
             return full;
+        }
     }
 
     return getEmptyString();

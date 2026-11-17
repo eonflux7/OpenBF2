@@ -5,6 +5,7 @@
 
 #include "../../RendDX9Abi/ThunkAbi.h"
 #include "../../RendDX9Abi/HfeAbi.h"
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../../RendDX9Abi/ModuleCommon.h"
 #include "../../RendDX9Abi/BfMemory.h"
 #include "../../RendDX9Abi/Frontier.h"
@@ -1287,6 +1288,8 @@ void* compileEffectFromFile(const char* rawPath)
 static ID3DXEffect* compileEffectFile(const char* rawPath, ID3DXBuffer** errors)
 {
     RD9_TRACE_AT("dice::hfe::dx9rend::compileEffectFromFile", 0, 0x00);
+    // [DEV] BF2_LOAD_TRACE: an uncached compile from source plus effect creation.
+    ::dice::hfe::loadtrace::Scope loadTrace("fx.src", rawPath);
 
     *errors = 0;
     const std::string sourcePath = effectSourcePath(rawPath);
