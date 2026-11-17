@@ -697,6 +697,28 @@ void RenderView::rebuildProjection()
         m[15] = 0.0f;
     }
 
+    // [CHOSEN, not recovered] Reversed-Z prototype (BF2_REVERSED_Z=1): z' = 1 - z, so near maps
+    // to 1 and far to 0. The renderer's state manager mirrors ZFUNC/depth bias and depth clears to
+    // match (RendDX9/StateManager.cpp). Perspective: z'w = (1 - q) z + q n. Ortho: z' = 1 - z.
+    static const bool reversedZ = [] {
+        const char* v = std::getenv("BF2_REVERSED_Z");
+        return v && *v && *v != '0';
+    }();
+    if (reversedZ)
+    {
+        float* m = m_matrix[4].m;
+        if (m_projectionMode == 1)
+        {
+            m[10] = -m[10];
+            m[14] = 1.0f - m[14];
+        }
+        else
+        {
+            m[10] = 1.0f - m[10];
+            m[14] = -m[14];
+        }
+    }
+
     m_dirty428 &= ~1u;
 }
 

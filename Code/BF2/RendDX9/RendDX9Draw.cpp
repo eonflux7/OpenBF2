@@ -320,7 +320,7 @@ bool rendererBeginScene(const unsigned int* clearRgb, bool doClear)
                    | (static_cast<unsigned int>(*statsByte(b, 916)) << 8)
                    | (static_cast<unsigned int>(*statsByte(b, 912)) << 16);
         flushRenderTargetsSeam();
-        device()->Clear(0, 0, 7, colour, 1.0f, 0);
+        device()->Clear(0, 0, 7, colour, stateManagerClearDepth(1.0f), 0);   // [CHOSEN] reversed-Z aware
     }
 
     b->inScene = 1;                                              // +0x100

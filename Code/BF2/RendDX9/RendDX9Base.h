@@ -633,6 +633,12 @@ IDirect3DSurface9* stateManagerGetRenderTarget(unsigned int index);
 // StateManager +0x04, its DeviceLostResetListener subobject (dword_1023B984 + 4 on x86).
 DeviceLostResetListener* stateManagerDeviceLostListener();
 void stateManagerSetDepthStencilSurface(IDirect3DSurface9* surface);
+// [CHOSEN, not recovered] Reversed-Z prototype (BF2_REVERSED_Z=1), see StateManager.cpp.
+bool rendererReversedZ();
+bool stateManagerReversedDepthBound();
+void stateManagerMarkStandardDepth(bool standard);
+float stateManagerClearDepth(float depth);
+unsigned int stateManagerMapDepthState(unsigned int state, unsigned int value);
 void stateManagerSetIndices(IDirect3DIndexBuffer9* indices);
 void stateManagerSetStreamSource(unsigned int stream, IDirect3DVertexBuffer9* vertexBuffer,
                                  unsigned int offset, unsigned int stride);

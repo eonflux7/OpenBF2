@@ -2524,7 +2524,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
             flushRenderTargetsSeam();
             {
                 IDirect3DDevice9* dev = static_cast<RendDX9Base*>(g_rendererBase)->device;
-                dev->Clear(0, 0, 7, 0, 1.0f, 0);
+                dev->Clear(0, 0, 7, 0, stateManagerClearDepth(1.0f), 0);   // [CHOSEN] reversed-Z aware
             }
 
             if (sw(1695) && geom::g_ParticleSystemManager)
@@ -2785,7 +2785,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 // passes.
                 flushRenderTargetsSeam();
                 IDirect3DDevice9* dev = static_cast<RendDX9Base*>(g_rendererBase)->device;
-                dev->Clear(0, 0, 2, 0, 1.0f, 0);
+                dev->Clear(0, 0, 2, 0, stateManagerClearDepth(1.0f), 0);   // [CHOSEN] reversed-Z aware
             }
 
             renderQueueFlush(0x0C, m_clearDepthBeforeFirstPerson);              // RSMT1Person

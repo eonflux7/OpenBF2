@@ -879,6 +879,19 @@ void buildPresentParameters(void* renderer)
 
     b->pp.AutoDepthStencilFormat = firstDepthCandidate(b);
 
+    // [CHOSEN, not recovered] Reversed-Z prototype: a float depth buffer is where reversed depth
+    // gains its precision (D24FS8 keeps the stencil; DXVK maps it to D32_SFLOAT_S8_UINT).
+    if (rendererReversedZ() && b->d3d9 &&
+        SUCCEEDED(b->d3d9->CheckDeviceFormat(b->adapter, static_cast<D3DDEVTYPE>(b->deviceType),
+            D3DFMT_X8R8G8B8, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_SURFACE, D3DFMT_D24FS8)))
+    {
+        b->pp.AutoDepthStencilFormat = D3DFMT_D24FS8;
+        std::fprintf(stderr, "[REVZ] reversed-Z on, depth format D24FS8\n");
+    }
+    else if (rendererReversedZ())
+        std::fprintf(stderr, "[REVZ] reversed-Z on, D24FS8 unsupported: keeping format %d\n",
+                     static_cast<int>(b->pp.AutoDepthStencilFormat));
+
     // The multisample pair, 8 bytes, only if the vector is non-empty.
     if (!b->multiSamples.empty())
     {
@@ -2157,7 +2170,7 @@ bool rendererRenderProbe(void* renderer, const char* vertexShader, const char* p
     stateManagerSetPixelShader(ps);                                     // SM +0x44
     stateManagerSetVertexDeclaration(declaration);                      // SM +0x5C
     stateManagerPreDrawApply();
-    b->device->Clear(0, 0, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0, 1.0f, 0);   // +0xAC
+    b->device->Clear(0, 0, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0, stateManagerClearDepth(1.0f), 0);   // +0xAC
     b->device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, triangle, 12);   // +0x14C
     stateManagerPop();
     b->device->EndScene();                                              // +0xA8,

@@ -13,6 +13,7 @@
 #include "../../RendDX9Abi/Frontier.h"
 #include "RendDX9Base.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <stddef.h>
 #include <stdint.h>
@@ -44,6 +45,65 @@ void* g_stateManager = 0;
 unsigned int  g_transparencyAAState = 0;
 unsigned char g_transparencyAAOn[4]  = { 0, 0, 0, 0 };
 unsigned char g_transparencyAAOff[4] = { 0, 0, 0, 0 };
+
+// [CHOSEN, not recovered] Reversed-Z prototype (BF2_REVERSED_Z=1). Every RenderView projection maps
+// near to 1 and far to 0 (RendMisc/RenderView.cpp). While any depth buffer other than a shadow map
+// is bound, the issued ZFUNC is mirrored (LESS <-> GREATER) and DEPTHBIAS / SLOPESCALEDEPTHBIAS are
+// negated, and depth clears write 1 - z. The mirror cells keep the effects' logical (forward-Z)
+// values, so shaders and callers stay unchanged. XpLightManager marks its shadow-map depth buffers
+// standard (they use their own light matrices).
+bool rendererReversedZ()
+{
+    static const bool on = [] {
+        const char* v = std::getenv("BF2_REVERSED_Z");
+        return v && *v && *v != '0';
+    }();
+    return on;
+}
+
+namespace {
+bool g_standardDepthBound = false;   // a shadow-map depth buffer is the wanted depth-stencil
+}
+
+bool stateManagerReversedDepthBound()
+{
+    return rendererReversedZ() && !g_standardDepthBound;
+}
+
+void stateManagerMarkStandardDepth(bool standard)
+{
+    g_standardDepthBound = standard;
+}
+
+float stateManagerClearDepth(float depth)
+{
+    return stateManagerReversedDepthBound() ? 1.0f - depth : depth;
+}
+
+unsigned int stateManagerMapDepthState(unsigned int state, unsigned int value)
+{
+    if (!stateManagerReversedDepthBound())
+        return value;
+    if (state == 23u)   // D3DRS_ZFUNC
+    {
+        switch (value)
+        {
+        case 2u: return 5u;   // LESS -> GREATER
+        case 4u: return 7u;   // LESSEQUAL -> GREATEREQUAL
+        case 5u: return 2u;
+        case 7u: return 4u;
+        default: return value;
+        }
+    }
+    if (state == 175u || state == 195u)   // D3DRS_SLOPESCALEDEPTHBIAS, D3DRS_DEPTHBIAS
+    {
+        float f;
+        std::memcpy(&f, &value, 4);
+        f = -f;
+        std::memcpy(&value, &f, 4);
+    }
+    return value;
+}
 
 
 // Cached state value and dirty tracking, with fixed-size mirror blocks per state category.
@@ -240,7 +300,8 @@ void RD9_THUNK rsIssue(void* self RD9_THUNK_EDX, unsigned int state, StateValue 
 
     if (state != g_transparencyAAState)
     {
-        rendererDevice()->SetRenderState(static_cast<D3DRENDERSTATETYPE>(state), static_cast<DWORD>(value));
+        rendererDevice()->SetRenderState(static_cast<D3DRENDERSTATETYPE>(state),
+            static_cast<DWORD>(stateManagerMapDepthState(state, static_cast<unsigned int>(value))));
         return;
     }
 
@@ -893,6 +954,7 @@ int __stdcall smSetDepthStencilSurface(StateManager* self, IDirect3DSurface9* su
             surface->AddRef();
         self->depthStencilDirty = 1;
     }
+    g_standardDepthBound = false;   // [CHOSEN] reversed-Z: shadow callers re-mark after this
     return 0;
 }
 
@@ -960,6 +1022,19 @@ void flushRenderTargets(StateManager* self)
     {
         self->device->SetDepthStencilSurface(self->depthStencil);
         self->depthStencilDirty = 0;
+        // [CHOSEN, not recovered] reversed-Z: the depth convention follows the buffer, so the
+        // depth states the device holds are re-sent for the new one.
+        if (rendererReversedZ())
+        {
+            static const unsigned int kDepthStates[3] = { 23u, 175u, 195u };
+            for (unsigned int i = 0; i < 3; ++i)
+            {
+                const unsigned int st = kDepthStates[i];
+                self->device->SetRenderState(static_cast<D3DRENDERSTATETYPE>(st),
+                    stateManagerMapDepthState(st,
+                        static_cast<unsigned int>(self->renderStates.cells[st].f0Device)));
+            }
+        }
     }
 }
 
@@ -1320,7 +1395,7 @@ void stateManagerClear(unsigned int flags, unsigned int colour, float depth,
                        unsigned int stencil, unsigned int rectCount, const D3DRECT* rects)
 {
     flushRenderTargets(sm());
-    rendererDevice()->Clear(rectCount, rects, flags, colour, depth, stencil);
+    rendererDevice()->Clear(rectCount, rects, flags, colour, stateManagerClearDepth(depth), stencil);
 }
 
 // sub_10025A00 - true when no push bracket is open (renderFrame's :991 sanity check).
