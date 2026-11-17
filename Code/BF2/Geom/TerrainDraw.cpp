@@ -1134,11 +1134,12 @@ void Terrain::drawShadowCasters(const float* viewProjection, const dx9rend::Shad
         return;
     static dx9rend::Effect* parameterEffect = 0;
     static dx9rend::ShaderParameter* viewProjectionParameter = 0;
-    if (parameterEffect != m_effect)
+    dx9rend::Effect* const effect = static_cast<dx9rend::Effect*>(m_effect);
+    if (parameterEffect != effect)
     {
-        parameterEffect = m_effect;
+        parameterEffect = effect;
         viewProjectionParameter =
-            dx9rend::effectGetShaderParameterTyped(m_effect, std::string("RaShadowViewProj"));
+            dx9rend::effectGetShaderParameterTyped(effect, std::string("RaShadowViewProj"));
     }
     if (!viewProjectionParameter)
         return;
