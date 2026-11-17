@@ -40,12 +40,25 @@ First load of muttrah_city_2 (PR, autohost, Wine), effect cache not invalidated,
 | File opens | 1.5 s | 40,000 opens, mostly from archives |
 | Startup to menu | 10.4 s | 5.2 s HUD scripts, 2 s `compileEffectFile` (`fsquaddrawer.fx` alone 1 s) |
 
-The Ra cache key is computed with `D3DXPreprocessShader` from `d3dx9_24.dll`. Wine's `d3dx9_24`
-(like `_25` and `_26`) does not export it, so every key was empty and every `.cfx.key` held `-`.
+The Ra cache key is computed with `D3DXPreprocessShader` from `d3dx9_24.dll`, which does not
+export it (neither Microsoft's x64 build the game loads nor Wine's), so every key was empty and
+every `.cfx.key` held `-`.
 The key now falls back to `d3dcompiler_47`'s `D3DPreprocess`. With the cache filled, the same load
 takes 37 s instead of 186 s (to the loading bar's Textures part): Ra effects 19.5 s, of which 16.6 s
 is computing the content key (about 12 ms per effect) and 0.5 s reading the 1337 blobs. Console
 scripts (9.4 s, all in the Objects part) are now the largest item.
+
+### Recompiling every effect
+
+With every Ra effect stale (after a shader edit, or a new cache), the same load reached the
+Textures part in 186 s with the serial compile and in 31 s with the prefetch. 8 workers, each with
+its own copy of the compiler module, ran 202 s of compiles in 25 s of wall time, mostly before the
+main thread asked for the effects.
+
+D3DX's effect compiler runs one compile at a time per loaded module: 8 compiles of a test effect
+took 0.75 s serially, 0.77 s on 8 threads sharing `d3dx9_24.dll`, and 0.16 s on 8 threads with a
+renamed copy each. The game runs with Microsoft's x64 `d3dx9_24`/`d3dx9_25`, as Wine's builtin
+D3DX cannot compile `.fx`; that `d3dx9_24` has no `D3DXPreprocessShader` either.
 
 ## What the code already shows
 
@@ -81,5 +94,5 @@ These come from reading the code. The baseline trace will confirm or rule out ea
 |---|---|
 | Load trace (`dev`) | Done; baseline above |
 | Ra cache key under Wine (`fix`) | Done: seen in game, muttrah_city_2, 186 s to 37 s with a filled cache |
-| Ra cache key from source and includes, no preprocessor (`BF2_PERF_FXKEY`) | Built; not yet seen in game |
-| Ra effect prefetch: stale effects listed in `effects.lst` compile on worker threads (`BF2_PERF_FXPREFETCH`) | Built; not yet seen in game |
+| Ra cache key from source and includes, no preprocessor (`BF2_PERF_FXKEY`) | Seen in game: keys 16.6 s to 2.2 s per load; awaiting acceptance |
+| Ra effect prefetch: stale effects listed in `effects.lst` compile on worker threads (`BF2_PERF_FXPREFETCH`) | Seen in game: a full recompile loads in 31 s instead of 186 s; awaiting acceptance |
