@@ -1,0 +1,119 @@
+# Renderer
+
+The `render` lane replaces BF2's forward, gamma-space, lightmap-lit renderer with a linear HDR
+pipeline built on a depth prepass, cascaded sun shadows and, later, screen-space ambient occlusion.
+It is a new design. Retail behaviour is not a constraint, and an accepted step leaves no legacy path
+behind it.
+
+The engine side lives here, mostly in `Code/BF2/RendDX9/` (`BF2Render.cpp`, `SunShadows.cpp`,
+`StateManager.cpp`, `RenderQueues.cpp`, `Ra/EffectManager.cpp`). The shader side is PR's shader set,
+kept in a private repository; this document describes only the contract between the two.
+
+## Roadmap
+
+| Step | State | Engine commits |
+|---|---|---|
+| 1. Reversed-Z | Accepted | `cb37584f`, `d7481b9c` |
+| 2. Linear lighting + HDR scene | Accepted | `edc83e55`, `5eb26d06`, `2ee49ec7`, `1c2257b8` |
+| 3. Shared lighting model | Accepted (shader-only) | — |
+| 4. Depth prepass + screen-space sun mask | Accepted | `3a00bf99`, `988774bf`, `82e04f61` |
+| 5. Sun cascaded shadow maps + PCF | In progress, behind `BF2_SUN_SHADOWS` | `271c8d45`, `df9a6a40`, `6261ac82` |
+| 6. GTAO, then drop lightmaps | Not started | — |
+
+Open in step 5:
+- Stop rendering BF2's legacy per-object shadow maps and remove their effect parameters.
+- Water samples the cascades directly (it is transparent and has no prepass depth): bind the atlas
+  and mask constants as frame constants in `RaShader::begin`.
+- Blend between cascades; the mask currently switches at each split.
+- Tuning: distance, resolution, bias.
+
+## Frame
+
+In draw order, for the main world view:
+
+1. **Scene target.** From frame prepare to resolve, the scene draws into an `A16B16G16R16F`
+   surface (4x MSAA where the back buffer has it) that stands in for the back buffer
+   (`rendererSceneColorSurface`). The HUD draws to the real back buffer.
+2. **Sun cascades** (`rendererSunShadowsRender`, step 5). Four cascades in a 2 x 2 `R32F` atlas;
+   see [Sun shadows](#sun-shadows).
+3. **Depth prepass** (`rendererDepthPrepass`), just before the world queues flush, after
+   overgrowth has queued. Terrain and every opaque Ra queue entry whose effect has the technique
+   `RaDepthPrepass` draw into two single-sample targets with their own `D24S8` depth:
+   - COLOR0: linear view depth, `R32F`, 0 where nothing was drawn;
+   - COLOR1: world normal, `A2R10G10B10`, `n * 0.5 + 0.5`.
+4. **Sun mask.** A full-screen pass (FSQuadDrawer technique `RaShadowMask`) rebuilds each pixel's
+   world position from the linear depth and writes an `A8R8G8B8` mask:
+   `.r` cascade sun visibility, `.g` the cascades' weight against baked sunlight, `.b` N.L.
+5. **World passes.** Lit shaders read the mask instead of computing their own shadows.
+6. **End of the world pass** (`rendererDepthPrepassEndWorldPass`) binds a 1 x 1 mask of
+   `(1, 0, 0)`, so first-person passes and every other view keep their baked sunlight.
+7. **Post-production** runs every frame: the colour grade is the frame's only encode from linear
+   to display, so it cannot be skipped. Tinnitus blends over the float scene target first.
+
+Depth is reversed throughout (near 1, far 0) except in shadow-map depth buffers.
+
+## Reversed-Z
+
+- Every RenderView projection (perspective, ortho and the linear projection used by the sky dome)
+  maps near to 1 and far to 0.
+- The StateManager mirrors `ZFUNC` (LESS <-> GREATER) and negates the depth biases while a
+  non-shadow depth buffer is bound, re-sending them when the depth buffer changes, and clears
+  depth to `1 - z`. Effects keep their forward-Z states.
+- XpLightManager marks shadow-map depth buffers as standard depth.
+- It needs float depth. DXVK refuses `D24FS8`; `d3d9.useD32forD24 = True` backs `D24S8` with
+  `D32_SFLOAT_S8_UINT`.
+
+## Sun shadows
+
+`SunShadows.cpp`. Casters come from a **submission context**: each mesh type's normal submission
+takes its cull volume and queue target from a pass context, so the shadow pass re-runs submission
+against the cascade volume into a caster list (`rendererShadowCasters`). Camera queues are not
+reused, because meshes cull per material against the camera. Casters draw with each Ra effect's
+`RaShadowDepth` technique; terrain draws its own (`Terrain::drawShadowCasters`).
+
+- Four cascades over the view depth up to `BF2_CSM_DISTANCE` (400 m), split by a blend of
+  logarithmic and uniform (lambda 0.75).
+- Each cascade is a bounding sphere of its view slice, so its size does not change as the camera
+  turns, and its centre is snapped to whole texels across the light, so static shadows don't crawl.
+- Casters up to `BF2_CSM_CASTER_REACH` (500 m) toward the sun beyond the sphere still draw.
+- The atlas stores the light-space depth of the nearest caster (0 = sun-side bound, 1 = far side).
+  The mask pass compares and filters (PCF) and, past 90 % of the last split, blends to the baked
+  lightmap sun.
+
+### Mask constants (`RASM`, 21 float4)
+
+| Rows | Contents |
+|---|---|
+| 0–3 | Camera: position; forward; right / P00; up / P11 |
+| 4 + 3i .. 6 + 3i | Cascade i: world to atlas texel (x, y) and light depth |
+| 16 | View depth each cascade ends at |
+| 17 | `.xyz` direction toward the sun; `.w` view depth where the blend to baked sun starts |
+| 18 | Each cascade's texel size in world units |
+| 19 | Each cascade's light depth per metre |
+| 20 | `.x` one atlas texel in UV |
+
+## Shader contract
+
+Samplers 12–15 are reserved for renderer frame resources. No effect may use them for anything else.
+
+| Slot | Resource | Format | Bound |
+|---|---|---|---|
+| s12 | Prepass world normals | `A2R10G10B10` | After the prepass |
+| s13 | Sun cascade atlas | `R32F` | During the mask pass |
+| s14 | Sun mask | `A8R8G8B8` | World pass; a 1 x 1 `(1, 0, 0)` elsewhere |
+| s15 | Linear view depth | `R32F` | After the prepass, rest of the frame |
+
+Techniques the engine looks up by name:
+
+| Technique | In | Draws |
+|---|---|---|
+| `RaDepthPrepass` | Ra mesh effects, terrain | Linear depth to COLOR0, world normal to COLOR1 |
+| `RaShadowDepth` | Ra mesh effects, terrain | Light depth into the atlas, with `RaShadowViewProj` |
+| `RaShadowMask` | FSQuadDrawer effect | The sun mask, from `RASM` |
+
+## Effect cache
+
+Ra effects are cached as `.cfx` files per mod (`Documents/Battlefield 2/mods/<mod>/cache`;
+retail shared one cache across mods). A cache entry is keyed by an FNV hash of the preprocessed
+source and its defines (`.cfx.key`), so editing an included header invalidates every effect that
+includes it. The effect preprocessor loads its own D3DX handle.

@@ -73,6 +73,9 @@ Examples: `render(csm): blend between cascades`, `fix(ai): guard getIsland(-1) o
 `compat(console): SquadManager.listSquads rows`, `build(plugins): Ninja targets`,
 `dev(console): BF2_CONSOLE_TRACE`.
 
+Changes that belong to no lane (documentation, this file, repository-wide marker renames) use
+`docs:` with no area.
+
 One lane per commit. Upstreamable `fix` and `build` commits must not depend on `render` code, so
 they can be cherry-picked onto upstream alone.
 
