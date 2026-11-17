@@ -1698,8 +1698,10 @@ void Terrain::drawWater()
 }
 
 // sub_100DBE30 - which water RaShader a cell draws with: the far one outside the margin around
-// the camera, the distant one without dynamic shadows or when no shadow frustum touches the
-// cell, else the near one.
+// the camera, else the near one. [RENDER] Retail drew the near cells with the distant shader too
+// unless a directional (sun) shadow frustum touched them: the near shader was the one with the
+// shadow map. Water now takes its sun shadow from the cascades (RaSunShadow.fxh), and the sun
+// shadow maps are gone, so every near cell gets the near shader.
 dx9rend::Ra::RaShader* Terrain::pickWaterTechnique(const float* box, const float* camera)
 {
     const float margin = m_waterTechniqueMargin;
@@ -1707,18 +1709,6 @@ dx9rend::Ra::RaShader* Terrain::pickWaterTechnique(const float* box, const float
         || box[1] - margin >= camera[1] || box[4] + margin <= camera[1]
         || box[2] - margin >= camera[2] || box[5] + margin <= camera[2])
         return m_waterDistantTechnique2;
-    if (!g_LightManager->getDynamicShadowsEnabled())
-        return m_waterDistantTechnique;
-    const std::vector<LightShadowRecord>& records = terrainShadowRecords();
-    if (!terrainShadowRecordCount())
-        return m_waterDistantTechnique;
-    unsigned int i = 0;
-    for (const LightShadowRecord* r = records.data();
-         !terrainFrustumIntersectsBox(&r->frustum, box); ++r)
-    {
-        if (++i >= terrainShadowRecordCount())
-            return m_waterDistantTechnique;
-    }
     return m_waterTechnique;
 }
 

@@ -21,8 +21,14 @@ kept in a private repository; this document describes only the contract between 
 | 6. GTAO, then drop lightmaps | Not started | — |
 
 Open in step 5:
-- Stop rendering BF2's legacy per-object shadow maps and remove their effect parameters.
 - Tuning: distance, resolution, bias.
+
+Left for step 6: BF2's directional (sun) shadow maps are no longer rendered or created
+(`renderShadowMaps` draws point and spot maps only), so no sun shadow record exists and every
+receiver of one (mesh shadow permutations `hasshadow` / `hasshadowocclusion`, terrain, undergrowth,
+overgrowth, decals) stays inactive. Their code, the now unreferenced directional pass in
+`XpLightManager.cpp`, and the effect parameters (`ShadowMap`, `ShadowProjMat`, ...) are deleted
+together with the lightmaps, which touch the same mesh and terrain code.
 
 ## Frame
 

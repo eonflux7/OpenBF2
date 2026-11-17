@@ -805,6 +805,9 @@ void restoreRendererTarget0()
 
 // PE 0x100F2350.
 // shipped defect: allocation failures leave the texture manager's managed flag cleared.
+// [RENDER] Retail also created the two directional (sun) maps (+0x21C, +0x220) and their depth,
+// which the point/spot atlas shared when the sizes matched (always: both are the clamped size).
+// The sun cascades replace those maps, so only the point/spot atlas and its depth are created.
 bool createShadowResourcesBody(void* self)
 {
     if (!lm(self).dynamicShadowsEnabled)
@@ -816,83 +819,32 @@ bool createShadowResourcesBody(void* self)
     // PE uses signed `jl`: negative configured sizes survive this clamp and are passed onward as
     // their raw dword bit pattern. Do not turn them into the unsigned minimum's 2048.
     const int clampedSize = requested < 2048 ? requested : 2048;
-    const unsigned int primarySize = static_cast<unsigned int>(clampedSize);
-    const unsigned int secondarySize = static_cast<unsigned int>(clampedSize);
-    lm(self).shadowMap =
-        static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
-            primarySize, primarySize, lm(self).shadowMapFormat, 1, lm(self).shadowMapUsage, 0));
-    if (!lm(self).shadowMap)
-        return releaseShadowResources(self, false);
-    lm(self).shadowMap2 =
-        static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
-            primarySize, primarySize, lm(self).shadowMapFormat, 1, lm(self).shadowMapUsage, 0));
-    if (!lm(self).shadowMap2)
-        return releaseShadowResources(self, false);
-
-    if (lm(self).shadowMapMode != 0)
-    {
-        IDirect3DDevice9* const device = lm(self).device;
-        device->CreateDepthStencilSurface(
-            primarySize, primarySize, D3DFMT_D16, D3DMULTISAMPLE_NONE, 0, TRUE,
-            &lm(self).shadowDepthSurface, 0);
-        if (!lm(self).shadowDepthSurface)
-            return releaseShadowResources(self, false);
-        lm(self).shadowDepthSurface2 =
-            lm(self).shadowDepthSurface;
-        lm(self).shadowDepthSurface2->AddRef();
-    }
-    else
-    {
-        lm(self).shadowDepthTexture =
-            static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
-                primarySize, primarySize, 23, 1, D3DUSAGE_RENDERTARGET, 0));
-        if (!lm(self).shadowDepthTexture)
-            return releaseShadowResources(self, false);
-        lm(self).shadowDepthSurface =
-            dx9rend::textureGetLevelSurface(
-                lm(self).shadowMap, 0, 0x7FFFFFFFu);
-        lm(self).shadowDepthSurface2 =
-            dx9rend::textureGetLevelSurface(
-                lm(self).shadowMap2, 0, 0x7FFFFFFFu);
-    }
+    const unsigned int size = static_cast<unsigned int>(clampedSize);
 
     lm(self).pointShadowMap =
         static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
-            secondarySize, secondarySize, lm(self).shadowMapFormat, 1, lm(self).shadowMapUsage, 0));
+            size, size, lm(self).shadowMapFormat, 1, lm(self).shadowMapUsage, 0));
     if (!lm(self).pointShadowMap)
         return releaseShadowResources(self, false);
 
     if (lm(self).shadowMapMode == 0)
     {
-        if (secondarySize == primarySize)
-        {
-            lm(self).pointShadowDepthTexture =
-                lm(self).shadowDepthTexture;
-            dx9rend::textureAddRef(lm(self).pointShadowDepthTexture);
-        }
-        else
-        {
-            lm(self).pointShadowDepthTexture =
-                static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
-                    primarySize, primarySize, 23, 1, D3DUSAGE_RENDERTARGET, 0));
-            if (!lm(self).pointShadowDepthTexture)
-                return releaseShadowResources(self, false);
-        }
+        // Depth-texture maps: the atlas is the depth target, beside a colour target it never
+        // writes (format 23, R5G6B5).
+        lm(self).pointShadowDepthTexture =
+            static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
+                size, size, 23, 1, D3DUSAGE_RENDERTARGET, 0));
+        if (!lm(self).pointShadowDepthTexture)
+            return releaseShadowResources(self, false);
         lm(self).pointShadowDepthSurface =
-            dx9rend::textureGetLevelSurface(
-                lm(self).pointShadowMap, 0, 0x7FFFFFFFu);
-    }
-    else if (secondarySize == primarySize)
-    {
-        lm(self).pointShadowDepthSurface =
-            lm(self).shadowDepthSurface;
-        lm(self).pointShadowDepthSurface->AddRef();
+            dx9rend::textureGetLevelSurface(lm(self).pointShadowMap, 0, 0x7FFFFFFFu);
     }
     else
     {
+        // Colour maps: the atlas is the colour target, over its own D16 depth.
         IDirect3DDevice9* const device = lm(self).device;
         device->CreateDepthStencilSurface(
-            secondarySize, secondarySize, D3DFMT_D16, D3DMULTISAMPLE_NONE, 0, TRUE,
+            size, size, D3DFMT_D16, D3DMULTISAMPLE_NONE, 0, TRUE,
             &lm(self).pointShadowDepthSurface, 0);
         if (!lm(self).pointShadowDepthSurface)
             return releaseShadowResources(self, false);
@@ -900,23 +852,12 @@ bool createShadowResourcesBody(void* self)
 
     dx9rend::textureManagerSwapManaged(oldManaged);
     dx9rend::raShaderConstantsSetTexture(
-        0x268, lm(self).shadowMap->baseTexture);
-    dx9rend::raShaderConstantsSetTexture(
-        0x270, lm(self).shadowMap2->baseTexture);
-    dx9rend::raShaderConstantsSetTexture(
         0x278, lm(g_LightManager).pointShadowMap->baseTexture);
     dx9rend::raShaderConstantsSetTexture(
         0x288, lm(g_LightManager).framedTexture->baseTexture);
 
     // byte_102395B0 is initialised true and has no writer.  Every successful
-    // resource rebuild binds and clears both shadow targets before restoring the back buffer.
-    setLightManagerDepthStencil(
-        lm(self).shadowDepthSurface);
-    lightManagerSetRenderTargetTexture(0, lm(self).shadowMapMode != 0
-        ? lm(self).shadowMap : lm(self).shadowDepthTexture);
-    dx9rend::stateManagerClear(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
-                               0xFFFFFFFFu, 1.0f, 0);
-
+    // resource rebuild binds and clears the shadow target before restoring the back buffer.
     lightManagerSetRenderTargetTexture(0, lm(self).shadowMapMode != 0
         ? lm(self).pointShadowMap : lm(self).pointShadowDepthTexture);
     setLightManagerDepthStencil(
@@ -6767,8 +6708,11 @@ bool RD9_THUNK lm_getShadowStaticFeature(void* self RD9_THUNK_EDX)
 }
 
 // +0x19C, PE 0x101679A0.  Profiler counters and the loader-zero diagnostic flush are nonfunctional
-// instrumentation; the renderer state, target, directional/point/spot and finalizer ordering is
-// otherwise the shipped transaction.
+// instrumentation; the renderer state, target, point/spot and finalizer ordering is otherwise the
+// shipped transaction.  [RENDER] Retail rendered the directional (sun) shadow maps first
+// (renderDirectionalShadowMaps, unless performance flag 20); the sun cascades replace them
+// (RendDX9/SunShadows.cpp), so no sun shadow record is made and its receivers stay inactive. The
+// directional code is deleted with the lightmaps (docs/eon64/renderer.md, step 6).
 void RD9_THUNK lm_renderShadowMaps(void* self RD9_THUNK_EDX)
 {
     if (!lm(self).skyLight
@@ -6779,9 +6723,6 @@ void RD9_THUNK lm_renderShadowMaps(void* self RD9_THUNK_EDX)
     lm(self).renderView = dx9rend::rendererGetRenderView();
     dx9rend::stateManagerPush();
     dx9rend::stateManagerSetRenderState(161, 0);
-    // ONE call, the candidate half now runs inside it (G3).
-    if (!dx9rend::rendererPerformanceFlag(20))
-        renderDirectionalShadowMaps(self);
     g_shadowRecordOrdinal = 0;
 
     bindAndClearShadowTarget(self);
