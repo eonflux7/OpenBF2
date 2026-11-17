@@ -576,7 +576,11 @@ void TerrainEditable::applyEditorFrameConstants()
     }
     param(m_hFogRange)->setValue(dx9rend::raShaderConstantsAt(0xA8), 0);      // FogRange holder
     param(m_hFogColor)->setValue(dx9rend::raShaderConstantsAt(0xBC), 0);      // FogColor holder
-    param(m_hSunColor)->setValue(&m_sunColor, 0);                             // +0x2E4
+    {
+        Vec3 sun;
+        getSunColorRaw(&sun);                                                  // [RENDER] the level's one sun
+        param(m_hSunColor)->setValue(&sun, 0);
+    }
     param(m_hGIColor)->setValue(&m_giColor, 0);                               // +0x2F0
 
     // The view-projection: +0x6C's answer is pushed first and +0x68's second, so the product is

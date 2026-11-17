@@ -653,7 +653,18 @@ Vec3* Terrain::getSunColor(Vec3* out)                                           
     out->x = m_sunColor.x * 4.0f; out->y = m_sunColor.y * 4.0f; out->z = m_sunColor.z * 4.0f;
     return out;
 }
-Vec3* Terrain::getSunColorRaw(Vec3* out) { *out = m_sunColor; return out; }
+// [RENDER] The terrain shaders' sun (terrain, roads, undergrowth, the Ra constants block): the
+// level's one sun, LightManager.staticSunColor as authored, the colour static meshes light with.
+// Retail returned terrain.sunColor at a quarter (+0x2E4), balanced by hand against the statics per
+// level; terrain.sunColor now only feeds the console and the lightmap generator.
+Vec3* Terrain::getSunColorRaw(Vec3* out)
+{
+    if (g_LightManager)
+        *out = g_LightManager->getStaticSunColor();
+    else
+        getSunColor(out);                        // no light manager: the terrain's own
+    return out;
+}
 
 void Terrain::setGIColor(float r, float g, float b)
 {

@@ -205,6 +205,7 @@ Parameters the engine sets by semantic:
 |---|---|---|
 | `RaShadowViewProj` | `float4x4` | Ra effects drawing `RaShadowDepth`: the cascade being drawn |
 | `RASM` | `float4[22]` | The mask pass, and in `RaShader::begin` every Ra effect that declares it |
+| `SUNCOLOR` (`TerrainSunColor` in the Ra constants) | `float3` | Terrain, road and undergrowth effects: the level's one sun, `Lightmanager.staticSunColor` as authored (undergrowth times its `LightingScale`). Retail passed `terrain.sunColor / 4`, balanced against the statics by hand per level |
 
 ## Effect cache
 

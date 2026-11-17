@@ -469,7 +469,11 @@ void Terrain::applyFrameConstants()
     }
     param(m_hCameraPos)->setValue(m_cameraPosition, 0);
     param(m_hAmbientColor)->setValue(&m_ambientColor, 0);
-    param(m_hSunColor)->setValue(&m_sunColor, 0);
+    {
+        Vec3 sun;
+        getSunColorRaw(&sun);                            // [RENDER] the level's one sun
+        param(m_hSunColor)->setValue(&sun, 0);
+    }
     param(m_hGIColor)->setValue(&m_giColor, 0);
     {
         float single[3];
