@@ -731,16 +731,19 @@ const Frustum* rendererSubmitCullFrustum();
 std::vector<ShadowCaster>& rendererShadowCasters();
 // Gives every caster captured from index `first` on the world sphere (centre, radius).
 void rendererSetCasterBounds(size_t first, const float sphere[4]);
-// One cascade's light-space box for caster culling: the basis rows, the box centre, and the half
-// extent across the light (the box reaches `radius` past the centre away from the sun and without
-// bound toward it).
+// One cascade's caster volume: the cascade's view slice swept toward the sun. In light coordinates
+// (x = right, y = up, z = forward along the sunlight) it is the 2D convex hull of the slice's eight
+// corners, between the light depth the cascade's projection starts at and the slice's farthest
+// corner. Each edge (nx, ny, d) has a unit outward normal: a point is outside where
+// nx * x + ny * y > d.
 struct ShadowCascadeCull
 {
     float right[3];
     float up[3];
     float forward[3];
-    float centre[3];
-    float radius;
+    float edges[8][3];
+    unsigned int edgeCount;
+    float minZ, maxZ;
 };
 // Whether a world sphere (centre, radius; radius < 0 = unbounded) can reach the cascade box.
 bool rendererShadowCascadeTouches(const ShadowCascadeCull& cull, const float sphere[4]);

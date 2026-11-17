@@ -28,9 +28,11 @@ kept in a private repository; this document describes only the contract between 
 Each step is accepted in game against the reference views (see [Tooling](#tooling)) before the next
 one starts.
 
-**5. Sun CSM.** Open, in this order: cull casters per cascade (the caster pass issues about four
-times the main pass's draws; terrain alone 495 a frame against 59 for its main pass), then tuning of
-distance, resolution and bias, measured with the GPU pass timers.
+**5. Sun CSM.** Open, in this order: cull casters per cascade, then tuning of distance, resolution
+and bias, measured with the GPU pass timers. Casters were culled per cascade against the square
+around the cascade's sphere; on Muttrah (skirmish) that drew 188 / 419 / 1059 / 2348 casters in
+cascades 0-3 against 1176 in the main prepass. Casters are now culled against the cascade's slice
+swept toward the sun (see [Sun shadows](#sun-shadows)); not yet measured in game.
 
 **6. Shader audit and cleanup.** An inventory of the shader set: every effect and header, its
 techniques and permutations, which of them a PR session loads, the code each later step replaces,
@@ -141,6 +143,12 @@ takes its cull volume and queue target from a pass context, so the shadow pass r
 against the cascade volume into a caster list (`rendererShadowCasters`). Camera queues are not
 reused, because meshes cull per material against the camera. Casters draw with each Ra effect's
 `RaShadowDepth` technique; terrain draws its own (`Terrain::drawShadowCasters`).
+
+Each cascade draws only the casters that can shadow a receiver in its own slice
+(`ShadowCascadeCull`): in light space, the 2D convex hull of the slice's eight corners, pushed out by
+four cascade texels for the receivers' filter and normal offset, and in depth from the projection's
+sun-side bound to the slice's farthest corner. Casters carry a world bounding sphere; one without
+bounds draws in every cascade.
 
 - Four cascades over the view depth up to `BF2_CSM_DISTANCE` (400 m), split by a blend of
   logarithmic and uniform (lambda 0.75). Each cascade but the last also covers the first 20 % of

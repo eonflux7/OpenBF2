@@ -2544,13 +2544,17 @@ bool rendererShadowCascadeTouches(const ShadowCascadeCull& cull, const float sph
 {
     if (sphere[3] < 0.0f)
         return true;
-    const float d[3] = { sphere[0] - cull.centre[0], sphere[1] - cull.centre[1],
-                         sphere[2] - cull.centre[2] };
-    const float reach = cull.radius + sphere[3];
-    const float x = d[0] * cull.right[0] + d[1] * cull.right[1] + d[2] * cull.right[2];
-    const float y = d[0] * cull.up[0] + d[1] * cull.up[1] + d[2] * cull.up[2];
-    const float z = d[0] * cull.forward[0] + d[1] * cull.forward[1] + d[2] * cull.forward[2];
-    return std::fabs(x) <= reach && std::fabs(y) <= reach && z <= reach;
+    const float r = sphere[3];
+    const float z = sphere[0] * cull.forward[0] + sphere[1] * cull.forward[1]
+        + sphere[2] * cull.forward[2];
+    if (z - r > cull.maxZ || z + r < cull.minZ)
+        return false;
+    const float x = sphere[0] * cull.right[0] + sphere[1] * cull.right[1] + sphere[2] * cull.right[2];
+    const float y = sphere[0] * cull.up[0] + sphere[1] * cull.up[1] + sphere[2] * cull.up[2];
+    for (unsigned int i = 0; i < cull.edgeCount; ++i)
+        if (cull.edges[i][0] * x + cull.edges[i][1] * y - cull.edges[i][2] > r)
+            return false;
+    return true;
 }
 
 namespace {

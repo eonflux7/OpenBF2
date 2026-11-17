@@ -24,6 +24,7 @@
 #include "../Geom/Overgrowth/OverGrowth.h"
 #include "../Game/Objects/Visual/LightSource.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -134,10 +135,86 @@ struct Cascade
     float lightX, lightY, lightZ;   // sphere centre in light coordinates (texel-snapped across)
     float radius;
     float nearZ, rangeZ;            // light depth: [nearZ, nearZ + rangeZ]
+    float splitNear;                // view depth the cascade's slice starts at
     float splitFar;                 // view depth the cascade's slice ends at
     float coverFar;                 // view depth its sphere covers to (into the next slice)
-    Vec3f centre;                   // world sphere centre
 };
+
+// The casters that can shadow a receiver in the cascade's slice: the slice swept toward the sun.
+// Across the light that is the 2D convex hull of the slice's eight corners; along it, from the
+// projection's sun-side bound to the slice's farthest corner. The cascade's square (its bounding
+// sphere) holds the hull, so nothing inside it is lost; what the hull leaves out is the ground
+// beside and behind the view that only the square covers.
+ShadowCascadeCull cascadeCull(const Cascade& k, const Vec3f& right, const Vec3f& up,
+                              const Vec3f& forward, const Vec3f& cameraPos,
+                              const Vec3f& cameraRight, const Vec3f& cameraUp,
+                              const Vec3f& cameraFwd, float tanX, float tanY, float texel)
+{
+    // Receivers on the hull's edge filter over neighbouring texels; casters that close still count.
+    const float margin = 4.0f * texel;
+    ShadowCascadeCull cull;
+    cull.right[0] = right.x;     cull.right[1] = right.y;     cull.right[2] = right.z;
+    cull.up[0] = up.x;           cull.up[1] = up.y;           cull.up[2] = up.z;
+    cull.forward[0] = forward.x; cull.forward[1] = forward.y; cull.forward[2] = forward.z;
+
+    float px[8], py[8];
+    float maxZ = -1e30f;
+    for (int i = 0; i < 8; ++i)
+    {
+        const float depth = (i & 4) ? k.coverFar : k.splitNear;
+        const float sx = (i & 1) ? depth * tanX : -depth * tanX;
+        const float sy = (i & 2) ? depth * tanY : -depth * tanY;
+        const Vec3f p = madd(madd(madd(cameraPos, cameraFwd, depth), cameraRight, sx), cameraUp, sy);
+        px[i] = dot(p, right);
+        py[i] = dot(p, up);
+        maxZ = std::fmax(maxZ, dot(p, forward));
+    }
+    cull.minZ = k.nearZ;
+    cull.maxZ = maxZ;
+
+    // Monotone chain, counter-clockwise; at most eight hull points from eight corners.
+    int order[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+    std::sort(order, order + 8, [&](int a, int b) {
+        return px[a] < px[b] || (px[a] == px[b] && py[a] < py[b]);
+    });
+    const auto turn = [&](int o, int a, int b) {
+        return (px[a] - px[o]) * (py[b] - py[o]) - (py[a] - py[o]) * (px[b] - px[o]);
+    };
+    int hull[16];
+    int n = 0;
+    for (int i = 0; i < 8; ++i)
+    {
+        while (n >= 2 && turn(hull[n - 2], hull[n - 1], order[i]) <= 0.0f)
+            --n;
+        hull[n++] = order[i];
+    }
+    for (int i = 6, lower = n + 1; i >= 0; --i)
+    {
+        while (n >= lower && turn(hull[n - 2], hull[n - 1], order[i]) <= 0.0f)
+            --n;
+        hull[n++] = order[i];
+    }
+    --n;   // the last point repeats the first
+
+    cull.edgeCount = 0;
+    for (int i = 0; i < n && cull.edgeCount < 8; ++i)
+    {
+        const int a = hull[i];
+        const int b = hull[(i + 1) % n];
+        const float ex = px[b] - px[a];
+        const float ey = py[b] - py[a];
+        const float len = std::sqrt(ex * ex + ey * ey);
+        if (!(len > 1e-4f))
+            continue;
+        const float nx = ey / len;     // outward for a counter-clockwise hull
+        const float ny = -ex / len;
+        float* const edge = cull.edges[cull.edgeCount++];
+        edge[0] = nx;
+        edge[1] = ny;
+        edge[2] = nx * px[a] + ny * py[a] + margin;
+    }
+    return cull;
+}
 
 } // namespace
 
@@ -193,6 +270,8 @@ bool rendererSunShadowsRender(float time, float* constants)
     const float* const c = view->getViewMatrixPtr()->m;
     const float* const p = view->getProjectionMatrixPtr()->m;
     const Vec3f cameraPos = { c[12], c[13], c[14] };
+    const Vec3f cameraRight = { c[0], c[1], c[2] };
+    const Vec3f cameraUp = { c[4], c[5], c[6] };
     const Vec3f cameraFwd = { c[8], c[9], c[10] };
     const float tanX = 1.0f / p[0];
     const float tanY = 1.0f / p[5];
@@ -238,9 +317,9 @@ bool rendererSunShadowsRender(float time, float* constants)
         k.radius = radius;
         k.nearZ = k.lightZ - radius - casterReach();
         k.rangeZ = 2.0f * radius + casterReach();
+        k.splitNear = splitNear;
         k.splitFar = splitFar;
         k.coverFar = coverFar;
-        k.centre = madd(madd(madd(Vec3f(), right, k.lightX), up, k.lightY), forward, k.lightZ);
         splitNear = splitFar;
     }
 
@@ -327,12 +406,9 @@ bool rendererSunShadowsRender(float time, float* constants)
             right.y / r, up.y / r, forward.y / zr, 0.0f,
             right.z / r, up.z / r, forward.z / zr, 0.0f,
             -k.lightX / r, -k.lightY / r, -k.nearZ / zr, 1.0f };
-        ShadowCascadeCull cull;
-        cull.right[0] = right.x;     cull.right[1] = right.y;     cull.right[2] = right.z;
-        cull.up[0] = up.x;           cull.up[1] = up.y;           cull.up[2] = up.z;
-        cull.forward[0] = forward.x; cull.forward[1] = forward.y; cull.forward[2] = forward.z;
-        cull.centre[0] = k.centre.x; cull.centre[1] = k.centre.y; cull.centre[2] = k.centre.z;
-        cull.radius = r;
+        const ShadowCascadeCull cull = cascadeCull(k, right, up, forward, cameraPos, cameraRight,
+                                                   cameraUp, cameraFwd, tanX, tanY,
+                                                   2.0f * r / static_cast<float>(size));
 
         static const char* const kScopes[kCascades] = { "c0", "c1", "c2", "c3" };
         drawStatsSetScope(kScopes[i]);   // [DEV] BF2_DRAW_STATS: caster draws per cascade
