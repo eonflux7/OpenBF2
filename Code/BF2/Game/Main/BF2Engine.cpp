@@ -39,6 +39,7 @@
 #include "../../IO/SettingsManager.h"       // [INFERRED] path; the class is SettingsManagerBase
 #include "../../IO/Console/Console.h"       // io::OldConsole, io::Console::ignoredString_
 #include "../../IO/File/FileManager.h"      // io::fileManager
+#include "../../IO/File/LooseProbeCache.h"  // [PERF] directory listings during a start
 #include "../Objects/IObject.h"             // world::Object
 #include "StatusMonitor.h"                  // [INFERRED] path
 #include "../../Core/LoadStat.h"
@@ -1769,6 +1770,16 @@ bool BF2Engine::startGame(bool noAutoJoin, bool startFromMenu)   // 2nd bool fro
         }
     }
 #endif
+
+    // [PERF] Directory listings answer existence and file-information queries from here, so the
+    // effect prefetch and game-mode import before the level load use them too
+    // (IO/File/LooseProbeCache.h). Serially, each query asked the disk. A hosted level loads inside
+    // startServer; the scope ends the listings on every exit, and a joined level's load starts its own.
+    struct ProbeCacheScope
+    {
+        ProbeCacheScope()  { io::looseProbeCacheBegin(); }
+        ~ProbeCacheScope() { io::looseProbeCacheEnd(); }
+    } probeCacheScope;
 
     if (settings->boolGet("GSIsServer", false))         // ISettingsRepostitory vtable +0x50
     {

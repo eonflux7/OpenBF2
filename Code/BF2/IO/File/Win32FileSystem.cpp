@@ -27,7 +27,7 @@ namespace io {
 
 namespace {
 
-void probeCacheDrop();   // [PERF] LooseProbeCache.h, defined beside findOneEntry
+void probeCacheDrop(const std::string& name);   // [PERF] LooseProbeCache.h, defined beside findOneEntry
 // UTF-8/UTF-16 conversion helpers. Conversion failures are not checked. [INFERRED] Helper names.
 std::wstring widenUtf8(const std::string& text)
 {
@@ -502,7 +502,7 @@ bool IFileSystem::isLastFileOpenedFromArchive() const
 // filename prefix; ordinary files use DeleteFileW. ELF UnixFileSystem deliberately uses unlink.
 bool Win32FileSystem::deleteFile(const std::string& name)
 {
-    probeCacheDrop();   // [PERF] LooseProbeCache.h
+    probeCacheDrop(name);   // [PERF] LooseProbeCache.h
     FileInfo info;
     if (!getFileInfo(name, info)) return false;
     const std::string normalized = normalizeFileName(name);
@@ -522,7 +522,8 @@ bool Win32FileSystem::deleteFile(const std::string& name)
 // PE 0x6765E0 / 0x6766E0 normalize the destination before the source.
 bool Win32FileSystem::moveFile(const std::string& from, const std::string& to)
 {
-    probeCacheDrop();   // [PERF] LooseProbeCache.h
+    probeCacheDrop(from);   // [PERF] LooseProbeCache.h
+    probeCacheDrop(to);
     const std::wstring destination = widenFileName(normalizeFileName(to), true);
     const std::wstring source = widenFileName(normalizeFileName(from), true);
     return MoveFileW(source.c_str(), destination.c_str()) != 0;
@@ -530,7 +531,7 @@ bool Win32FileSystem::moveFile(const std::string& from, const std::string& to)
 
 bool Win32FileSystem::copyFile(const std::string& from, const std::string& to, bool failIfExists)
 {
-    probeCacheDrop();   // [PERF] LooseProbeCache.h
+    probeCacheDrop(to);   // [PERF] LooseProbeCache.h
     const std::wstring destination = widenFileName(normalizeFileName(to), true);
     const std::wstring source = widenFileName(normalizeFileName(from), true);
     return CopyFileW(source.c_str(), destination.c_str(), failIfExists) != 0;
@@ -596,7 +597,7 @@ bool Win32FileSystem::readFile(const std::string& name, void* buffer, unsigned i
 bool Win32FileSystem::writeFile(const std::string& name, const void* buffer,
                               unsigned int size, bool overwrite)
 {
-    probeCacheDrop();   // [PERF] LooseProbeCache.h
+    probeCacheDrop(name);   // [PERF] LooseProbeCache.h
     const std::wstring wide = widenFileName(normalizeFileName(name), true);
     createPathDirectories(normalizeWideDirectory(extractWideDirectory(wide)));
     HANDLE handle = CreateFileW(wide.c_str(), GENERIC_WRITE, FILE_SHARE_READ, 0,
@@ -670,7 +671,7 @@ IStream* Win32FileSystem::open(const std::string& name, FileMode mode, FileAcces
 {
     // PE 0x677750 widens before normalizing. Buffered wrapper helper 0x677EC0 is SmartItf.
     if (mode != FILEMODE_READ || access == 2 || access == 1)
-        probeCacheDrop();   // [PERF] LooseProbeCache.h: a write may create files
+        probeCacheDrop(name);   // [PERF] LooseProbeCache.h: a write may create files
     const std::wstring wide = widenFileName(name, true);
     const bool text = (access == 2 || access == 1) ? isTextFile(wide) : false;
     Win32FileStream* stream = new Win32FileStream(this, text);
@@ -705,12 +706,23 @@ IStream* Win32FileSystem::open(const std::string& name, FileMode mode, FileAcces
 // The next call overwrites the record; this helper is not thread-safe.
 namespace {
 
-// [PERF] LooseProbeCache.h: lowercased directory -> its lowercased entry names, while a load runs.
+// [PERF] LooseProbeCache.h: while a load runs, each directory is listed once and existence and
+// file-information queries are answered from the listing.
+struct ProbeEntry
+{
+    FileInfo info;
+    bool     ambiguous;   // two names differ only in case (a case-sensitive host directory)
+};
+
 struct ProbeCache
 {
     std::mutex mutex;
     bool       active;
-    std::unordered_map<std::wstring, std::unordered_set<std::wstring> > listings;
+    // lowercased directory -> lowercased entry name -> the entry
+    std::unordered_map<std::wstring, std::unordered_map<std::wstring, ProbeEntry> > listings;
+    // lowercased paths written, deleted, moved or copied during this load, and their directories:
+    // always asked of the disk (a stream opened for writing is still growing).
+    std::unordered_set<std::wstring> dirty;
     ProbeCache() : active(false) {}
 };
 
@@ -720,55 +732,124 @@ ProbeCache& probeCache()
     return cache;
 }
 
-void probeCacheDrop()
-{
-    ProbeCache& cache = probeCache();
-    std::lock_guard<std::mutex> lock(cache.mutex);
-    if (cache.active && !cache.listings.empty())
-        loadtrace::span("probe.drop", "", loadtrace::now(), loadtrace::now());   // [DEV] BF2_LOAD_TRACE
-    cache.listings.clear();
-}
-
 wchar_t lowerAscii(wchar_t c)
 {
     return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
 }
 
-// 1 exists, 0 missing, -1 not answerable from a listing (ask the disk).
-int probeCacheLookup(const std::wstring& wide)
+// Splits a normalized wide path into its directory and lowercased keys. False for names whose
+// lookup Windows treats specially: wildcards, short names, alternate streams, forward slashes,
+// non-ASCII, root or drive-relative paths, empty components, trailing dots or spaces, "." and "..".
+bool probeKey(const std::wstring& wide, std::wstring& directory, std::wstring& directoryKey,
+              std::wstring& nameKey, std::wstring& fullKey)
 {
-    ProbeCache& cache = probeCache();
-    if (!cache.active || wide.empty())
-        return -1;
-    for (std::size_t i = 0; i < wide.size(); ++i)
+    const std::size_t size = wide.size();
+    if (size == 0)
+        return false;
+    for (std::size_t i = 0; i < size; ++i)
     {
         const wchar_t c = wide[i];
-        if (c == L'*' || c == L'?' || c == L'~' || c == L':' || c == L'/' || c > 0x7F)
-            return -1;
+        if (c == L'*' || c == L'?' || c == L'~' || c == L'/' || c > 0x7F)
+            return false;
+        if (c == L':')                                // only a drive: "X:\..."
+        {
+            const wchar_t d = lowerAscii(wide[0]);
+            if (i != 1 || d < L'a' || d > L'z' || size < 4 || wide[2] != L'\\')
+                return false;
+        }
+        if (c == L'\\' && i + 1 < size && wide[i + 1] == L'\\')
+            return false;
     }
-    const wchar_t last = wide[wide.size() - 1];
+    const wchar_t last = wide[size - 1];
     if (wide[0] == L'\\' || last == L'\\' || last == L'.' || last == L' ')
-        return -1;
+        return false;
     const std::size_t slash = wide.rfind(L'\\');
-    const std::wstring directory = slash == std::wstring::npos ? std::wstring() : wide.substr(0, slash);
-    std::wstring name = slash == std::wstring::npos ? wide : wide.substr(slash + 1);
-    if (name == L"..")
+    if (slash == 2 && wide[1] == L':')
+        return false;                                 // an entry of a drive root
+    directory = slash == std::wstring::npos ? std::wstring() : wide.substr(0, slash);
+    nameKey = slash == std::wstring::npos ? wide : wide.substr(slash + 1);
+    if (nameKey == L"..")
+        return false;
+    for (std::size_t i = 0; i < nameKey.size(); ++i)
+        nameKey[i] = lowerAscii(nameKey[i]);
+    directoryKey = directory;
+    for (std::size_t i = 0; i < directoryKey.size(); ++i)
+        directoryKey[i] = lowerAscii(directoryKey[i]);
+    fullKey = directoryKey.empty() ? nameKey : directoryKey + L"\\" + nameKey;
+    return true;
+}
+
+// findOneEntry's record for one find result (sub_6767E0).
+void buildFileInfo(const WIN32_FIND_DATAW& findData, FileInfo& built)
+{
+    std::wstring foundName(findData.cFileName);
+    for (std::size_t i = 0; i < foundName.size(); ++i)
+        if (foundName[i] == L'\\') foundName[i] = L'/';
+    built.name = narrowUtf8(foundName);
+    built.isDirectory        = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    built.size               = findData.nFileSizeLow;
+    built.creationTimeLow    = findData.ftCreationTime.dwLowDateTime;
+    built.creationTimeHigh   = findData.ftCreationTime.dwHighDateTime;
+    built.lastAccessTimeLow  = findData.ftLastAccessTime.dwLowDateTime;
+    built.lastAccessTimeHigh = findData.ftLastAccessTime.dwHighDateTime;
+    built.lastWriteTimeLow   = findData.ftLastWriteTime.dwLowDateTime;
+    built.lastWriteTimeHigh  = findData.ftLastWriteTime.dwHighDateTime;
+}
+
+// A write, delete, move or copy of name: it and its directories are asked of the disk from now on
+// (a write may create directories), and listings inside it are dropped (it may be a directory).
+void probeCacheDrop(const std::string& name)
+{
+    ProbeCache& cache = probeCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    if (!cache.active)
+        return;
+    loadtrace::span("probe.drop", name.c_str(), loadtrace::now(), loadtrace::now());   // [DEV] BF2_LOAD_TRACE
+    std::wstring directory, directoryKey, nameKey, fullKey;
+    if (!probeKey(widenUtf8(normalizeFileName(name)), directory, directoryKey, nameKey, fullKey))
+    {
+        cache.listings.clear();                       // not tracked by name: stop answering
+        cache.active = false;
+        return;
+    }
+    cache.dirty.insert(fullKey);
+    for (std::size_t i = 0; i < fullKey.size(); ++i)
+        if (fullKey[i] == L'\\')
+            cache.dirty.insert(fullKey.substr(0, i));
+    const std::wstring inside = fullKey + L"\\";
+    for (std::unordered_map<std::wstring, std::unordered_map<std::wstring, ProbeEntry> >::iterator it =
+             cache.listings.begin(); it != cache.listings.end(); )
+    {
+        if (it->first == fullKey || it->first.compare(0, inside.size(), inside) == 0)
+            it = cache.listings.erase(it);
+        else
+            ++it;
+    }
+}
+
+// 1 exists (out filled when given), 0 missing, -1 not answerable from a listing (ask the disk).
+int probeCacheLookup(const std::string& name, FileInfo* out)
+{
+    ProbeCache& cache = probeCache();
+    if (!cache.active || name.empty())
         return -1;
-    std::wstring key(directory);
-    for (std::size_t i = 0; i < key.size(); ++i)
-        key[i] = lowerAscii(key[i]);
-    for (std::size_t i = 0; i < name.size(); ++i)
-        name[i] = lowerAscii(name[i]);
+    std::wstring directory, directoryKey, nameKey, fullKey;
+    if (!probeKey(widenUtf8(normalizeFileName(name)), directory, directoryKey, nameKey, fullKey))
+        return -1;
 
     std::lock_guard<std::mutex> lock(cache.mutex);
-    std::unordered_map<std::wstring, std::unordered_set<std::wstring> >::iterator listing =
-        cache.listings.find(key);
+    if (!cache.active || cache.dirty.count(fullKey))
+        return -1;
+    std::unordered_map<std::wstring, std::unordered_map<std::wstring, ProbeEntry> >::iterator listing =
+        cache.listings.find(directoryKey);
     if (listing == cache.listings.end())
     {
         const long long traceStart = loadtrace::enabled() ? loadtrace::now() : -1;   // [DEV]
-        std::unordered_set<std::wstring> names;
+        std::unordered_map<std::wstring, ProbeEntry> entries;
         WIN32_FIND_DATAW findData;
-        const std::wstring pattern = directory.empty() ? std::wstring(L"*") : directory + L"\\*";
+        // The pattern takes the extended prefix exactly when findOneEntry's lookup would.
+        const std::wstring pattern = directory.empty() ? std::wstring(L"*")
+            : (directory.size() > 1 && directory[1] == L':' ? L"\\\\?\\" : L"") + directory + L"\\*";
         HANDLE handle = FindFirstFileW(pattern.c_str(), &findData);
         if (handle != INVALID_HANDLE_VALUE)
         {
@@ -777,17 +858,34 @@ int probeCacheLookup(const std::wstring& wide)
                 std::wstring entry(findData.cFileName);
                 for (std::size_t i = 0; i < entry.size(); ++i)
                     entry[i] = lowerAscii(entry[i]);
-                names.insert(entry);
+                std::pair<std::unordered_map<std::wstring, ProbeEntry>::iterator, bool> added =
+                    entries.insert(std::make_pair(entry, ProbeEntry()));
+                if (added.second)
+                {
+                    buildFileInfo(findData, added.first->second.info);
+                    added.first->second.ambiguous = false;
+                }
+                else
+                    added.first->second.ambiguous = true;
             } while (FindNextFileW(handle, &findData));
             FindClose(handle);
         }
-        listing = cache.listings.insert(std::make_pair(key, names)).first;
+        listing = cache.listings.insert(std::make_pair(directoryKey, std::move(entries))).first;
         if (traceStart >= 0)   // [DEV] BF2_LOAD_TRACE: one span per directory listed
             loadtrace::span("probe.list", narrowUtf8(directory).c_str(), traceStart, loadtrace::now(),
                             static_cast<long long>(listing->second.size()));
     }
+    std::unordered_map<std::wstring, ProbeEntry>::const_iterator found = listing->second.find(nameKey);
+    if (found == listing->second.end())
+        return 0;
+    if (found->second.ambiguous)
+        return -1;
     // findOneEntry's dot rule: an entry whose name starts with '.' is reported missing.
-    return (listing->second.count(name) && name[0] != L'.') ? 1 : 0;
+    if (found->second.info.name.c_str()[0] == '.')
+        return 0;
+    if (out)
+        *out = found->second.info;
+    return 1;
 }
 
 const FileInfo* findOneEntry(const std::string& name)
@@ -809,18 +907,7 @@ const FileInfo* findOneEntry(const std::string& name)
         return 0;
 
     FileInfo built;                                  // sub_6767E0, with the L"" prefix (0x784844)
-    std::wstring foundName(findData.cFileName);
-    for (std::size_t i = 0; i < foundName.size(); ++i)
-        if (foundName[i] == L'\\') foundName[i] = L'/';
-    built.name = narrowUtf8(foundName);
-    built.isDirectory        = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-    built.size               = findData.nFileSizeLow;
-    built.creationTimeLow    = findData.ftCreationTime.dwLowDateTime;
-    built.creationTimeHigh   = findData.ftCreationTime.dwHighDateTime;
-    built.lastAccessTimeLow  = findData.ftLastAccessTime.dwLowDateTime;
-    built.lastAccessTimeHigh = findData.ftLastAccessTime.dwHighDateTime;
-    built.lastWriteTimeLow   = findData.ftLastWriteTime.dwLowDateTime;
-    built.lastWriteTimeHigh  = findData.ftLastWriteTime.dwHighDateTime;
+    buildFileInfo(findData, built);
 
     s_found = built;                                 // sub_677E20 - the member-wise copy
     return &s_found;
@@ -834,7 +921,7 @@ bool Win32FileSystem::fileExists(const std::string& name)
     // [PERF] LooseProbeCache.h: answered from the directory's listing while a load runs.
     if (!name.empty())
     {
-        const int cached = probeCacheLookup(widenUtf8(normalizeFileName(name)));
+        const int cached = probeCacheLookup(name, 0);
         if (cached >= 0)
             return cached == 1;
     }
@@ -846,6 +933,19 @@ bool Win32FileSystem::fileExists(const std::string& name)
 // [PLATFORM] Windows failure clears all fields except size; Unix failure leaves the record unchanged.
 bool Win32FileSystem::getFileInfo(const std::string& name, FileInfo& out)
 {
+    // [PERF] LooseProbeCache.h: answered from the directory's listing while a load runs.
+    const int cached = probeCacheLookup(name, &out);
+    if (cached == 1)
+        return true;
+    if (cached == 0)
+    {
+        out.name = "";
+        out.isDirectory = false;
+        out.creationTimeLow = out.creationTimeHigh = 0;
+        out.lastWriteTimeLow = out.lastWriteTimeHigh = 0;
+        out.lastAccessTimeLow = out.lastAccessTimeHigh = 0;
+        return false;
+    }
     const FileInfo* found = findOneEntry(name);
     if (found)
     {
@@ -1046,7 +1146,7 @@ void looseProbeCacheBegin()
     }
     ProbeCache& cache = probeCache();
     std::lock_guard<std::mutex> lock(cache.mutex);
-    cache.listings.clear();
+    cache.listings.clear();                         // fresh listings; written names stay dirty
     cache.active = on == 1;
 }
 
@@ -1055,6 +1155,7 @@ void looseProbeCacheEnd()
     ProbeCache& cache = probeCache();
     std::lock_guard<std::mutex> lock(cache.mutex);
     cache.listings.clear();
+    cache.dirty.clear();
     cache.active = false;
 }
 
