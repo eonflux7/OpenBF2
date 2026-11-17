@@ -7,6 +7,7 @@
 #include "System.h"
 #include "SystemInfo.h"
 #include "StringUtil.h"
+#include "LoadTrace.h"   // [DEV] BF2_LOAD_TRACE - tsc.calibrate, tsc.join
 #include "Ids.h"        // IID_IBase - the binary reads a dword global (0x88E8DC8); the tree's
                         // canonical constant (value 1) is the same value, internals are free.
 
@@ -16,6 +17,9 @@
 #include <dbghelp.h>
 #include <process.h>
 #include <algorithm>
+#include <atomic>       // [PERF] BF2_PERF_TSCCAL
+#include <cstdlib>      // [PERF] getenv
+#include <thread>       // [PERF] BF2_PERF_TSCCAL
 #include <deque>
 #else
 #include <sys/time.h>   // gettimeofday, timeval
@@ -55,6 +59,47 @@ inline unsigned long long rdtsc()
     return ((unsigned long long)hi << 32) | lo;
 #endif
 }
+
+#if defined(_WIN32)
+// [PERF] The TSC calibration on a worker thread (resetExactTime). The worker reads the performance
+// counter itself rather than through getWallClockTime, whose origin g_startTime the main thread
+// resets meanwhile (ModuleIO::init calls resetExactTime again); the measured quantity, TSC ticks
+// in one wall-clock second less the cost of one clock read, is the same.
+bool tscCalibrationAsync()
+{
+    static int on = -1;
+    if (on < 0) { const char* e = std::getenv("BF2_PERF_TSCCAL"); on = (e && *e == '0') ? 0 : 1; }
+    return on == 1;
+}
+
+std::thread*                         g_tscCalibration = 0;
+std::atomic<unsigned long long>      g_tscTicksPerSecond(0);
+
+double workerWallClock(double frequency)
+{
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) / frequency;
+}
+
+void calibrateTscOnWorker()
+{
+    loadtrace::Scope trace("init", "tsc.calibrate");   // [DEV] BF2_LOAD_TRACE
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    const double frequency = static_cast<double>(f.QuadPart);
+    unsigned long long start = rdtsc();
+    double endTime = workerWallClock(frequency) + 1.0;
+    while (endTime > workerWallClock(frequency))
+    {
+    }
+    unsigned long long ticks = rdtsc() - start;
+    unsigned long long callStart = rdtsc();
+    workerWallClock(frequency);
+    ticks -= rdtsc() - callStart;
+    g_tscTicksPerSecond.store(ticks);
+}
+#endif
 
 // Samples the platform clock. [PLATFORM] Windows uses performance-counter ticks; POSIX uses epoch microseconds.
 // [CHOSEN] Signed 64-bit return type.
@@ -237,6 +282,18 @@ void System::resetExactTime()
 
     if (m_cpuTicksPerSecond == 0)       // 0x83D20EA-0x83D20F7 (qword or-test)
     {
+#if defined(_WIN32)
+        // [PERF] The serial spin below holds the main thread for one second of startup (the
+        // Profiler singleton's construction calls this first). Its only reader is the ragdoll
+        // update budget, in game. Measure on a worker instead; finishTscCalibration joins it at
+        // the end of BF2Engine::initEngine. BF2_PERF_TSCCAL=0 keeps the spin here.
+        if (tscCalibrationAsync())
+        {
+            if (!g_tscCalibration)
+                g_tscCalibration = new std::thread(calibrateTscOnWorker);
+            return;
+        }
+#endif
         // Calibrate the TSC against one wall-clock second, then subtract the cost of a single
         // getWallClockTime() call. getWallClockTime is dispatched virtually ([vptr+0x1C]).
         unsigned long long start = rdtsc();
@@ -250,6 +307,26 @@ void System::resetExactTime()
         m_cpuTicksPerSecond -= rdtsc() - callStart;         // 0x83D2161-0x83D2176 sub/sbb in place
     }
 }
+
+#if defined(_WIN32)
+// [PERF] Waits for the worker started by resetExactTime and stores its result where the serial
+// spin would have. A no-op when no worker ran.
+void System::finishTscCalibration()
+{
+    if (!g_tscCalibration)
+        return;
+    loadtrace::Scope trace("init", "tsc.join");   // [DEV] BF2_LOAD_TRACE
+    g_tscCalibration->join();
+    delete g_tscCalibration;
+    g_tscCalibration = 0;
+    if (m_cpuTicksPerSecond == 0)
+        m_cpuTicksPerSecond = g_tscTicksPerSecond.load();
+}
+#else
+void System::finishTscCalibration()
+{
+}
+#endif
 
 // Called once per frame by BF2Engine::mainLoop (0x81379EF), non-virtually.
 void System::advanceExactTime()

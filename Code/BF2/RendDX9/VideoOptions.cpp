@@ -29,6 +29,7 @@
 #include "../RendMisc/IRenderView.h"   //   (+0x10 setDisplayMode, +0x48 / +0x50 and the views' +0x40 / +0x10)
 #include "../Core/EventManager.h"      // sub_1000F8D0's two ECRenderer posts
 #include "../GeomMisc/Debug.h"          // initialize's registration-failure report
+#include "../Core/LoadTrace.h"       // [DEV] BF2_LOAD_TRACE - video.detect
 #include <algorithm>    // std::find - buildResolutionList
 #include <cstddef>      // offsetof - baseOfVo
 #include <new>          // videoOptionsConstruct's placement construction
@@ -1821,6 +1822,15 @@ void videoOptionsDestruct(void* base)
 // Initializes quality tables and hardware-dependent limits for the renderer's VideoOptions.
 // base must be an initialized RendDX9Base. Quality queries use the second eight-entry row;
 // some other row roles remain [UNRESOLVED]. Deferred initialization calls are marked below.
+namespace {
+bool videoDetectSkipEnabled()
+{
+    static int on = -1;
+    if (on < 0) { const char* e = std::getenv("BF2_PERF_VIDEODETECT"); on = (e && *e == '0') ? 0 : 1; }
+    return on == 1;
+}
+} // namespace
+
 void videoOptionsInitialize(void* base)
 {
     RendDX9Base* b = static_cast<RendDX9Base*>(base);
@@ -1898,7 +1908,15 @@ void videoOptionsInitialize(void* base)
     // (medium qualities, "800x600", AA "Off", view distance 0.9). These only stage options; the
     // profile's settings and the later apply decide what the device uses.
     PluginVideoOptions* const options = reinterpret_cast<PluginVideoOptions*>(vo);
-    options->detectQualityLevel();
+    // [PERF] The heuristic only reads the hardware (its CPU benchmark sleeps 1000 ms) and this
+    // caller drops its level, so retail spent a second of every startup here for nothing. The
+    // callers that use the level (VideoSettings::detectVideoOptionScheme) still run it.
+    // BF2_PERF_VIDEODETECT=0 keeps the call.
+    if (!videoDetectSkipEnabled())
+    {
+        ::dice::hfe::loadtrace::Scope trace("init", "video.detect");   // [DEV] BF2_LOAD_TRACE
+        options->detectQualityLevel();
+    }
     options->applyQualityPreset(1);
 
     // [CHOSEN, not recovered] diagnostic line; retail logs nothing here.

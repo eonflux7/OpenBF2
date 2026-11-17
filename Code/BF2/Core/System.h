@@ -79,6 +79,7 @@ public:
 
     // non-virtual
     void resetExactTime();
+    void finishTscCalibration();                    // [PERF] joins resetExactTime's worker (BF2_PERF_TSCCAL)
     void advanceExactTime();                        // once per frame, mainLoop
     void advanceExactTime(unsigned int);            // an overload, not a typo.
                                                     // The fixed-step overload accepts wall time in microseconds.
