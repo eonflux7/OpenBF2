@@ -25,6 +25,7 @@ void removeCrashReporter()
 #include <windows.h>
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace renddx9abi {
 namespace {
@@ -445,6 +446,22 @@ LONG CALLBACK vectoredHandler(EXCEPTION_POINTERS* info)
 
 void* s_handle = 0;
 
+// [CHOSEN, not recovered] A pure virtual call (R6025) never raises an SEH exception: the CRT aborts
+// from _purecall, so the vectored handler sees nothing. Log the caller's stack the same way, then
+// return so the CRT aborts exactly as before.
+void __cdecl purecallReport()
+{
+    CONTEXT ctx;
+    ::RtlCaptureContext(&ctx);
+    logf("[CRASH] ===============================================================================");
+    logf("[CRASH] pure virtual function call (R6025)");
+#if !defined(_M_IX86)
+    reportRegistersAndFrames(ctx);
+#endif
+    reportStack(ctx);
+    logf("[CRASH] ===============================================================================");
+}
+
 } // anonymous namespace
 
 void installCrashReporter()
@@ -455,6 +472,7 @@ void installCrashReporter()
     // First in the chain, so the report is written before anything else can unwind the stack out
     // from under it.
     s_handle = ::AddVectoredExceptionHandler(1, &vectoredHandler);
+    ::_set_purecall_handler(&purecallReport);
     logf("crash reporter: %s", s_handle ? "installed (first-chance, report-only)"
                                         : "AddVectoredExceptionHandler FAILED");
 }
