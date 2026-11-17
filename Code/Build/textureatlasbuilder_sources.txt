@@ -1,0 +1,12 @@
+# Source manifest of the TextureAtlasBuilder.dll image, in compile and link order: the format helpers
+# (0x10001000), the packer (0x10001E60), the atlas base (0x10002210), DllMain (0x10007450), the
+# configuration base (0x10007460), the D3D9 leaves (0x10008220).
+# One path per line, relative to Code/. Lines starting with # are comments.
+# Read by Code/RendDX9Abi/CMakeLists.txt (bf2_textureatlas_native) and Code/Build/textureatlasbuilder.cmd.
+# The D3DX fallback's DxErr9 stand-in stays with each build description.
+BF2/RendDX9/TextureAtlas/TextureAtlasBuilder/TextureFormat.cpp
+BF2/RendDX9/TextureAtlas/TextureAtlasBuilder/Packer.cpp
+BF2/RendDX9/TextureAtlas/TextureAtlasBuilder/TextureAtlas.cpp
+BF2/RendDX9/TextureAtlas/TextureAtlasBuilder/DllMain.cpp
+BF2/RendDX9/TextureAtlas/TextureAtlasBuilder/TextureAtlasConfiguration.cpp
+BF2/RendDX9/TextureAtlas/TextureAtlasBuilder/TextureAtlasD3D9.cpp

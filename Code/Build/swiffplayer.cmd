@@ -98,88 +98,51 @@ rem ---------------------------------------------------------------------------
 echo [1/4] native ABI - no Memory import library
 
 rem ---------------------------------------------------------------------------
-rem STEP 2 - compile. Explicit manifest, numbered objects (flat output dir).
-rem
-rem   the vendored gameswf + base drop (35 TUs, per the two upstream Makefiles - see below)
-rem   the shared RendDX9Abi kit (BfMemory/DllMain; Frontier.cpp compiled
-rem     separately with the SwiffPlayer log defines)
-rem   SwiffPlayerAbi (PluginEntry initDll/deinitDll, SwiffMemory tu_* shim)
-rem   the wrapper (SwiffPlayer.cpp, SwiffPlayerModule.cpp)
-rem
-rem S4 removed the unused upstream tools, demo/render/sound backends, optional decoders,
-rem MovieClipLoader, TextFormat, XMLSocket and the legacy Timer API.
+rem STEP 2 - compile. The image's TUs are listed in swiffplayer_sources.txt (shared with
+rem Code\SwiffPlayerAbi\CMakeLists.txt; one path per line relative to Code\, compile order): the vendored
+rem gameswf + base drop, the shared RendDX9Abi kit (BfMemory/DllMain), SwiffPlayerAbi (PluginEntry
+rem initDll/deinitDll, SwiffMemory tu_* shim), the wrapper, and the Expat C files. Frontier.cpp is
+rem compiled separately below with the SwiffPlayer log defines. Numbered objects (flat output dir).
 rem ---------------------------------------------------------------------------
 echo [2/4] compiling
-set SOURCES=^
- "%EXT%\base\config.cpp" ^
- "%EXT%\base\container.cpp" ^
- "%EXT%\base\file_util.cpp" ^
- "%EXT%\base\image.cpp" ^
- "%EXT%\base\image_filters.cpp" ^
- "%EXT%\base\jpeg.cpp" ^
- "%EXT%\base\membuf.cpp" ^
- "%EXT%\base\tu_file.cpp" ^
- "%EXT%\base\tu_random.cpp" ^
- "%EXT%\base\tu_timer.cpp" ^
- "%EXT%\base\tu_types.cpp" ^
- "%EXT%\base\utf8.cpp" ^
- "%EXT%\base\utility.cpp" ^
- "%EXT%\gameswf\gameswf_action.cpp" ^
- "%EXT%\gameswf\gameswf_button.cpp" ^
- "%EXT%\gameswf\gameswf_dlist.cpp" ^
- "%EXT%\gameswf\gameswf_font.cpp" ^
- "%EXT%\gameswf\gameswf_fontlib.cpp" ^
- "%EXT%\gameswf\gameswf_impl.cpp" ^
- "%EXT%\gameswf\gameswf_log.cpp" ^
- "%EXT%\gameswf\gameswf_morph2.cpp" ^
- "%EXT%\gameswf\gameswf_render.cpp" ^
- "%EXT%\gameswf\gameswf_shape.cpp" ^
- "%EXT%\gameswf\gameswf_sound.cpp" ^
- "%EXT%\gameswf\gameswf_stream.cpp" ^
- "%EXT%\gameswf\gameswf_string.cpp" ^
- "%EXT%\gameswf\gameswf_styles.cpp" ^
- "%EXT%\gameswf\gameswf_tesselate.cpp" ^
- "%EXT%\gameswf\gameswf_text.cpp" ^
- "%EXT%\gameswf\gameswf_timers.cpp" ^
- "%EXT%\gameswf\gameswf_types.cpp" ^
- "%EXT%\gameswf\gameswf_xml.cpp" ^
- "%RD9ABI%\BfMemory.cpp" ^
- "%RD9ABI%\DllMain.cpp" ^
- "%ABI%\PluginEntry.cpp" ^
- "%ABI%\SwiffMemory.cpp" ^
- "%SWF%\SwiffPlayer.cpp" ^
- "%SWF%\SwiffCrashLog.cpp" ^
- "%SWF%\SwiffPlayerModule.cpp"
+set MANIFEST=%~dp0swiffplayer_sources.txt
+if not exist "%MANIFEST%" (
+    echo   MISSING "%MANIFEST%"
+    exit /b 1
+)
 
 set OK=0
 set BAD=0
 set /a OBJN=0
-for %%F in (%SOURCES%) do (
-    set /a OBJN+=1
-    cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nF.obj" "%%F" >"%OUT%\cl_%%~nF.log" 2>&1
-    if errorlevel 1 (
-        set /a BAD+=1
-        echo   COMPILE FAIL %%~nxF
-        type "%OUT%\cl_%%~nF.log"
-    ) else (
-        set /a OK+=1
+for /f "usebackq eol=# tokens=* delims=" %%L in ("%MANIFEST%") do (
+    if /i not "%%~xL"==".c" (
+        set /a OBJN+=1
+        cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nL.obj" "%CODE%\%%L" >"%OUT%\cl_%%~nL.log" 2>&1
+        if errorlevel 1 (
+            set /a BAD+=1
+            echo   COMPILE FAIL %%~nxL
+            type "%OUT%\cl_%%~nL.log"
+        ) else (
+            set /a OK+=1
+        )
     )
 )
 
-rem [CHOSEN, not recovered] Owner-approved Expat 1.95.0 substitute, compiled as C.
-rem xmltok_impl.c and xmltok_ns.c are included by xmltok.c, not separate TUs.
-set EXPAT_SOURCES= "%EXT%\expat\xmlparse.c" "%EXT%\expat\xmltok.c" "%EXT%\expat\xmlrole.c"
+rem [CHOSEN, not recovered] Owner-approved Expat 1.95.0 substitute: the manifest's .c lines, compiled as C
+rem into expat.lib.
 if not exist "%OUT%\expat" mkdir "%OUT%\expat"
 if not exist "%OUT%\expat" exit /b 1
-for %%F in (%EXPAT_SOURCES%) do (
-    set /a OBJN+=1
-    cl /nologo /c /TC %CRT% /W3 /Zi /FS /DDEDICATED=0 /FI"%BF2%\Core\BuildConfig.h" /D_CRT_SECURE_NO_WARNINGS /I "%EXT%\expat" /Fd"%OUT%\SwiffPlayer.pdb" /Fo"%OUT%\expat\%%~nF.obj" "%%F" >"%OUT%\cl_%%~nF.log" 2>&1
-    if errorlevel 1 (
-        set /a BAD+=1
-        echo   COMPILE FAIL %%~nxF
-        type "%OUT%\cl_%%~nF.log"
-    ) else (
-        set /a OK+=1
+del /q "%OUT%\expat\*.obj" >nul 2>&1
+for /f "usebackq eol=# tokens=* delims=" %%L in ("%MANIFEST%") do (
+    if /i "%%~xL"==".c" (
+        cl /nologo /c /TC %CRT% /W3 /Zi /FS /DDEDICATED=0 /FI"%BF2%\Core\BuildConfig.h" /D_CRT_SECURE_NO_WARNINGS /I "%EXT%\expat" /Fd"%OUT%\SwiffPlayer.pdb" /Fo"%OUT%\expat\%%~nL.obj" "%CODE%\%%L" >"%OUT%\cl_%%~nL.log" 2>&1
+        if errorlevel 1 (
+            set /a BAD+=1
+            echo   COMPILE FAIL %%~nxL
+            type "%OUT%\cl_%%~nL.log"
+        ) else (
+            set /a OK+=1
+        )
     )
 )
 
@@ -191,7 +154,7 @@ if errorlevel 1 ( set /a BAD+=1 & echo   COMPILE FAIL Frontier.cpp & type "%OUT%
 
 echo   %OK% compiled, %BAD% failed
 if not "%BAD%"=="0" exit /b 1
-lib /nologo /OUT:"%OUT%\expat.lib" "%OUT%\expat\xmlparse.obj" "%OUT%\expat\xmltok.obj" "%OUT%\expat\xmlrole.obj" >"%OUT%\lib_expat.log" 2>&1
+lib /nologo /OUT:"%OUT%\expat.lib" "%OUT%\expat\*.obj" >"%OUT%\lib_expat.log" 2>&1
 if errorlevel 1 ( type "%OUT%\lib_expat.log" & exit /b 1 )
 
 rem ---------------------------------------------------------------------------

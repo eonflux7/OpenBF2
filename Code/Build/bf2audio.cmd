@@ -97,65 +97,52 @@ rem ---------------------------------------------------------------------------
 echo [1/4] native ABI - no Memory import library
 
 rem ---------------------------------------------------------------------------
-rem STEP 2 - compile. Explicit manifest, numbered objects (flat output dir).
-rem
-rem   the shared RendDX9Abi kit: BfMemory (operator new/delete -> shared CRT, engineAlloc/engineFree
-rem     for the PCM buffers); Frontier.cpp compiled separately with this DLL's log
-rem     defines. NOT DllMain.cpp: Win32System.cpp IS this image's DllMain (attested).
-rem   Sound\NullSound.cpp: the null Sound / SoundTemplate pair getSoundEngine creates.
-rem   the fifteen SoundEngine TUs (ten attested by __FILE__, five placed by link order).
+rem STEP 2 - compile. The image's TUs are listed in bf2audio_sources.txt (shared with
+rem Code\BF2AudioAbi\CMakeLists.txt; one path per line relative to Code\, compile order): the shared
+rem RendDX9Abi kit's BfMemory (operator new/delete -> shared CRT, engineAlloc/engineFree for the PCM
+rem buffers; NOT its DllMain - Win32System.cpp IS this image's DllMain), Sound\NullSound.cpp, the fifteen
+rem SoundEngine TUs, and the Ogg Vorbis C files. Frontier.cpp is compiled separately below with this
+rem DLL's log defines. Numbered objects (flat output dir).
 rem ---------------------------------------------------------------------------
 echo [2/4] compiling
-set SOURCES=^
- "%RD9ABI%\BfMemory.cpp" ^
- "%BF2%\Sound\NullSound.cpp" ^
- "%SND%\Ambient.cpp" ^
- "%SND%\BfOpenAL.cpp" ^
- "%SND%\BfSoundEngine.cpp" ^
- "%SND%\Music.cpp" ^
- "%SND%\OpenALProvider.cpp" ^
- "%SND%\OpenALSample.cpp" ^
- "%SND%\Reverb.cpp" ^
- "%SND%\Sample.cpp" ^
- "%SND%\Sound.cpp" ^
- "%SND%\SoundDefaults.cpp" ^
- "%SND%\SoundEvaluator.cpp" ^
- "%SND%\SoundFile.cpp" ^
- "%SND%\SoundTrigger.cpp" ^
- "%SND%\WavFileFormat.cpp" ^
- "%SND%\Win32System.cpp"
+set MANIFEST=%~dp0bf2audio_sources.txt
+if not exist "%MANIFEST%" (
+    echo   MISSING "%MANIFEST%"
+    exit /b 1
+)
 
 set OK=0
 set BAD=0
 set /a OBJN=0
-for %%F in (%SOURCES%) do (
-    set /a OBJN+=1
-    cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nF.obj" "%%F" >"%OUT%\cl_%%~nF.log" 2>&1
-    if errorlevel 1 (
-        set /a BAD+=1
-        echo   COMPILE FAIL %%~nxF
-        type "%OUT%\cl_%%~nF.log"
-    ) else (
-        set /a OK+=1
+for /f "usebackq eol=# tokens=* delims=" %%L in ("%MANIFEST%") do (
+    if /i not "%%~xL"==".c" (
+        set /a OBJN+=1
+        cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nL.obj" "%CODE%\%%L" >"%OUT%\cl_%%~nL.log" 2>&1
+        if errorlevel 1 (
+            set /a BAD+=1
+            echo   COMPILE FAIL %%~nxL
+            type "%OUT%\cl_%%~nL.log"
+        ) else (
+            set /a OK+=1
+        )
     )
 )
 
-rem The Ogg Vorbis decoder (C, third-party: no image define, no BuildConfig, its own warning set).
+rem The Ogg Vorbis decoder: the manifest's .c lines (third-party: no image define, no BuildConfig, its
+rem own warning set).
 set CFLAGS=/nologo /c %CRT% /W3 /FS /Zi /DWIN32 /D_WINDOWS /DNDEBUG /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_DEPRECATE ^
  /I "%OGG%\include" /I "%VORBIS%\include" /I "%VORBIS%\lib" /wd4018 /wd4101 /wd4146 /wd4244 /wd4267 /wd4305 /wd4700 /wd4996 /Fd"%OUT%\BF2Audio.pdb"
-for %%F in ("%OGG%\src\bitwise.c" "%OGG%\src\framing.c" "%VORBIS%\lib\analysis.c" "%VORBIS%\lib\bitrate.c" "%VORBIS%\lib\block.c" ^
-            "%VORBIS%\lib\codebook.c" "%VORBIS%\lib\envelope.c" "%VORBIS%\lib\floor0.c" "%VORBIS%\lib\floor1.c" "%VORBIS%\lib\info.c" ^
-            "%VORBIS%\lib\lookup.c" "%VORBIS%\lib\lpc.c" "%VORBIS%\lib\lsp.c" "%VORBIS%\lib\mapping0.c" "%VORBIS%\lib\mdct.c" ^
-            "%VORBIS%\lib\psy.c" "%VORBIS%\lib\registry.c" "%VORBIS%\lib\res0.c" "%VORBIS%\lib\sharedbook.c" "%VORBIS%\lib\smallft.c" ^
-            "%VORBIS%\lib\synthesis.c" "%VORBIS%\lib\vorbisfile.c" "%VORBIS%\lib\window.c") do (
-    set /a OBJN+=1
-    cl !CFLAGS! /Fo"%OUT%\!OBJN!_%%~nF.obj" "%%~F" >"%OUT%\cl_%%~nF.log" 2>&1
-    if errorlevel 1 (
-        set /a BAD+=1
-        echo   COMPILE FAIL %%~nxF
-        type "%OUT%\cl_%%~nF.log"
-    ) else (
-        set /a OK+=1
+for /f "usebackq eol=# tokens=* delims=" %%L in ("%MANIFEST%") do (
+    if /i "%%~xL"==".c" (
+        set /a OBJN+=1
+        cl !CFLAGS! /Fo"%OUT%\!OBJN!_%%~nL.obj" "%CODE%\%%L" >"%OUT%\cl_%%~nL.log" 2>&1
+        if errorlevel 1 (
+            set /a BAD+=1
+            echo   COMPILE FAIL %%~nxL
+            type "%OUT%\cl_%%~nL.log"
+        ) else (
+            set /a OK+=1
+        )
     )
 )
 

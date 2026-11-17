@@ -1,0 +1,51 @@
+# Source manifest of the BF2Audio.dll image, in compile order. .cpp lines compile with the image flags;
+# .c lines are the vendored Ogg Vorbis decoder (libogg 1.3.6, libvorbis 1.3.7: the decoder set plus
+# vorbisfile), compiled as third-party C with its own flags. The shipped image statically links its own
+# libvorbis 1.0; the .ogg paths have no decoder-less variant.
+# One path per line, relative to Code/. Lines starting with # are comments.
+# Read by Code/BF2AudioAbi/CMakeLists.txt (bf2_bf2audio_native) and Code/Build/bf2audio.cmd.
+# Frontier.cpp is compiled by each build description with BF2Audio's log defines.
+# The shared RendDX9Abi kit's BfMemory, NOT its DllMain: Win32System.cpp IS this image's DllMain.
+RendDX9Abi/BfMemory.cpp
+# The null Sound / SoundTemplate pair getSoundEngine creates.
+BF2/Sound/NullSound.cpp
+# The fifteen SoundEngine TUs (ten attested by __FILE__, five placed by link order).
+BF2/Sound/SoundEngine/Ambient.cpp
+BF2/Sound/SoundEngine/BfOpenAL.cpp
+BF2/Sound/SoundEngine/BfSoundEngine.cpp
+BF2/Sound/SoundEngine/Music.cpp
+BF2/Sound/SoundEngine/OpenALProvider.cpp
+BF2/Sound/SoundEngine/OpenALSample.cpp
+BF2/Sound/SoundEngine/Reverb.cpp
+BF2/Sound/SoundEngine/Sample.cpp
+BF2/Sound/SoundEngine/Sound.cpp
+BF2/Sound/SoundEngine/SoundDefaults.cpp
+BF2/Sound/SoundEngine/SoundEvaluator.cpp
+BF2/Sound/SoundEngine/SoundFile.cpp
+BF2/Sound/SoundEngine/SoundTrigger.cpp
+BF2/Sound/SoundEngine/WavFileFormat.cpp
+BF2/Sound/SoundEngine/Win32System.cpp
+# Ogg Vorbis.
+BF2/External/libogg-1.3.6/src/bitwise.c
+BF2/External/libogg-1.3.6/src/framing.c
+BF2/External/libvorbis-1.3.7/lib/analysis.c
+BF2/External/libvorbis-1.3.7/lib/bitrate.c
+BF2/External/libvorbis-1.3.7/lib/block.c
+BF2/External/libvorbis-1.3.7/lib/codebook.c
+BF2/External/libvorbis-1.3.7/lib/envelope.c
+BF2/External/libvorbis-1.3.7/lib/floor0.c
+BF2/External/libvorbis-1.3.7/lib/floor1.c
+BF2/External/libvorbis-1.3.7/lib/info.c
+BF2/External/libvorbis-1.3.7/lib/lookup.c
+BF2/External/libvorbis-1.3.7/lib/lpc.c
+BF2/External/libvorbis-1.3.7/lib/lsp.c
+BF2/External/libvorbis-1.3.7/lib/mapping0.c
+BF2/External/libvorbis-1.3.7/lib/mdct.c
+BF2/External/libvorbis-1.3.7/lib/psy.c
+BF2/External/libvorbis-1.3.7/lib/registry.c
+BF2/External/libvorbis-1.3.7/lib/res0.c
+BF2/External/libvorbis-1.3.7/lib/sharedbook.c
+BF2/External/libvorbis-1.3.7/lib/smallft.c
+BF2/External/libvorbis-1.3.7/lib/synthesis.c
+BF2/External/libvorbis-1.3.7/lib/vorbisfile.c
+BF2/External/libvorbis-1.3.7/lib/window.c

@@ -115,24 +115,35 @@ goto :fail
 :libs_ok
 
 rem ---------------------------------------------------------------------------
-rem STEP 2 - compile. Explicit manifest, numbered objects (flat output dir), in the shipped image's
-rem link order: the format helpers (0x10001000), the packer (0x10001E60), the atlas base (0x10002210),
-rem DllMain (0x10007450), the configuration base (0x10007460), the D3D9 leaves (0x10008220).
+rem STEP 2 - compile. The image's TUs are listed, in the shipped link order, in
+rem textureatlasbuilder_sources.txt (shared with Code\RendDX9Abi\CMakeLists.txt; one path per line
+rem relative to Code\). Numbered objects (flat output dir) keep that order at link time.
 rem ---------------------------------------------------------------------------
 echo [2/4] compiling
-set SOURCES=^
- "%SRC%\TextureFormat.cpp" ^
- "%SRC%\Packer.cpp" ^
- "%SRC%\TextureAtlas.cpp" ^
- "%SRC%\DllMain.cpp" ^
- "%SRC%\TextureAtlasConfiguration.cpp" ^
- "%SRC%\TextureAtlasD3D9.cpp"
-if defined BF2_D3DX_FALLBACK set SOURCES=%SOURCES% "%ABI%\DxErr9StandIn.cpp"
+set MANIFEST=%~dp0textureatlasbuilder_sources.txt
+if not exist "%MANIFEST%" (
+    echo   MISSING "%MANIFEST%"
+    goto :fail
+)
+set "EXTRA_SOURCES="
+if defined BF2_D3DX_FALLBACK set EXTRA_SOURCES="%ABI%\DxErr9StandIn.cpp"
 
 set OK=0
 set BAD=0
 set /a OBJN=0
-for %%F in (%SOURCES%) do (
+for /f "usebackq eol=# tokens=* delims=" %%L in ("%MANIFEST%") do (
+    set /a OBJN+=1
+    cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nL.obj" "%CODE%\%%L" >"%OUT%\cl_%%~nL.log" 2>&1
+    if errorlevel 1 (
+        set /a BAD+=1
+        echo   COMPILE FAIL %%~nxL
+        type "%OUT%\cl_%%~nL.log"
+    ) else (
+        set /a OK+=1
+        findstr /c:"warning C" "%OUT%\cl_%%~nL.log" >nul && type "%OUT%\cl_%%~nL.log"
+    )
+)
+for %%F in (%EXTRA_SOURCES%) do (
     set /a OBJN+=1
     cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nF.obj" "%%~F" >"%OUT%\cl_%%~nF.log" 2>&1
     if errorlevel 1 (

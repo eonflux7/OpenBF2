@@ -1,0 +1,53 @@
+# Source manifest of the SwiffPlayer.dll image, in compile order. .cpp lines compile with the image
+# flags; .c lines are the Expat 1.95.0 substitute (owner-approved), compiled as C into a static library
+# (xmltok_impl.c and xmltok_ns.c are included by xmltok.c, not separate TUs).
+# One path per line, relative to Code/. Lines starting with # are comments.
+# Read by Code/SwiffPlayerAbi/CMakeLists.txt (bf2_swiffplayer_native) and Code/Build/swiffplayer.cmd.
+# Frontier.cpp is compiled by each build description with SwiffPlayer's log defines.
+# The vendored gameswf + base drop (per the two upstream Makefiles; S4 removed the unused upstream tools,
+# demo/render/sound backends, optional decoders, MovieClipLoader, TextFormat, XMLSocket and the legacy
+# Timer API).
+BF2/External/base/config.cpp
+BF2/External/base/container.cpp
+BF2/External/base/file_util.cpp
+BF2/External/base/image.cpp
+BF2/External/base/image_filters.cpp
+BF2/External/base/jpeg.cpp
+BF2/External/base/membuf.cpp
+BF2/External/base/tu_file.cpp
+BF2/External/base/tu_random.cpp
+BF2/External/base/tu_timer.cpp
+BF2/External/base/tu_types.cpp
+BF2/External/base/utf8.cpp
+BF2/External/base/utility.cpp
+BF2/External/gameswf/gameswf_action.cpp
+BF2/External/gameswf/gameswf_button.cpp
+BF2/External/gameswf/gameswf_dlist.cpp
+BF2/External/gameswf/gameswf_font.cpp
+BF2/External/gameswf/gameswf_fontlib.cpp
+BF2/External/gameswf/gameswf_impl.cpp
+BF2/External/gameswf/gameswf_log.cpp
+BF2/External/gameswf/gameswf_morph2.cpp
+BF2/External/gameswf/gameswf_render.cpp
+BF2/External/gameswf/gameswf_shape.cpp
+BF2/External/gameswf/gameswf_sound.cpp
+BF2/External/gameswf/gameswf_stream.cpp
+BF2/External/gameswf/gameswf_string.cpp
+BF2/External/gameswf/gameswf_styles.cpp
+BF2/External/gameswf/gameswf_tesselate.cpp
+BF2/External/gameswf/gameswf_text.cpp
+BF2/External/gameswf/gameswf_timers.cpp
+BF2/External/gameswf/gameswf_types.cpp
+BF2/External/gameswf/gameswf_xml.cpp
+# The shared RendDX9Abi kit, SwiffPlayerAbi (initDll/deinitDll, the tu_* memory shim), the wrapper.
+RendDX9Abi/BfMemory.cpp
+RendDX9Abi/DllMain.cpp
+SwiffPlayerAbi/PluginEntry.cpp
+SwiffPlayerAbi/SwiffMemory.cpp
+BF2/External/gameswf/SwiffPlayer/SwiffPlayer.cpp
+BF2/External/gameswf/SwiffPlayer/SwiffCrashLog.cpp
+BF2/External/gameswf/SwiffPlayer/SwiffPlayerModule.cpp
+# Expat.
+BF2/External/expat/xmlparse.c
+BF2/External/expat/xmltok.c
+BF2/External/expat/xmlrole.c

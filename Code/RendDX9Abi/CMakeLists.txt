@@ -1,31 +1,17 @@
-# [CHOSEN, not recovered] RendDX9.dll as a Ninja target: the same image Code/Build/renddx9.cmd builds
-# (TU manifest, flags, defines, link inputs and ABI checks), compiled incrementally and in parallel with
-# compiler-reported header dependencies. The script remains for the G2w seam flavour (BF2_GFX_SEAM) and
-# the editor's own RendDX9 (Code/Tools/BF2Editor), and both read the one manifest,
-# Code/Build/renddx9_sources.txt.
+# [CHOSEN, not recovered] RendDX9.dll and TextureAtlasBuilder.dll as Ninja targets: the same images
+# Code/Build/renddx9.cmd and Code/Build/textureatlasbuilder.cmd build (TU manifest, flags, defines, link
+# inputs and ABI checks), compiled incrementally and in parallel with compiler-reported header
+# dependencies. The scripts remain for the G2w seam flavour (BF2_GFX_SEAM), the editor's own RendDX9
+# (Code/Tools/BF2Editor) and the parity harnesses, and read the same manifests,
+# Code/Build/renddx9_sources.txt and Code/Build/textureatlasbuilder_sources.txt.
 #
-# Included by the root CMakeLists.txt with BF2_PLUGIN_FLAVOUR (x64 | native) set. Defines the target
-# bf2_renddx9_native (OUTPUT_NAME RendDX9) in ${CMAKE_BINARY_DIR}/renddx9.
+# Included by the root CMakeLists.txt. Defines bf2_textureatlas_native (OUTPUT_NAME TextureAtlasBuilder)
+# in ${CMAKE_BINARY_DIR}/textureatlasbuilder and, unless BF2_GFX_SEAM, bf2_renddx9_native (OUTPUT_NAME
+# RendDX9) in ${CMAKE_BINARY_DIR}/renddx9.
 
-set(_code "${PROJECT_SOURCE_DIR}/Code")
+include("${PROJECT_SOURCE_DIR}/Code/Build/plugin_common.cmake")
 set(_abi "${_code}/RendDX9Abi")
-set(_bf2 "${_code}/BF2")
 set(_out "${CMAKE_BINARY_DIR}/renddx9")
-if(BF2_BUILD_X64)
-    set(_machine x64)
-else()
-    set(_machine x86)
-endif()
-
-# The script compiles without optimisation and without NDEBUG (no /O, no config flags), and the
-# FFmpeg decoders with exactly their own flags. Clear the configuration flags for this directory so
-# the CMake build matches it; the flags each source needs are added below.
-foreach(_cfg "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
-    set(CMAKE_CXX_FLAGS${_cfg} "")
-    set(CMAKE_C_FLAGS${_cfg} "")
-endforeach()
-set(CMAKE_CXX_STANDARD_LIBRARIES "")
-set(CMAKE_C_STANDARD_LIBRARIES "")
 
 # ---- D3DX: the April 2005 DirectX SDK, or the .def fallback (Code/Build/dxsdk.cmd, same rules) -------
 # BF2_D3DX (environment): auto (default) takes the SDK when present, else the fallback; sdk requires
@@ -70,44 +56,110 @@ else()
     message(STATUS "RendDX9: no DirectX SDK - D3DX from Code/RendDX9Abi/D3dx9_25.def and D3dxFallbackInclude")
 endif()
 
-# ---- import libraries generated from .def files ------------------------------------------------------
-set(_implibs)
-function(_renddx9_implib name def)
-    add_custom_command(
-        OUTPUT "${_out}/lib/${name}.lib"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_out}/lib"
-        COMMAND "${CMAKE_AR}" /nologo "/def:${def}" "/machine:${_machine}" "/out:${_out}/lib/${name}.lib"
-        DEPENDS "${def}"
-        COMMENT "RendDX9: ${name}.lib from ${def}"
-        VERBATIM)
-    set(_implibs ${_implibs} "${_out}/lib/${name}.lib" PARENT_SCOPE)
-endfunction()
-if(BF2_BUILD_X64)
-    _renddx9_implib(TextureAtlasBuilder "${_abi}/TextureAtlasBuilder_x64.def")
+# ---- shared by both images ----------------------------------------------------------------------------
+if(_dxsdk)
+    set(_fallback OFF)
 else()
-    _renddx9_implib(TextureAtlasBuilder "${_abi}/TextureAtlasBuilder.def")
+    set(_fallback ON)
+endif()
+# Import libraries generated from .def files, built by bf2_plugin_implibs.
+set(_libdir "${CMAKE_BINARY_DIR}/plugin_implibs")
+set(_implibs)
+function(_bf2_implib name def)
+    add_custom_command(
+        OUTPUT "${_libdir}/${name}.lib"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_libdir}"
+        COMMAND "${CMAKE_AR}" /nologo "/def:${def}" "/machine:${_machine}" "/out:${_libdir}/${name}.lib"
+        DEPENDS "${def}"
+        COMMENT "${name}.lib from ${def}"
+        VERBATIM)
+    set(_implibs ${_implibs} "${_libdir}/${name}.lib" PARENT_SCOPE)
+endfunction()
+set(_renddx9_implibs)
+if(BF2_BUILD_X64)
+    _bf2_implib(TextureAtlasBuilder "${_abi}/TextureAtlasBuilder_x64.def")
+    list(APPEND _renddx9_implibs "${_libdir}/TextureAtlasBuilder.lib")
+else()
+    _bf2_implib(TextureAtlasBuilder "${_abi}/TextureAtlasBuilder.def")
     # binkw32.dll exists only as a 32-bit DLL; x64 links the FFmpeg-based port below instead.
-    _renddx9_implib(binkw32 "${_abi}/binkw32.def")
+    _bf2_implib(binkw32 "${_abi}/binkw32.def")
+    list(APPEND _renddx9_implibs "${_libdir}/TextureAtlasBuilder.lib" "${_libdir}/binkw32.lib")
 endif()
 if(_dxsdk)
     set(_d3dx_lib "${_dxsdk}/Lib/${_machine}/d3dx9.lib")
 else()
-    _renddx9_implib(d3dx9_25 "${_abi}/D3dx9_25.def")
-    set(_d3dx_lib "${_out}/lib/d3dx9_25.lib")
+    _bf2_implib(d3dx9_25 "${_abi}/D3dx9_25.def")
+    set(_d3dx_lib "${_libdir}/d3dx9_25.lib")
 endif()
-add_custom_target(bf2_renddx9_implibs DEPENDS ${_implibs})
+add_custom_target(bf2_plugin_implibs DEPENDS ${_implibs})
 
-# ---- sources -----------------------------------------------------------------------------------------
-set(_manifest "${PROJECT_SOURCE_DIR}/Code/Build/renddx9_sources.txt")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_manifest}")
-file(STRINGS "${_manifest}" _lines)
-set(_sources)
-foreach(_line IN LISTS _lines)
-    string(STRIP "${_line}" _line)
-    if(_line AND NOT _line MATCHES "^#")
-        list(APPEND _sources "${_code}/${_line}")
-    endif()
-endforeach()
+# D3DX headers for C++: with the SDK, dxsdk.cmd appends it after the Windows SDK (INCLUDE), so the
+# Windows SDK's d3d9.h wins; /I directories precede INCLUDE, so name the toolchain's directories first,
+# then the SDK's. Without it, the fallback headers.
+set(_d3dx_includes)
+if(_dxsdk)
+    set(_env_include "$ENV{INCLUDE}")
+    foreach(_dir IN LISTS _env_include)
+        if(_dir)
+            file(TO_CMAKE_PATH "${_dir}" _dir)
+            list(APPEND _d3dx_includes "${_dir}")
+        endif()
+    endforeach()
+    list(APPEND _d3dx_includes "${_dxsdk}/Include")
+else()
+    list(APPEND _d3dx_includes "${_abi}/D3dxFallbackInclude")
+endif()
+
+# ---- TextureAtlasBuilder.dll: textureatlasbuilder.cmd -------------------------------------------------
+# The atlas packer RendDX9's editor commands call through two exported creates. It links the CRT and STL
+# statically (/MT), unlike the other plugin DLLs: nothing on its interface crosses a heap or a CRT, and
+# the .tai writer's float formatting must keep VC7.1's round-half-up (legacy_stdio_float_rounding.obj),
+# which a shared msvcp140 would not. See the script's header.
+set(_tab_out "${CMAKE_BINARY_DIR}/textureatlasbuilder")
+bf2_read_plugin_manifest(_tab_sources "${PROJECT_SOURCE_DIR}/Code/Build/textureatlasbuilder_sources.txt")
+if(NOT _dxsdk)
+    list(APPEND _tab_sources "${_abi}/DxErr9StandIn.cpp")
+endif()
+add_library(bf2_textureatlas_native SHARED ${_tab_sources})
+add_dependencies(bf2_textureatlas_native bf2_plugin_implibs)
+bf2_plugin_dll_properties(bf2_textureatlas_native TextureAtlasBuilder "${_tab_out}" MultiThreaded)
+# /DBF2_IMAGE_TEXTUREATLASBUILDER admits the TUs and makes ITextureAtlas.h dllexport; /DNDEBUG: the
+# shipped image is a release build.
+target_compile_options(bf2_textureatlas_native PRIVATE
+    /O2 /std:c++14 /permissive /EHsc /W4 /wd4100 /wd4127 "/FI${_bf2}/Core/BuildConfig.h")
+if(BF2_BUILD_X64)
+    target_compile_options(bf2_textureatlas_native PRIVATE /we4311 /we4312)
+endif()
+target_compile_definitions(bf2_textureatlas_native PRIVATE
+    BF2_IMAGE_TEXTUREATLASBUILDER DEDICATED=0 WIN32 _WINDOWS NDEBUG
+    _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
+target_include_directories(bf2_textureatlas_native PRIVATE ${_d3dx_includes})
+# No d3d9.lib: the device arrives through create(). d3dx9_25.dll is delay-loaded, as in RendDX9.
+target_link_libraries(bf2_textureatlas_native PRIVATE
+    legacy_stdio_float_rounding.obj "${_d3dx_lib}" kernel32.lib delayimp.lib)
+if(_dxsdk)
+    # DxErr9.lib is a VC7.1 object: its DXTrace needs __vsnprintf and MessageBox, which /OPT:REF drops.
+    target_link_libraries(bf2_textureatlas_native PRIVATE
+        "${_dxsdk}/Lib/${_machine}/DxErr9.lib" legacy_stdio_definitions.lib user32.lib)
+endif()
+target_link_options(bf2_textureatlas_native PRIVATE
+    /OPT:REF /OPT:ICF /DELAYLOAD:d3dx9_25.dll)
+if(NOT BF2_BUILD_X64)
+    # x86: the shipped base, and the .def that pins the twelve exports to the shipped ordinals. x64 exports
+    # the same twelve names through the dllexport classes in ITextureAtlas.h.
+    target_link_options(bf2_textureatlas_native PRIVATE /BASE:0x10000000
+        "/DEF:${_abi}/TextureAtlasBuilderExports.def")
+endif()
+bf2_plugin_abicheck(bf2_textureatlas_native textureatlasbuilder "${_tab_out}"
+    "-DFALLBACK=${_fallback}" "-DABI=${_abi}")
+
+# ---- RendDX9.dll: renddx9.cmd ----------------------------------------------------------------------
+# The G2w seam flavour stays with the script (root CMakeLists.txt).
+if(BF2_GFX_SEAM)
+    return()
+endif()
+
+bf2_read_plugin_manifest(_sources "${PROJECT_SOURCE_DIR}/Code/Build/renddx9_sources.txt")
 if(NOT _dxsdk)
     # DXGetErrorDescription9A without the SDK's DxErr9.lib.
     list(APPEND _sources "${_abi}/DxErr9StandIn.cpp")
@@ -124,17 +176,8 @@ if(BF2_BUILD_X64)
 endif()
 
 add_library(bf2_renddx9_native SHARED ${_sources} ${_ffbink_sources} "${_abi}/RendDX9.def")
-add_dependencies(bf2_renddx9_native bf2_renddx9_implibs)
-set_target_properties(bf2_renddx9_native PROPERTIES
-    OUTPUT_NAME RendDX9
-    DEFINE_SYMBOL ""
-    RUNTIME_OUTPUT_DIRECTORY "${_out}"
-    LIBRARY_OUTPUT_DIRECTORY "${_out}"
-    ARCHIVE_OUTPUT_DIRECTORY "${_out}/lib"
-    PDB_OUTPUT_DIRECTORY "${_out}"
-    MSVC_RUNTIME_LIBRARY MultiThreadedDLL
-    FOLDER "BF2")
-bf2_add_compile_debug_info(bf2_renddx9_native)
+add_dependencies(bf2_renddx9_native bf2_plugin_implibs)
+bf2_plugin_dll_properties(bf2_renddx9_native RendDX9 "${_out}" MultiThreadedDLL)
 
 # C++: the script's FLAGS. /DBF2_IMAGE_RENDDX9 admits the module TUs under Code/BF2; /DDEDICATED=0 with
 # /FI Core/BuildConfig.h names the client image (AGENTS.md).
@@ -148,21 +191,9 @@ set(_cxx_defines BF2_IMAGE_RENDDX9 BF2_PLUGIN_ABI_NATIVE=1 _ITERATOR_DEBUG_LEVEL
 if(BF2_FRONTIER_DEFAULT_CONTINUE)
     list(APPEND _cxx_defines BF2_FRONTIER_DEFAULT_CONTINUE=1)
 endif()
-set(_cxx_includes)
+set(_cxx_includes ${_d3dx_includes})
 if(_dxsdk)
-    # dxsdk.cmd appends the SDK after the Windows SDK (INCLUDE), so the Windows SDK's d3d9.h wins.
-    # /I directories precede INCLUDE, so name the toolchain's directories first, then the SDK's.
-    set(_env_include "$ENV{INCLUDE}")
-    foreach(_dir IN LISTS _env_include)
-        if(_dir)
-            file(TO_CMAKE_PATH "${_dir}" _dir)
-            list(APPEND _cxx_includes "${_dir}")
-        endif()
-    endforeach()
-    list(APPEND _cxx_includes "${_dxsdk}/Include")
     target_link_directories(bf2_renddx9_native PRIVATE "${_dxsdk}/Lib/${_machine}")
-else()
-    list(APPEND _cxx_includes "${_abi}/D3dxFallbackInclude")
 endif()
 target_compile_options(bf2_renddx9_native PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${_cxx_options}>")
 target_compile_definitions(bf2_renddx9_native PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${_cxx_defines}>")
@@ -180,9 +211,9 @@ endif()
 # d3dx9_25.dll is delay-loaded, so a missing (or 32-bit only) D3DX reaches BF2Render::init's message box
 # instead of failing this DLL's load. TextureAtlasBuilder.dll is a static import, as in retail.
 target_link_libraries(bf2_renddx9_native PRIVATE
-    "${_d3dx_lib}" ${_implibs} kernel32.lib user32.lib gdi32.lib d3d9.lib delayimp.lib)
+    "${_d3dx_lib}" ${_renddx9_implibs} kernel32.lib user32.lib gdi32.lib d3d9.lib delayimp.lib)
 target_link_options(bf2_renddx9_native PRIVATE
-    /DEBUG /INCREMENTAL:NO /DELAYLOAD:d3dx9_25.dll "/MAP:${_out}/RendDX9.map")
+    /DELAYLOAD:d3dx9_25.dll)
 if(NOT _dxsdk)
     # Effect.cpp asks for the SDK's dxerr9.lib by #pragma; the fallback compiles DxErr9StandIn.cpp.
     target_link_options(bf2_renddx9_native PRIVATE /NODEFAULTLIB:dxerr9.lib)
@@ -193,16 +224,4 @@ if(NOT BF2_BUILD_X64)
 endif()
 
 # ---- the script's STEP 4: the image's ABI invariants, checked on every link ------------------------
-get_filename_component(_linker_dir "${CMAKE_LINKER}" DIRECTORY)
-find_program(BF2_DUMPBIN dumpbin HINTS "${_linker_dir}" REQUIRED)
-if(_dxsdk)
-    set(_fallback OFF)
-else()
-    set(_fallback ON)
-endif()
-add_custom_command(TARGET bf2_renddx9_native POST_BUILD
-    COMMAND "${CMAKE_COMMAND}"
-            "-DDUMPBIN=${BF2_DUMPBIN}" "-DDLL=$<TARGET_FILE:bf2_renddx9_native>"
-            "-DARCH=${_machine}" "-DFALLBACK=${_fallback}" "-DWORK=${_out}/abicheck"
-            -P "${PROJECT_SOURCE_DIR}/Code/Build/renddx9_abicheck.cmake"
-    VERBATIM)
+bf2_plugin_abicheck(bf2_renddx9_native renddx9 "${_out}" "-DFALLBACK=${_fallback}" "-DABI=${_abi}")
