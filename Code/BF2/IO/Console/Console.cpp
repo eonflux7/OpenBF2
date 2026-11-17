@@ -600,16 +600,21 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
         std::string kw;
         kin.readToken(kw);
 
+        // [PERF] Every keyword below is a single word; a binding call's first token has a dot
+        // (Object.method) and matches none of them, so its twelve case-insensitive compares are
+        // skipped. The serial code compared each one (BF2_PERF_CONDISPATCH=0).
+        const bool mayBeKeyword = !consoleFastDispatchEnabled() || kw.find('.') == std::string::npos;
+
         // An active block comment swallows everything except its own nesting tokens
         if (remDepth > 0)
         {
-            if (compareIgnoreCase(kw, "beginRem") == 0)
+            if ((mayBeKeyword && compareIgnoreCase(kw, "beginRem") == 0))
             {
                 if (remDepth > 9) { result = "\"beginRem\" max depth has been reached!"; return 2; }
                 ++remDepth;
                 return 1;
             }
-            if (compareIgnoreCase(kw, "endRem") == 0)
+            if ((mayBeKeyword && compareIgnoreCase(kw, "endRem") == 0))
             {
                 --remDepth;
                 return 1;
@@ -618,13 +623,13 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
         }
         if (noExecDepth > 0)
         {
-            if (compareIgnoreCase(kw, "beginNoExecution") == 0)
+            if ((mayBeKeyword && compareIgnoreCase(kw, "beginNoExecution") == 0))
             {
                 if (noExecDepth > 9) { result = "\"beginNoExecution\" max depth has been reached!"; return 2; }
                 ++noExecDepth;
                 return 1;
             }
-            if (compareIgnoreCase(kw, "endNoExecution") == 0)
+            if ((mayBeKeyword && compareIgnoreCase(kw, "endNoExecution") == 0))
             {
                 --noExecDepth;
                 return 1;
@@ -634,7 +639,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
 
         const bool skipping = !stack.empty() && !stack.back().executing;
 
-        if (compareIgnoreCase(kw, "if") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "if") == 0))
         {
             if (skipping)
             {
@@ -658,7 +663,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             stack.push_back(next);
             return 1;
         }
-        if (compareIgnoreCase(kw, "elseIf") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "elseIf") == 0))
         {
             if (skipping && stack.back().skipNesting > 0) return 1;
             if (stack.empty()) { result = "Can not have an \"elseIf\" without an \"if\"!"; return 2; }
@@ -677,7 +682,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             stack.back().branchTaken = cond;
             return 1;
         }
-        if (compareIgnoreCase(kw, "else") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "else") == 0))
         {
             if (skipping && stack.back().skipNesting > 0) return 1;
             if (stack.empty()) { result = "Can not have an \"else\" without an \"if\"!"; return 2; }
@@ -685,7 +690,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             stack.back().branchTaken = true;
             return 1;
         }
-        if (compareIgnoreCase(kw, "endIf") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "endIf") == 0))
         {
             if (skipping && stack.back().skipNesting > 0) { --stack.back().skipNesting; return 1; }
             if (stack.empty()) { result = "Can not have an \"endIf\" without an \"if\"!"; return 2; }
@@ -696,24 +701,24 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
         if (skipping)
             return 1;                                    // a dead branch swallows every other line
                                                          // Block-comment directives are handled only on an executing branch.
-        if (compareIgnoreCase(kw, "beginRem") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "beginRem") == 0))
         {
             if (m_depth == 0) { result = "\"beginRem\" not allowed on the highest level!"; return 2; }
             ++remDepth;
             return 1;
         }
-        if (compareIgnoreCase(kw, "endRem") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "endRem") == 0))
         {
             result = "Can not have a \"endRem\" without a \"beginRem\"!";
             return 2;
         }
-        if (compareIgnoreCase(kw, "beginNoExecution") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "beginNoExecution") == 0))
         {
             if (m_depth == 0) { result = "\"beginNoExecution\" not allowed on the highest level!"; return 2; }
             ++noExecDepth;
             return 1;
         }
-        if (compareIgnoreCase(kw, "endNoExecution") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "endNoExecution") == 0))
         {
             result = "Can not have a \"endNoExecution\" without a \"beginNoExecution\"!";
             return 2;
@@ -721,7 +726,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
 
         // quit and exit invoke the optional exit callback, then report the same message unconditionally.
         // They work at any depth and return status 0 so executeLine can display the result.
-        if (compareIgnoreCase(kw, "quit") == 0 || compareIgnoreCase(kw, "exit") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "quit") == 0) || (mayBeKeyword && compareIgnoreCase(kw, "exit") == 0))
         {
             if (m_exitCallBack != 0)                       // +0x158
                 m_exitCallBack(m_exitCallBackData);        // +0x15C
@@ -730,7 +735,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
         }
 
         // Parses the filename and up to eight script arguments, stripping quotes and expanding variables and constants.
-        if (compareIgnoreCase(kw, "run") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "run") == 0))
         {
             std::string tokens[9], raw[9], argError;
             const int expandFrom = (m_currentLevel && m_currentLevel->m_unknown18) ? 11 : 1;
@@ -747,7 +752,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
         }
 
         // Includes a script using the same argument parsing as run.
-        if (compareIgnoreCase(kw, "include") == 0)
+        if ((mayBeKeyword && compareIgnoreCase(kw, "include") == 0))
         {
             // Same tokenisation as `run` above: the stock content never quotes an
             // include argument (0 of 1,968 in Objects_*.zip), so this one was latent, not measured.

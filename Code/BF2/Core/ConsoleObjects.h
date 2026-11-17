@@ -65,6 +65,11 @@ private:
     Hash<std::string, std::string, StringHashFunc>                            m_typeConversions;
     std::multimap<std::string, ConsoleObject*, NoCaseStringCompare>           m_consoleObjectMap;
     ConsoleObjectList                                                         m_consoleObjects;
+
+    // [PERF] Bumped by every register and unregister, in whichever image's copy of this class runs
+    // them (aidll.dll registers through its own), so findInMultiMap's lookup cache can tell when
+    // the map changed. A plain integer: the images need not share an allocator for it.
+    unsigned int                                                              m_generation;
 };
 
 // Points to the engine's statically constructed console registry.

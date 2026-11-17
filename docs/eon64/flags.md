@@ -26,6 +26,7 @@ Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`
 | `BF2_PERF_TSCCAL=0` | on | The one-second TSC calibration spins on the main thread during startup again, instead of on a worker joined at the end of engine init | The worker calibration is accepted in game |
 | `BF2_PERF_VIDEODETECT=0` | on | The video quality heuristic runs again (its CPU benchmark sleeps one second) at renderer initialization and in VideoSettings::detectVideoOptionScheme (every profile login), although both drop its level | The skipped detection is accepted in game |
 | `BF2_PERF_FILEPREFETCH=0` | on | Archive entries inflate on the main thread when opened or read again, and no per-level list of opened entries (`@HOME@/<mod>/cache/fileorder_*.lst`) is recorded or prefetched | The archive prefetch is accepted in game |
+| `BF2_PERF_CONDISPATCH=0` | on | The console compares every line's first token against its twelve keywords again, and searches the binding multimap for every binding call instead of using the cached equal range | The faster dispatch is accepted in game |
 | `BF2_PERF_FXSTAT=0` | on | The Ra effect key looks up the size and write time of every include file for every effect again, instead of once per frame | The file-info memo is accepted in game |
 | `BF2_PERF_FXSRC=0` | on | Effects loaded through `compileEffectFile` (fsquaddrawer, postproduction, skydome, terrainshader, ...) compile from source on every load again, with no bytecode cache | The source-effect cache is accepted in game |
 

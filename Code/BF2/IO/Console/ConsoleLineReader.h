@@ -43,6 +43,15 @@ inline bool consoleFastParseEnabled()
     return on == 1;
 }
 
+// [PERF] BF2_PERF_CONDISPATCH=0: handleCommand compares every first token against its keywords
+// again (see there), and ConsoleObjects searches its map for every binding call.
+inline bool consoleFastDispatchEnabled()
+{
+    static int on = -1;
+    if (on < 0) { const char* e = std::getenv("BF2_PERF_CONDISPATCH"); on = (e && *e == '0') ? 0 : 1; }
+    return on == 1;
+}
+
 class ConsoleLineReader
 {
 public:
