@@ -96,6 +96,90 @@ bool consoleTraceEnabled()
     return on == 1;
 }
 
+// [DEV] BF2_LOAD_TRACE: the interpreter's own time per stage, summed. A line costs a few
+// microseconds, too short for one span each, so executeLine and handleCommand add each stage's
+// time to a total, and every load-trace mark prints the totals since the previous mark to stderr
+// ("[CONPROFILE]") and resets them. Nested scripts and binding calls are excluded (they have
+// their own spans).
+enum ConStage
+{
+    CsSplit, CsCompiler, CsFirstToken, CsPost, CsPrep, CsKeyword, CsExchange, CsLookup, CsArgs,
+    CsChecks, CsCount
+};
+const char* const kConStageNames[CsCount] = {
+    "split", "compiler", "firstToken", "post", "prep", "keyword", "exchange", "lookup", "args",
+    "checks"
+};
+long long   g_conStageTime[CsCount];
+long long   g_conStageCount[CsCount];
+long long   g_conLines;
+std::string g_conProfileSince("start");
+
+void conProfileReport(const char* mark)
+{
+    long long total = 0;
+    for (int i = 0; i < CsCount; ++i)
+        total += g_conStageTime[i];
+    if (g_conLines)
+    {
+        std::fprintf(stderr, "[CONPROFILE] %s .. %s: %lld lines, %.1f ms", g_conProfileSince.c_str(),
+                     mark, g_conLines, total / 1000.0);
+        for (int i = 0; i < CsCount; ++i)
+            if (g_conStageCount[i])
+                std::fprintf(stderr, " | %s %.1f ms/%lld", kConStageNames[i],
+                             g_conStageTime[i] / 1000.0, g_conStageCount[i]);
+        std::fprintf(stderr, "\n");
+        std::fflush(stderr);
+    }
+    for (int i = 0; i < CsCount; ++i)
+        g_conStageTime[i] = g_conStageCount[i] = 0;
+    g_conLines = 0;
+    g_conProfileSince = mark;
+}
+
+bool conProfileOn()
+{
+    static int on = -1;
+    if (on < 0)
+    {
+        on = loadtrace::enabled() ? 1 : 0;
+        if (on)
+            loadtrace::setMarkHook(&conProfileReport);
+    }
+    return on == 1;
+}
+
+// One function frame's stage clock: to() closes the current stage and opens the next, pause()
+// stops counting around a nested call, the destructor closes the last stage.
+class ConStageClock
+{
+public:
+    explicit ConStageClock(int stage) : m_on(conProfileOn()), m_stage(stage), m_last(m_on ? loadtrace::now() : 0) {}
+    ~ConStageClock() { close(); }
+    void to(int stage)
+    {
+        if (!m_on) return;
+        const long long t = loadtrace::now();
+        if (m_stage >= 0) { g_conStageTime[m_stage] += t - m_last; ++g_conStageCount[m_stage]; }
+        m_stage = stage; m_last = t;
+    }
+    void pause() { close(); m_stage = -1; }
+    void resume(int stage) { if (m_on) { m_stage = stage; m_last = loadtrace::now(); } }
+private:
+    void close()
+    {
+        if (m_on && m_stage >= 0)
+        {
+            g_conStageTime[m_stage] += loadtrace::now() - m_last;
+            ++g_conStageCount[m_stage];
+            m_stage = -1;
+        }
+    }
+    bool      m_on;
+    int       m_stage;
+    long long m_last;
+};
+
 // [FIX] if/elseIf operands drop one pair of surrounding double quotes, so
 // `if v_arg2 == "meinsurgent"` compares the run argument with the literal's contents. Retail
 // content depends on this (Project Reality's faction_init.con / InitSpawnKits.tweak branch on
@@ -292,11 +376,17 @@ void OldConsole::executeLine(const std::string& command, std::string& out,
                              bool outputToConsole, bool outputError,
                              bool addToHistory, bool suppressEcho, bool fullAccess)
 {
+    ConStageClock stageClock(CsSplit);                  // [DEV] BF2_LOAD_TRACE: see ConStageClock
     std::istringstream stream(command);
     char buf[1024];
 
-    while (stream.getline(buf, 1023, '\n'))
+    for (;;)
     {
+        stageClock.to(CsSplit);                         // the getline belongs to the split stage
+        if (!stream.getline(buf, 1023, '\n'))
+            break;
+        if (conProfileOn())
+            ++g_conLines;
         std::string line(buf);
 
         if (!line.empty() && line[line.size() - 1] == '\r')
@@ -320,9 +410,11 @@ void OldConsole::executeLine(const std::string& command, std::string& out,
         if (line.empty())
             continue;
 
+        stageClock.to(CsCompiler);
         if (m_consoleCompiler)
             m_consoleCompiler->addLine(line);           // compiled-.con capture
 
+        stageClock.to(CsFirstToken);
         std::istringstream ls(line);
         std::string firstToken;
         ls >> firstToken;
@@ -333,7 +425,9 @@ void OldConsole::executeLine(const std::string& command, std::string& out,
         else                            access = static_cast<AccessType>(1);
 
         std::string result;
+        stageClock.pause();
         const int status = handleCommand(line, result, access);
+        stageClock.resume(CsPost);
 
         switch (status)
         {
@@ -452,6 +546,7 @@ void OldConsole::addToCommandHistory(const std::string& command)
 // field or method semantics before extending dispatch.
 int OldConsole::handleCommand(const std::string& cmd, std::string& result, AccessType access)
 {
+    ConStageClock stageClock(CsPrep);                   // [DEV] BF2_LOAD_TRACE: see ConStageClock
     // read: the hook is consulted first, before anything is parsed.
     if (m_handleCommandHook != 0)
     {
@@ -486,6 +581,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
     // Handles conditional branches and script execution. Skipped branches only process nesting keywords.
     // Branch, comment and no-execution state is per depth; see s_branch above.
     {
+        stageClock.to(CsKeyword);
         std::vector<BranchState>& stack = s_branch[blockStateIndex(m_depth)];
 
         // Comment and no-execution blocks skip statements and support nested begin/end pairs.
@@ -637,6 +733,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
                 return 0;
             }
             std::string out;
+            stageClock.pause();
             run(tokens[0], tokens[1], tokens[2], tokens[3], tokens[4], tokens[5], tokens[6],
                 tokens[7], tokens[8], out);                                    // virtual, as the
             return 1;                                                          //   ELF dispatches
@@ -655,6 +752,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
                 return 0;
             }
             std::string out;
+            stageClock.pause();
             include(tokens[0], tokens[1], tokens[2], tokens[3], tokens[4], tokens[5], tokens[6],
                     tokens[7], tokens[8], out);                                // virtual +0x30
             return 1;
@@ -663,6 +761,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
 
     // The two exchange functions above are the real scope-stack lookups, used as the original
     // does: innermost level outward, first hit wins.
+    stageClock.to(CsExchange);
     {
         std::string value;
         if (exchangeVariable(line, value) || exchangeConstant(line, value))
@@ -673,6 +772,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
     }
 
     // Looks up the console binding and invokes it with the parsed arguments.
+    stageClock.to(CsLookup);
     {
         std::istringstream in(line);
         std::string token;
@@ -695,6 +795,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
                 }
 
                 // Parses up to twelve method arguments. Expansion starts at expandFrom; an unknown variable or constant fails the line.
+                stageClock.to(CsArgs);
                 std::string args[12];
                 std::string rawArgs[12];
                 const int expandFrom = (m_currentLevel && m_currentLevel->m_unknown18) ? 11 : 1;
@@ -706,6 +807,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
                     return 0;
                 }
 
+                stageClock.to(CsChecks);
                 if (!binding->isActive())                          // vtbl +0x30
                 {
                     result = "Method is not active!";
@@ -758,6 +860,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
                 // Publish the executing console before invoking the binding.
                 g_executingConsole = this;
 
+                stageClock.pause();
                 {
                     // [DEV] BF2_LOAD_TRACE: one span per invoked binding, named Object.method; the
                     // con span's self time is then the parsing and dispatch around them.

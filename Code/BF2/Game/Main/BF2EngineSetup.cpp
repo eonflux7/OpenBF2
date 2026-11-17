@@ -48,8 +48,10 @@ class IArchiveHandler;
 } // namespace dice
 
 #include <vector>
+#include <typeinfo>                         // [DEV] BF2_LOAD_TRACE: module names
 
 #include "../../Core/SmartItf.h"
+#include "../../Core/LoadTrace.h"           // [DEV] BF2_LOAD_TRACE
 
 namespace dice {
 namespace hfe {
@@ -158,12 +160,17 @@ bool BF2EngineSetup::initModules()
         classManager->setSingletonClass("InputManager", 3139421003u);        //   two ids (0xBB1FC34B): not 121xxx CIDs
     }
 #endif
-    classManager->initSingletons();
+    {
+        loadtrace::Scope singletonTrace("init", "modules.singletons");   // [DEV] BF2_LOAD_TRACE
+        classManager->initSingletons();
+    }
 
     // Module init publishes console bindings and related conversions/constants.
     // A failed module is destroyed and unregistered, but this routine still returns true.
     for (size_t i = 0; i < s_modules.size(); ++i)
     {
+        // [DEV] BF2_LOAD_TRACE: one span per module init, named by its class.
+        loadtrace::Scope moduleTrace("init", typeid(*s_modules[i]).name());
         if (!s_modules[i]->init())
         {
             s_modules[i]->close();      //  WAS destroy() - see the note below

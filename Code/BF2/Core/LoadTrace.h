@@ -20,6 +20,9 @@ bool      enabled();
 long long now();      // microseconds on the process-wide steady clock
 void      span(const char* category, const char* name, long long t0, long long t1, long long bytes = 0);
 void      mark(const char* name);
+// Called with each mark's name before it is written (this image only); for profilers that keep
+// totals instead of spans and report them per section. One hook; a later call replaces it.
+void      setMarkHook(void (*hook)(const char* name));
 
 // Records [construction, destruction) as one span. name must outlive the scope. Spans shorter
 // than minMicros are dropped (for sites that also run every frame in game).

@@ -2425,6 +2425,9 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
 
     loadStat->m_unknown08 = true;
 
+    // [DEV] BF2_LOAD_TRACE: fx.setup is everything before the source read (flags, adapter GUID,
+    // video options, mod directory, cache path).
+    const long long setupT0 = ::dice::hfe::loadtrace::enabled() ? ::dice::hfe::loadtrace::now() : -1;
     unsigned long flags = 0;
     if (g_noPreshader)      flags  = 0x100u;
     if (g_shaderDebug)      flags |= 0x001u;
@@ -2534,6 +2537,8 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
         defines[6].Name = 0;                     defines[6].Definition = 0;
     };
 
+    if (setupT0 >= 0)   // [DEV] BF2_LOAD_TRACE
+        ::dice::hfe::loadtrace::span("fx.setup", name.c_str(), setupT0, ::dice::hfe::loadtrace::now());
     unsigned char* source = 0;
     const unsigned int sourceLen = readEffectFile(name, &source);
     if (sourceLen == 0)
@@ -2864,6 +2869,7 @@ compiled:
         *effectOut = effect;
 
 
+        ::dice::hfe::loadtrace::Scope listenTrace("fx.listen", name.c_str());   // [DEV] BF2_LOAD_TRACE
 #if !defined(_MSC_VER)
         static_cast<io::IFileChangeManager*>(static_cast<void*>(::dice::hfe::fileChangeManager))
             ->addListener(reinterpret_cast<io::IFileChangeListener*>(this), name, 4);
@@ -2876,7 +2882,10 @@ compiled:
     raRelease(errors);
 
     loadStat->m_unknown08 = false;
-    shaderLoadingEvent();                                     // PE 0x1003582C..0x100358A6
+    {
+        ::dice::hfe::loadtrace::Scope eventTrace("fx.event", name.c_str());   // [DEV] BF2_LOAD_TRACE
+        shaderLoadingEvent();                                 // PE 0x1003582C..0x100358A6
+    }
 
     ::renddx9abi::engineFree(source);                          // sub_1005F360 on Str1
     return effect;

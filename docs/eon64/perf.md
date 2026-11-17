@@ -12,17 +12,17 @@ on worker threads). Each image (BF2.exe, RendDX9, BF2Audio) writes its own file,
 |---|---|---|
 | `phase` | `BF2Engine::init`, `initEngine`, `startGame`, `GameLogic::load` | `boot`, `engine.init`, `game.start`, `level.load` |
 | `mark` | `GameLogic::load`, `LoadStat::setNextLoadPart`, first `renderMenu`, autohost | `load:*` sections, `part:*` loading-bar phases, `menu.first`, `menu.host` (where a player's click would be) |
-| `init` | `BF2Engine::init`, `initEngine` | Startup stages: `modules`, `filesystem`, `archives`, `localization`, `usersettings`, `modinfo`, `renderer`, `input`, `hud`, `swiff`, `network` |
+| `init` | `BF2Engine::init`, `initEngine` | Startup stages: `modules` (inside it `modules.singletons` and one span per module init, named by class), `filesystem`, `archives`, `localization`, `usersettings`, `modinfo`, `renderer` (inside it `renderer.window`, `renderer.dll`, `renderer.initialize`), `input`, `hud`, `swiff`, `network` |
 | `mount` | `FileManager::mountArchive` | Opening an archive and reading its directory |
 | `open.arc` / `open.loose` / `open.miss` | `FileManager::open` (read) | Where the file resolved; archive entries up to 64 KiB are inflated here |
 | `exists.arc` / `exists.loose` / `exists.miss` | `FileManager::fileExistsEx` | The same for existence probes |
-| `con` | `OldConsole::run` | One script, with nested scripts as children; inside it `con.read` (the file read) and `con.cmd` (one per invoked binding, named `Object.method`). The `con` self time is parsing and dispatch |
+| `con` | `OldConsole::run` | One script, with nested scripts as children; inside it `con.read` (the file read) and `con.cmd` (one per invoked binding, named `Object.method`). The `con` self time is parsing and dispatch; each trace mark also prints `[CONPROFILE]` to stderr, the interpreter's time per stage since the previous mark (`split`, `compiler`, `firstToken`, `prep`, `keyword`, `exchange`, `lookup`, `args`, `checks`, `post`) |
 | `tex` | `TextureManager::loadTextureFromFile` | One texture; inside it `tex.find` (path lookup), `tex.open` (open and header), `tex.create` (the D3D texture), `tex.read` (one per mip read into the locked level, inflate included) |
-| `mesh` | `MeshTemplate::loadFromStream` | Static, bundled and skinned mesh files; inside it `mesh.read`, `mesh.merge`, `mesh.buffers` (vertex and index buffers), `mesh.finalize`. `mesh.instances` is the template's walk over its live instances after the load |
-| `snd.decode` / `snd.upload` | `SoundFile::load` (BF2Audio) | Reading and decoding one sound file; its OpenAL upload |
+| `mesh` | `MeshTemplate::loadFromStream` | Static, bundled and skinned mesh files; inside it `mesh.read` (with `mesh.geometry`, the vertex and index blocks), `mesh.merge`, `mesh.buffers` (vertex and index buffers), `mesh.finalize`. `mesh.instances` is the template's walk over its live instances after the load |
+| `snd.decode` / `snd.upload` | `SoundFile::load` (BF2Audio) | Reading and decoding one sound file; its OpenAL upload. `snd.unload` and `snd.sort` are the sweeps around the loads |
 | `fx.src` | `compileEffectFile` (`RendDX9/Effect.cpp`) | Effects compiled from `.fx` source; inside it `fx.src.cache` (the bytecode cache lookup) and `fx.src.compile` |
 | `fx.dice` | `DiceEffect::compile` | Dice effects; `fx.compile` inside it when its cache missed |
-| `fx.ra` | `EffectManager::compileEffect` | Ra effects; inside it `fx.read` (the source), `fx.stat` (each file-info lookup), `fx.key` (the content key), `fx.keyfile` (the stored key), `fx.cacheload`, `fx.compile` (one per shader profile attempted), `fx.compile.fail`, `fx.create` |
+| `fx.ra` | `EffectManager::compileEffect` | Ra effects; inside it `fx.read` (the source), `fx.stat` (each file-info lookup), `fx.key` (the content key), `fx.keyfile` (the stored key), `fx.setup` (before the source read), `fx.listen`, `fx.event` (the loading-progress event), `fx.cacheload`, `fx.compile` (one per shader profile attempted), `fx.compile.fail`, `fx.create` |
 | `py.init` / `py.admin` / `py.event` | `PythonHost` | Interpreter start, admin module, event handlers of 1 ms or more |
 | `frame` | `BF2Engine::mainLoop` | Frames over 50 ms; after a load, these show work deferred to first use |
 

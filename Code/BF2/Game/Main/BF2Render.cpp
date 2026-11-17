@@ -32,6 +32,7 @@
 #include "../Objects/IPlayer.h"                  // getCamera (+0x17C) and getFov (+0x8C)
 #include "../../Physics/LatencyCompensation.h"   // the two frame-telemetry words render publishes
 #include "../../Physics/CollisionManager.h"
+#include "../../Core/LoadTrace.h"               // [DEV] BF2_LOAD_TRACE: renderer init stages
 
 #include <algorithm>                              // std::find - listScreenModes' discarded search
 #include <cassert>
@@ -222,10 +223,13 @@ bool BF2Render::init()
     const int width        = settings->intGet("GSWindowSizeX", 800);
     const int height       = settings->intGet("GSWindowSizeY", 600);
 
-    if (!m_window->isCreated()
-        && !m_window->createFromSettings(title.str(), width, height,
-                                         fullscreen, fullscreen, -1))
-        return false;
+    {
+        loadtrace::Scope windowTrace("init", "renderer.window");   // [DEV] BF2_LOAD_TRACE
+        if (!m_window->isCreated()
+            && !m_window->createFromSettings(title.str(), width, height,
+                                             fullscreen, fullscreen, -1))
+            return false;
+    }
 
     assert(m_window->getHwnd() && "window not created"); // BF2Render.cpp:188
 
@@ -253,7 +257,10 @@ bool BF2Render::init()
     temporaryWindow.flags    = 4;
     classManager->registerSingleton(temporaryWindow);
 
-    m_rendererDll = LoadLibraryBf("RendDX9.dll");
+    {
+        loadtrace::Scope dllTrace("init", "renderer.dll");   // [DEV] BF2_LOAD_TRACE
+        m_rendererDll = LoadLibraryBf("RendDX9.dll");
+    }
     if (!m_rendererDll)
     {
         // Shipped behavior: failure returns without unregistering the temporary singleton. The
@@ -266,7 +273,10 @@ bool BF2Render::init()
     g_renderer                = m_renderer;
 
     // Unchecked in BF2.exe: a successfully initialized plugin is required to publish Renderer.
-    m_renderer->initialize();
+    {
+        loadtrace::Scope initializeTrace("init", "renderer.initialize");   // [DEV] BF2_LOAD_TRACE
+        m_renderer->initialize();
+    }
 
     m_postProductionFrameWork = classManager->getSingleton("PostProductionFrameWork");
     classManager->unregisterSingleton("hWndBf2TempSlt");

@@ -470,7 +470,11 @@ bool MeshTemplate::loadFromStream(renddx9abi::HostNonlinearStream* stream)
     // [DEV] BF2_LOAD_TRACE: reading and parsing, merging, the GPU buffers, material setup.
     {
         ::dice::hfe::loadtrace::Scope readTrace("mesh.read", m_name.c_str());
-        readGeometry(stream);
+        {
+            // [DEV] the vertex and index blocks (most of the file's bytes) apart from the tables.
+            ::dice::hfe::loadtrace::Scope geometryTrace("mesh.geometry", m_name.c_str());
+            readGeometry(stream);
+        }
         readTrailer(stream);
         readLods(stream);
         readMaterials(stream);

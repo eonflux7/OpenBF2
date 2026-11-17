@@ -148,10 +148,21 @@ void span(const char* category, const char* name, long long t0, long long t1, lo
         write(category, name, t0, t1, bytes, false);
 }
 
+namespace {
+void (*g_markHook)(const char*) = 0;
+}
+
+void setMarkHook(void (*hook)(const char* name))
+{
+    g_markHook = hook;
+}
+
 void mark(const char* name)
 {
     if (enabled())
     {
+        if (g_markHook)
+            g_markHook(name);
         const long long t = now();
         write("mark", name, t, t, 0, true);
     }

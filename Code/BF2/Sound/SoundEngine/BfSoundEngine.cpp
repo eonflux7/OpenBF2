@@ -29,6 +29,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 
 namespace dice {
 namespace hfe {
@@ -332,8 +333,13 @@ ISoundTemplate* BfSoundEngine::createTemplate()
 
 void BfSoundEngine::loadSoundFiles()
 {
-    unloadFiles(false, false);
+    // [DEV] BF2_LOAD_TRACE: the unload sweep and the trigger sort around the file loads.
+    {
+        ::dice::hfe::loadtrace::Scope unloadTrace("snd.unload", "files");
+        unloadFiles(false, false);
+    }
     loadAllFiles();
+    ::dice::hfe::loadtrace::Scope sortTrace("snd.sort", "triggers");
     m_triggers.sort();
 }
 
