@@ -17,7 +17,7 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 
 | Step | Commit scope | Status |
 |---|---|---|
-| 1. ImGui layer | `ui(imgui)` | In development |
+| 1. ImGui layer | `ui(imgui)` | Accepted (`71545137`, `f4a7fd65`, `6604b184`) |
 | 2. Sun shadow tuning as console variables (lane `render`, before step 3) | `render(csm)` | Planned |
 | 3. Debug menu and performance overlay | `ui(debug)` | Planned |
 | 4. Console frontend | `ui(console)` | Planned |
