@@ -797,6 +797,33 @@ void ObjectDrawer::submitObjectTree(world::IObject* object)
 // [RENDER] See ObjectDrawer.h. The geometry chain is walked as the deferred
 // geometry pass walks it (+0x18 submit, +0xCC next); +0x40 is the local box and +0x48 the
 // geometry's world transformation.
+namespace {
+// [RENDER] The caster query's predicate: visible objects, with flag 0x01000000 in getFlags, which
+// makes the grid query return the culled set as is. Its distance cull measures from the frustum's
+// origin (the camera for a view; for the light volume a point that moves as the camera turns) and
+// writes each object's cull fade, so running it here dropped small objects from the shadow pass
+// depending on view direction and faded them for the camera pass after it.
+class ObjectDrawerCasterPredicator : public ObjectDrawerFlagPredicator
+{
+public:
+    ObjectDrawerCasterPredicator() : ObjectDrawerFlagPredicator(world::IObject::OFIsVisible) {}
+    virtual unsigned int getFlags() const
+    {
+        return world::IObject::OFIsVisible | 0x01000000u;
+    }
+};
+
+// Appends each object's descendants (the distance-culling walk added them; the plain query
+// returns hierarchy roots only).
+void objectDrawerAddDescendants(ObjectDrawerSet& set)
+{
+    for (size_t i = 0; i < set.size(); ++i)
+        for (world::IObject* child = set[i] ? set[i]->getChild() : 0; child;
+             child = child->getSibling())
+            set.push_back(child);
+}
+}
+
 void ObjectDrawer::submitShadowCasters(const void* volume, float time)
 {
     static ObjectDrawerSet candidates;
@@ -805,10 +832,13 @@ void ObjectDrawer::submitShadowCasters(const void* volume, float time)
 
     objectDrawerClear(candidates);
     objectDrawerClear(noCollision);
-    ObjectDrawerFlagPredicator predicator(world::IObject::OFIsVisible);
+    ObjectDrawerCasterPredicator predicator;
     objectDrawerQueryGrid<0x40>(volume, candidates, &predicator, time);
     objectDrawerQueryGrid<0x4C>(volume, noCollision, &predicator, time);
     candidates.insert(candidates.end(), noCollision.begin(), noCollision.end());
+    objectDrawerAddDescendants(candidates);
+    std::sort(candidates.begin(), candidates.end());
+    candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
 
     seen.assign(m_visibleSet.begin(), m_visibleSet.end());
     seen.insert(seen.end(), m_drawSet.begin(), m_drawSet.end());
@@ -824,6 +854,11 @@ void ObjectDrawer::submitShadowCasters(const void* volume, float time)
             continue;
         const unsigned int flags = object->getFlags();
         if ((flags & world::IObject::OFIsDisabled) != 0 || (flags & world::IObject::OFIsVisible) == 0)
+            continue;
+        // What the camera's distance cull has faded out casts nothing either.
+        const GeometryInstanceData* const instance = static_cast<const GeometryInstanceData*>(
+            world::object_detail::LayoutAccess::geometry(object));
+        if (instance && !(instance->m_float2C > 0.0f))
             continue;
 
         if (!std::binary_search(seen.begin(), seen.end(), object))
