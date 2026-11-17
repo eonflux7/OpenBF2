@@ -1381,6 +1381,12 @@ void stateManagerSetDepthStencilSurface(IDirect3DSurface9* surface)
     smSetDepthStencilSurface(sm(), surface);
 }
 
+// [CHOSEN, not recovered] The desired depth-stencil surface, without an AddRef (depth prepass).
+IDirect3DSurface9* stateManagerGetDepthStencilSurface()
+{
+    return sm()->depthStencil;
+}
+
 // PE 0x10025A70, a non-virtual member: the desired render target at `index`, without an AddRef.
 // Like smSetRenderTarget it addresses `this + 0x1E90 + 4 * index`; only index 0 has storage, and
 // every shipped caller passes 0. Indexed from the named member, as the setter is.

@@ -2418,6 +2418,85 @@ void renderQueuesFlushWorldPass()
     static_cast<RenderQueueTable*>(g_renderQueues)->flushWorldPass();
 }
 
+// [CHOSEN, not recovered] Depth prepass (BF2_DEPTH_PREPASS). Draws every opaque world-queue entry
+// whose Ra effect has the technique `key`, front to back, WITHOUT consuming the queues: the world
+// pass flushes them afterwards as usual. Entries whose effect lacks the technique are skipped.
+// The point-light queues are additive re-draws of the same geometry and are not walked.
+void renderQueuesDepthPrepass(unsigned int key)
+{
+    RenderQueueTable* const table = static_cast<RenderQueueTable*>(g_renderQueues);
+    if (!table)
+        return;
+
+    static std::vector<RenderQueueEntry*> list;
+    list.clear();
+    for (std::vector<void*>::iterator it = table->worldQueues.begin();
+         it != table->worldQueues.end(); ++it)
+    {
+        RenderQueue* const queue = static_cast<RenderQueue*>(*it);
+        if (queue->enabled)
+            list.insert(list.end(), queue->entries.begin(), queue->entries.end());
+    }
+    if (list.empty())
+        return;
+    std::stable_sort(list.begin(), list.end(), RenderEntryNearerFirst());
+
+    Ra::RaShader* active = 0;
+    Ra::RaShader* rejected = 0;
+    void* lastMaterial = 0;
+    bool streamsBound = false;
+    for (std::vector<RenderQueueEntry*>::iterator it = list.begin(); it != list.end(); ++it)
+    {
+        RenderQueueEntry* const e = *it;
+        Ra::RaShader* const shader = e->shader;
+        if (!shader || shader == rejected)
+            continue;
+        if (shader != active)
+        {
+            if (active)
+            {
+                active->endPass();
+                active->end();
+                active = 0;
+            }
+            if ((!shader->m_built && !shader->slot04()) || !shader->m_effect
+                || !shader->selectTechnique(key))
+            {
+                rejected = shader;
+                continue;
+            }
+            const unsigned int savedKey = e->techniqueKey;
+            e->techniqueKey = key;
+            const unsigned int passes = shader->begin(e);
+            e->techniqueKey = savedKey;
+            if (!passes)
+            {
+                shader->end();
+                rejected = shader;
+                continue;
+            }
+            shader->beginPass(0);
+            active = shader;
+            lastMaterial = 0;
+        }
+        if (e->material != lastMaterial)
+        {
+            lastMaterial = e->material;
+            streamsBound = materialApplyStreams(e->material, shader);
+        }
+        if (!streamsBound)
+            continue;
+        shader->applyTemplateParameters(e);
+        shader->applyInstanceParameters(e);
+        shader->draw(e);
+    }
+    if (active)
+    {
+        active->endPass();
+        active->end();
+    }
+}
+
 namespace {
 
 // One Ra shader of the table's map: unbuild it, drop its effect and empty its technique map.

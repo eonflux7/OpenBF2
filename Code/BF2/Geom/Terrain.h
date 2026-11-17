@@ -484,6 +484,7 @@ public:
     void  setFlag2AC(unsigned char value);                           // +0x2AC
     void  setLowQuality(unsigned char value);                        // +0x35F / +0x35E, then the Low_Terrain reload; VideoOptions' terrain-quality arms call it
     void  drawMain();                                                // sub_100E0940  Hi_/Low_Terrain pass 0 (and pass 7 shadows) into the accumulation target
+    void  drawDepthPrepass();                                        // [CHOSEN, not recovered] BF2_DEPTH_PREPASS, technique RaDepthPrepass
     void  drawDetailPass();                                          // sub_100DF990  the ShaderVersion-1 detail/light pass [read - stops, see the body]
     void  drawMaskLights();                                          // sub_100DE5B0  the point-light pass over getVisibleLightsByMask(2313) - LightManager +0x18, the frame's visible lights
     void  reloadForLowQuality();                                     // sub_100DDF90  the Low_Terrain fallback reload

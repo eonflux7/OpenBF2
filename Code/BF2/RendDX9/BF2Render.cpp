@@ -273,6 +273,9 @@ bool unregisterRendererConsoleObjects();
 // RenderQueues.cpp - the mesh sort buckets and the withheld world-infrastructure globals.
 void renderQueueFlush(unsigned int slotByteOffset, int flushArg);
 extern void* g_renderQueues;
+// RenderQueues.cpp - [CHOSEN, not recovered] the depth prepass walk, and the technique-name hash.
+void renderQueuesDepthPrepass(unsigned int key);
+unsigned int raHashString(const std::string& s);
 // RenderQueues.cpp - the queue-profiler registry walks behind onlyDrawPlacedObjects.
 void queueProfilersSelectAll(unsigned char selected);
 void queueProfilersSelectByPrefix(const std::string& prefix, unsigned char selected);
@@ -1030,6 +1033,7 @@ void releaseRendererPathResources(Renderer* renderer)
     depth = 0;
 
     dx9rend::rendererHdrReleaseSurface();                         // [CHOSEN] BF2_HDR
+    dx9rend::rendererDepthPrepassRelease();                       // [CHOSEN] BF2_DEPTH_PREPASS
     renderer->releaseHemiScratchTexture();
     for (unsigned int offset = 0x778; offset <= 0x7C8; offset += 4)
         dx9rend::textureReleaseRef(pathTarget(renderer, offset));
@@ -2667,6 +2671,10 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 if (shouldToggleTransparencyAA())
                     stateManagerSetTransparencyAA(false);
 
+                // [CHOSEN, not recovered] BF2_DEPTH_PREPASS: the queues are complete here (the
+                // overgrowth enqueues above), and nothing has consumed them yet.
+                rendererDepthPrepass(sw(1701) && geom::g_Terrain);
+
                 renderQueuesFlushWorldPass();
 
                 if (shouldToggleTransparencyAA())
@@ -4053,6 +4061,124 @@ void rendererHdrReleaseSurface()
     if (g_hdrSceneSurface)
         g_hdrSceneSurface->Release();
     g_hdrSceneSurface = 0;
+}
+
+// [CHOSEN, not recovered] Depth prepass, see RendDX9Base.h. The R32F target and its D24S8 depth
+// buffer are single-sample, sized like the back buffer, created on first use and released with
+// the other render-path resources (device reset, resolution change).
+namespace {
+IDirect3DTexture9* g_linearDepthTexture = 0;
+IDirect3DSurface9* g_linearDepthStencil = 0;
+const DWORD kLinearDepthSampler = 15;
+
+bool ensureLinearDepthTargets()
+{
+    IDirect3DSurface9* const backBuffer = publishedRenderer()->m_backBuffer;
+    if (!backBuffer)
+        return false;
+    D3DSURFACE_DESC desc;
+    if (backBuffer->GetDesc(&desc) < 0)
+        return false;
+    if (g_linearDepthTexture)
+    {
+        D3DSURFACE_DESC have;
+        if (g_linearDepthTexture->GetLevelDesc(0, &have) >= 0
+            && have.Width == desc.Width && have.Height == desc.Height)
+            return g_linearDepthStencil != 0;
+        rendererDepthPrepassRelease();
+    }
+    IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
+    HRESULT hr = device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_RENDERTARGET,
+                                       D3DFMT_R32F, D3DPOOL_DEFAULT, &g_linearDepthTexture, 0);
+    if (hr >= 0)
+        hr = device->CreateDepthStencilSurface(desc.Width, desc.Height, D3DFMT_D24S8,
+                                               D3DMULTISAMPLE_NONE, 0, TRUE,
+                                               &g_linearDepthStencil, 0);
+    std::fprintf(stderr, "[DEPTHPREPASS] R32F linear depth %ux%u: hr=0x%08lX\n",
+                 desc.Width, desc.Height, static_cast<unsigned long>(hr));
+    if (hr < 0)
+    {
+        rendererDepthPrepassRelease();
+        return false;
+    }
+    return true;
+}
+}
+
+bool rendererDepthPrepassEnabled()
+{
+    static const bool enabled = [] {
+        const char* v = std::getenv("BF2_DEPTH_PREPASS");
+        const bool on = v && *v && *v != '0';
+        std::fprintf(stderr, "[DEPTHPREPASS] %s\n", on ? "on" : "off");
+        return on;
+    }();
+    return enabled;
+}
+
+IDirect3DTexture9* rendererLinearDepthTexture()
+{
+    return g_linearDepthTexture;
+}
+
+void rendererDepthPrepass(bool drawTerrain)
+{
+    if (!rendererDepthPrepassEnabled() || !ensureLinearDepthTargets())
+        return;
+    IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
+    device->SetTexture(kLinearDepthSampler, 0);       // never sampled while it is the target
+
+    IDirect3DSurface9* savedTarget = stateManagerGetRenderTarget(0);
+    IDirect3DSurface9* savedDepth = stateManagerGetDepthStencilSurface();
+    if (!savedTarget)
+        savedTarget = rendererSceneColorSurface();
+    if (!savedDepth)
+        savedDepth = rendererDepthStencilSurface();
+    if (savedTarget)
+        savedTarget->AddRef();
+    if (savedDepth)
+        savedDepth->AddRef();
+
+    IDirect3DSurface9* target = 0;
+    g_linearDepthTexture->GetSurfaceLevel(0, &target);
+    stateManagerSetRenderTarget(0, target);
+    stateManagerSetDepthStencilSurface(g_linearDepthStencil);
+    stateManagerClear(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, 0);
+
+    if (drawTerrain && geom::g_Terrain)
+        static_cast<geom::Terrain*>(geom::g_Terrain)->drawDepthPrepass();
+    static const unsigned int key = raHashString(std::string("RaDepthPrepass"));
+    renderQueuesDepthPrepass(key);
+
+    stateManagerSetRenderTarget(0, savedTarget);
+    stateManagerSetDepthStencilSurface(savedDepth);
+    flushRenderTargetsSeam();
+    if (target)
+        target->Release();
+    if (savedTarget)
+        savedTarget->Release();
+    if (savedDepth)
+        savedDepth->Release();
+
+    device->SetTexture(kLinearDepthSampler, g_linearDepthTexture);
+    device->SetSamplerState(kLinearDepthSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    device->SetSamplerState(kLinearDepthSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    device->SetSamplerState(kLinearDepthSampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    device->SetSamplerState(kLinearDepthSampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    device->SetSamplerState(kLinearDepthSampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    device->SetSamplerState(kLinearDepthSampler, D3DSAMP_SRGBTEXTURE, FALSE);
+}
+
+void rendererDepthPrepassRelease()
+{
+    if (g_linearDepthTexture && g_rendererBase)
+        static_cast<RendDX9Base*>(g_rendererBase)->device->SetTexture(kLinearDepthSampler, 0);
+    if (g_linearDepthTexture)
+        g_linearDepthTexture->Release();
+    g_linearDepthTexture = 0;
+    if (g_linearDepthStencil)
+        g_linearDepthStencil->Release();
+    g_linearDepthStencil = 0;
 }
 
 IDirect3DSurface9* rendererDepthStencilSurface()

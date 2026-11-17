@@ -1038,6 +1038,31 @@ void Terrain::drawMain()
 }
 
 
+// [CHOSEN, not recovered] Depth prepass (BF2_DEPTH_PREPASS): the visible patches through the
+// effect's RaDepthPrepass technique into the renderer's linear depth target. It uses the patch
+// draw of drawMain's pass 0, so positions and LOD morphing match the passes that follow.
+void Terrain::drawDepthPrepass()
+{
+    static const std::string technique("RaDepthPrepass");
+    if (!m_drawMain || m_lowQuality || !m_effect
+        || !dx9rend::effectHasTechnique(m_effect, technique))
+        return;
+    std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
+    dx9rend::stateManagerPush();
+    if (m_compactVertices)
+        dx9rend::vertexBufferBindStream(m_baseGridVertexBuffer, 0);
+    dx9rend::vertexDeclarationBind(m_vertexDeclaration);
+    dx9rend::effectSetTechniqueByName(m_effect, technique);
+    dx9rend::effectBegin(m_effect);
+    dx9rend::indexBufferBind(m_lodIndexBuffer);
+    dx9rend::effectBeginPass(m_effect, 0u);
+    TerrainCullerNode** it = list->data();
+    while (it != list->data() + list->size())
+        (*it)->patch->draw(it);                                           // advances `it`
+    dx9rend::effectEnd(m_effect);
+    dx9rend::stateManagerPop();
+}
+
 // the ShaderVersion-1 detail/light pass. read in full: pass 16, multipleshadowmap from
 namespace {
 

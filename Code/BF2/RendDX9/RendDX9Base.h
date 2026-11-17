@@ -633,6 +633,7 @@ IDirect3DSurface9* stateManagerGetRenderTarget(unsigned int index);
 // StateManager +0x04, its DeviceLostResetListener subobject (dword_1023B984 + 4 on x86).
 DeviceLostResetListener* stateManagerDeviceLostListener();
 void stateManagerSetDepthStencilSurface(IDirect3DSurface9* surface);
+IDirect3DSurface9* stateManagerGetDepthStencilSurface();   // [CHOSEN] no AddRef
 // [CHOSEN, not recovered] Reversed-Z prototype (BF2_REVERSED_Z=1), see StateManager.cpp.
 bool rendererReversedZ();
 bool stateManagerReversedDepthBound();
@@ -696,6 +697,14 @@ IDirect3DSurface9* rendererSceneColorSurface();
 void rendererHdrBeginScene();
 void rendererHdrEndScene();
 void rendererHdrReleaseSurface();
+// [CHOSEN, not recovered] Depth prepass (BF2_DEPTH_PREPASS=1): before the world queues are
+// drawn, terrain and every opaque Ra entry whose effect has the technique "RaDepthPrepass" draw
+// their linear view depth into a single-sample R32F target (0 where nothing was drawn). The
+// texture stays bound to sampler s15 for the rest of the frame.
+bool rendererDepthPrepassEnabled();
+void rendererDepthPrepass(bool drawTerrain);
+void rendererDepthPrepassRelease();
+IDirect3DTexture9* rendererLinearDepthTexture();
 IDirect3DSurface9* rendererDepthStencilSurface();       // +0x770, the depth-stencil reference
 // The render-path target texture at retail `retailOffset` (+0x778..+0x7D4).
 EngineTexture*     rendererPathTarget(unsigned int retailOffset);
