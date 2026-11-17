@@ -28,6 +28,7 @@ on worker threads). Each image (BF2.exe, RendDX9, BF2Audio) writes its own file,
 | `py.init` / `py.admin` / `py.gamemode` / `py.event` | `PythonHost` | Interpreter start, admin module, the game-mode import and init, event handlers of 1 ms or more |
 | `loadscreen` | `BetweenRoundsLogic::init` | Building the loading screen: `initSwiff`, `MenuTeamManager.init`, `controlSettings.apply`, `SwiffRender.init`, `loadMovie` |
 | `swiffimg.create` / `swiffimg.load` | `registryGetOrLoad` (`Geom/SwiffRender.cpp`) | A menu image created by D3DX; one read from the image cache |
+| `probe.list` / `probe.drop` | `Win32FileSystem.cpp` | A directory listed for the load's existence probes (bytes: its entries); the listings dropped by a write |
 | `event` | `EventManager::dispatchEvent` | One delivery to a listener of 1 ms or more, named by the listener's class, category and id |
 | `frame` | `BF2Engine::mainLoop` | Frames over 50 ms; after a load, these show work deferred to first use |
 

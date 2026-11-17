@@ -3,6 +3,7 @@
 // Preserve internal linkage for the header-defined ID table. FileChangeManager.cpp owns the
 // external io:: file-change IDs; seeing its extern declarations first would emit a second copy.
 #include "LooseProbeCache.h"   // [PERF] existence probes from directory listings
+#include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../../Core/Ids.h"
 #include "Win32FileSystem.h"
 #include "../../Core/Debug.h"
@@ -723,6 +724,8 @@ void probeCacheDrop()
 {
     ProbeCache& cache = probeCache();
     std::lock_guard<std::mutex> lock(cache.mutex);
+    if (cache.active && !cache.listings.empty())
+        loadtrace::span("probe.drop", "", loadtrace::now(), loadtrace::now());   // [DEV] BF2_LOAD_TRACE
     cache.listings.clear();
 }
 
@@ -762,6 +765,7 @@ int probeCacheLookup(const std::wstring& wide)
         cache.listings.find(key);
     if (listing == cache.listings.end())
     {
+        const long long traceStart = loadtrace::enabled() ? loadtrace::now() : -1;   // [DEV]
         std::unordered_set<std::wstring> names;
         WIN32_FIND_DATAW findData;
         const std::wstring pattern = directory.empty() ? std::wstring(L"*") : directory + L"\\*";
@@ -778,6 +782,9 @@ int probeCacheLookup(const std::wstring& wide)
             FindClose(handle);
         }
         listing = cache.listings.insert(std::make_pair(key, names)).first;
+        if (traceStart >= 0)   // [DEV] BF2_LOAD_TRACE: one span per directory listed
+            loadtrace::span("probe.list", narrowUtf8(directory).c_str(), traceStart, loadtrace::now(),
+                            static_cast<long long>(listing->second.size()));
     }
     // findOneEntry's dot rule: an entry whose name starts with '.' is reported missing.
     return (listing->second.count(name) && name[0] != L'.') ? 1 : 0;
