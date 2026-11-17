@@ -195,7 +195,8 @@ bool DecalShadowManager::addShadow(void* geometry)
     decal->add(&placement, m_template, world::geometry_part::getBoundingRadius(geometry),
                collisionMesh,
                collisionMesh ? reinterpret_cast<world::CollisionFaceInfo*>(&faceInfo) : 0);
-    decal->setShadowRecord(world::geometry_part::getShadowRecord(geometry));   // decal +0x04
+    // [RENDER] Retail handed the decal the geometry's directional shadow record (+0x28); that
+    // record is gone with the legacy sun shadow, and the decal renderer no longer reads it.
     return true;
 }
 

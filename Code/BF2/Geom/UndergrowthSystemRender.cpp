@@ -143,23 +143,14 @@ inline Frustum& cullFrustum()
 // Technique names are sorted by pointer when drawing.
 // [CHOSEN, not recovered] One aggregate preserves their relative address order and spacing.
 
+// [RENDER] The `_ds` (dynamic sun shadow) techniques are gone with the legacy sun shadow map.
 struct TechniqueNames
 {
-    char t0_l4_ds_simple[16];
-    char t0_l3_ds_simple[16];
-    char t0_l2_ds_simple[16];
-    char t0_l1_ds_simple[16];
-    char t0_l0_ds_simple[16];
     char t0_l4_simple[16];
     char t0_l3_simple[16];
     char t0_l2_simple[16];
     char t0_l1_simple[16];
     char t0_l0_simple[16];
-    char t0_l4_ds[12];
-    char t0_l3_ds[12];
-    char t0_l2_ds[12];
-    char t0_l1_ds[12];
-    char t0_l0_ds[12];
     char t0_l4[8];
     char t0_l3[8];
     char t0_l2[8];
@@ -169,23 +160,16 @@ struct TechniqueNames
 
 const TechniqueNames kTechniqueNames =
 {
-    "t0_l4_ds_simple", "t0_l3_ds_simple", "t0_l2_ds_simple", "t0_l1_ds_simple", "t0_l0_ds_simple",
     "t0_l4_simple",    "t0_l3_simple",    "t0_l2_simple",    "t0_l1_simple",    "t0_l0_simple",
-    "t0_l4_ds",        "t0_l3_ds",        "t0_l2_ds",        "t0_l1_ds",        "t0_l0_ds",
     "t0_l4",           "t0_l3",           "t0_l2",           "t0_l1",           "t0_l0"
 };
 
-const char* const kTechniques[4][5] =
+const char* const kTechniques[2][5] =
 {
     { kTechniqueNames.t0_l0, kTechniqueNames.t0_l1, kTechniqueNames.t0_l2,
       kTechniqueNames.t0_l3, kTechniqueNames.t0_l4 },
-    { kTechniqueNames.t0_l0_ds, kTechniqueNames.t0_l1_ds, kTechniqueNames.t0_l2_ds,
-      kTechniqueNames.t0_l3_ds, kTechniqueNames.t0_l4_ds },
     { kTechniqueNames.t0_l0_simple, kTechniqueNames.t0_l1_simple, kTechniqueNames.t0_l2_simple,
-      kTechniqueNames.t0_l3_simple, kTechniqueNames.t0_l4_simple },
-    { kTechniqueNames.t0_l0_ds_simple, kTechniqueNames.t0_l1_ds_simple,
-      kTechniqueNames.t0_l2_ds_simple, kTechniqueNames.t0_l3_ds_simple,
-      kTechniqueNames.t0_l4_ds_simple }
+      kTechniqueNames.t0_l3_simple, kTechniqueNames.t0_l4_simple }
 };
 
 
@@ -198,7 +182,6 @@ struct UndergrowthDrawItem
     unsigned int                      lightCount;    // node +0x24  min(lights.size(), 4)
     MeshBounds                        bounds;        // node +0x28
     const char*                       technique;     // node +0x64  the same pointer as the key
-    bool                              shadowed;      // node +0x68
     bool                              zPrepassed;    // node +0x69
 };
 
@@ -1472,21 +1455,8 @@ void UndergrowthSystem::render(float time)
         std::sort(first, first + drawCount, UndergrowthCellDistanceLess());
     }
 
-    // 6. the frame constants
-    // the first dynamic-shadow record (LightManager +0x79C, 1176 bytes each),
-    // NOT gated on dynamicShadowsEnable; the record vector is fetched three times, as shipped.
-    {
-        const std::vector<LightShadowRecord>& records = lightManagerShadowRecords(g_LightManager);
-        if (records.size() != 0)
-        {
-            m_paramShadowMap->setValue(lightManagerShadowMapTexture(g_LightManager), 0);   // +0x21C
-            m_paramShadowProjMatrix->setValue(
-                &lightManagerShadowRecords(g_LightManager)[0].matrices[4], 0);            // +0x2F8
-            m_paramShadowTrapMatrix->setValue(
-                &lightManagerShadowRecords(g_LightManager)[0].matrices[7], 0);            // +0x3B8
-        }
-    }
-
+    // 6. the frame constants. [RENDER] Retail first bound the legacy sun shadow map and the first
+    // directional record's matrices; the sun mask replaces them.
     Vec4 color;                                                              // [ebp-94h], zeroed once
     color.x = 0.0f;
     color.y = 0.0f;
@@ -1652,31 +1622,15 @@ void UndergrowthSystem::render(float time)
         const unsigned int gathered = static_cast<unsigned int>(lights.size());
         const unsigned int lightCount = gathered >= 4u ? 4u : gathered;      // [ebp-0F4h]
 
-        bool shadowed = false;                                               // [ebp-0B0h]
-        if (m_dynamicShadowsEnable)
-        {
-            const std::vector<LightShadowRecord>& records =
-                lightManagerShadowRecords(g_LightManager);                   // sub_1015C550, once
-            for (unsigned int k = 0; k < records.size(); ++k)
-            {
-                const Frustum* const shadowFrustum = &records[k].frustum;
-                if (terrainFrustumIntersectsBox(shadowFrustum, &bounds.min.x))
-                {
-                    shadowed = true;
-                    break;
-                }
-            }
-        }
-
-        const char* const technique =
-            kTechniques[(m_simpleShaderEnable ? 2 : 0) + (shadowed ? 1 : 0)][lightCount];
+        // [RENDER] Retail picked a `_ds` technique for cells inside a directional shadow record.
+        const char* const technique = kTechniques[m_simpleShaderEnable ? 1 : 0][lightCount];
 
         // the item is built as a temporary, copied into a named pair
         // (the temporary dies there, 0x1014A5AB), and the pair converted to value_type for insert.
         const std::pair<const char*, UndergrowthDrawItem> entry(
             technique,
             UndergrowthDrawItem{ cell, lights,                       // the copy constructor
-                                 lightCount, bounds, technique, shadowed, zPrepassed });
+                                 lightCount, bounds, technique, zPrepassed });
         drawList.insert(entry);
     }
 

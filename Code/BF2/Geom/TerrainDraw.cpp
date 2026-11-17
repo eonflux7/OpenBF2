@@ -152,15 +152,6 @@ unsigned int& terrainRendererStat(unsigned int byteOffset)
     return *reinterpret_cast<unsigned int*>(stats + byteOffset);
 }
 
-std::vector<LightShadowRecord>& terrainShadowRecords()
-{
-    return lightManagerShadowRecords(g_LightManager);                     // +0x79C
-}
-
-unsigned int terrainShadowRecordCount()
-{
-    return static_cast<unsigned int>(terrainShadowRecords().size());
-}
 
 bool terrainFrustumIntersectsBox(const Frustum* frustum, const float* minMax)
 {
@@ -327,19 +318,8 @@ void Terrain::updateWaterConstants()
         world[13] = seaLevel;
         world[14] = 0.0f;
         op.tail220 = 0;
-        if (g_LightManager->getDynamicShadowsEnabled())                   // +0xF0
-        {
-            const std::vector<LightShadowRecord>& records = terrainShadowRecords();
-            if (!records.empty())
-            {
-                const unsigned int count = static_cast<unsigned int>(records.size());
-                if (static_cast<float>(count) != 0.0f)
-                {
-                    ::memcpy(op.shadowProjMat.value, &records[0].matrices[4], 64);   // +0x2F8
-                    ::memcpy(op.shadowTrapMat.value, &records[0].matrices[7], 64);   // +0x3B8
-                }
-            }
-        }
+        // [RENDER] Retail copied the first directional shadow record's matrices here; water
+        // samples the sun cascades instead.
     }
     setWaterRecordConstants();
 }
@@ -1888,15 +1868,7 @@ void Terrain::drawWaterCell(float x0, float z0, float x1, float z1, void* lightm
     world[13] = seaLevel;
     world[14] = z0;
     op.tail220 = 0;
-    if (g_LightManager->getDynamicShadowsEnabled())
-    {
-        const std::vector<LightShadowRecord>& records = terrainShadowRecords();
-        if (!records.empty())
-        {
-            ::memcpy(op.shadowProjMat.value, &records[0].matrices[4], 64);   // +0x2F8
-            ::memcpy(op.shadowTrapMat.value, &records[0].matrices[7], 64);   // +0x3B8
-        }
-    }
+    // [RENDER] Retail copied the first directional shadow record's matrices here (see drawWater).
     entry->objectParameters = &op;
     entry->lighting.lightMapOffset.value[0] = 1.0f;
     entry->lighting.lightMapOffset.value[1] = 1.0f;

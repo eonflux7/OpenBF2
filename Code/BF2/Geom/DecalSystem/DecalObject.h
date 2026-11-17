@@ -107,8 +107,8 @@ public:
     // +0x04 / +0x08: a pointer stored at +0x34. The render pass selects its bucket 2 when it is
     // non-null (0x101A9B1B) and then reads the pointee's +0x2F8 / +0x3B8 matrices and +0x438 vector
     // (0x101A9D7C..0x101A9DA5) - XpLightManager's shadow render record shape (XpRenderRecordLayout:
-    // shadowProj / shadowTrap / atlasBounds). [INFERRED] name; NO caller of the setter was found in
-    // BF2.exe or RendDX9 1.50, so +0x34 stays null and bucket 2 is dead in a shipped session.
+    // shadowProj / shadowTrap / atlasBounds). [INFERRED] name. [RENDER] Kept for the table layout;
+    // the decal renderer no longer has shadowed buckets and nothing sets or reads it.
     virtual void  setShadowRecord(void* record) = 0;                            // +0x04
     virtual void* getShadowRecord() const = 0;                                  // +0x08
     virtual void  setVisible(bool visible) = 0;                                 // +0x0C

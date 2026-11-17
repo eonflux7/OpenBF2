@@ -3725,20 +3725,6 @@ rangeComplete:
     }
 }
 
-// PE 0x1018BAE0. Refresh the vector's current begin/end for every record.
-bool QuadPatch::gatherShadowRanges(void** lockedIndices, int* cursor)
-{
-    unsigned char any = 0;
-    std::vector<LightShadowRecord>& records = terrainShadowRecords();
-    for (unsigned int i = 0; ; ++i)
-    {
-        if (i >= records.size())
-            break;
-        gatherShadowRecord(static_cast<unsigned short*>(*lockedIndices), cursor, &records[i],
-                           terrain->m_shadowRanges, terrain->m_shadowExtrusionScale, &any);
-    }
-    return any != 0;
-}
 
 // PE 0x1018D800. Builds the patch's water streams, lightmap, lighting record and transform.
 void QuadPatch::drawWater(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,

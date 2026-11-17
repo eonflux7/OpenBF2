@@ -646,9 +646,6 @@ void UndergrowthSystem::load(const std::string& levelPathArgument)
     bindParameter(m_paramAlphaRef, m_effect, "AlphaRef");                    // +0xC0
     bindParameter(m_paramTransparencyX8, m_effect, "TRANSPARENCY_X8");       // +0xC4
     bindParameter(m_paramCameraToWater, m_effect, "CameraToWater");          // +0xC8
-    bindParameter(m_paramShadowMap, m_effect, "SHADOWMAP");                  // +0xCC
-    bindParameter(m_paramShadowProjMatrix, m_effect, "ShadowProjMatrix");    // +0xD0
-    bindParameter(m_paramShadowTrapMatrix, m_effect, "ShadowTrapMatrix");    // +0xD4
 
     // the density map, sized from the primary heightmap
     m_heightmap = heightmapCluster()->getPrimaryHeightmap();                 // cluster +0x40

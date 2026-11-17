@@ -326,10 +326,9 @@ public:
     uintptr_t           m_dword34C;             // +0x34C  ctor 0; a LightShadowRecord pointer
     void*               m_dword350;             // +0x350  ctor 0; slots +0xAC / +0xB0
     unsigned char       m_byte354;              // +0x354  ctor 0; the draw: "point lights gathered"
-    // sub_100FBCB0 (the parameter refresh) writes +0x355 on every draw,
-    // before the draw reads it - it is "this instance is the frame's shadow caster" (+0x34C set
-    // and +0x350 == the current frame ordinal).  Not a constructor field, not uninitialised.
-    unsigned char       m_byte355;              // +0x355  the shadow-caster-this-frame flag
+    // [RENDER] Unused. Retail's parameter refresh (sub_100FBCB0) wrote "this instance is the
+    // frame's sun shadow caster" here on every draw; the legacy sun shadow is gone.
+    unsigned char       m_byte355;              // +0x355
     unsigned char       m_byte356;              // +0x356  ctor 0; slot +0x84's override flag
     unsigned char       m_byte357;              // +0x357  ctor 0; the lod was chosen explicitly
     unsigned char       m_byte358;              // +0x358  ctor 0; slot +0x50 sets it: inverse pending

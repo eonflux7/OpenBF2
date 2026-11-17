@@ -380,9 +380,6 @@ private:
     dx9rend::ShaderParameter* m_paramAlphaRef;            // +0x0C0
     dx9rend::ShaderParameter* m_paramTransparencyX8;      // +0x0C4  "TRANSPARENCY_X8"
     dx9rend::ShaderParameter* m_paramCameraToWater;       // +0x0C8
-    dx9rend::ShaderParameter* m_paramShadowMap;           // +0x0CC  "SHADOWMAP"
-    dx9rend::ShaderParameter* m_paramShadowProjMatrix;    // +0x0D0
-    dx9rend::ShaderParameter* m_paramShadowTrapMatrix;    // +0x0D4
     Terrain*                  m_terrain;                  // +0x0D8  getSingletonAs("Terrain", 820004)
     float                     m_lightingScale;            // +0x0DC  "LightingScale"
     unsigned int              m_cellsPerSide;             // +0x0E0  terrain patches per side * subdivide
@@ -417,7 +414,7 @@ private:
     Vec3                      m_invHeightmapScale;        // +0x56C  1 / getScale(), per axis
     int                       m_densityWidth;             // +0x578  getSize x; NOT constructed
     int                       m_densityHeight;            // +0x57C  getSize z; NOT constructed
-    bool                      m_dynamicShadowsEnable;     // +0x580  console `dynamicShadowsEnable`
+    bool                      m_dynamicShadowsEnable;     // +0x580  console `dynamicShadowsEnable`; [RENDER] no effect (the `_ds` techniques are gone)
     bool                      m_simpleShaderEnable;       // +0x581  selects the 24-byte vertex stride
     unsigned char             m_pad582[2];
     unsigned int              m_zPassPatchCount;          // +0x584  console `zPassPatchCount`

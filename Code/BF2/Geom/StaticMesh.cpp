@@ -1744,8 +1744,7 @@ unsigned int StaticMesh::materialShaderBits(void* material, bool pointLightPass)
         const int lod = reinterpret_cast<GetLodFn>(m_vptr[0x7C / 4])(this);
         if (static_cast<int>(staticMeshRenderer()->m_dword98) < lod)
             bits &= ~1u;
-        if (m_byte355)
-            bits |= 0x200u;
+        // [RENDER] Retail added `shadow` (0x200) for a sun shadow caster this frame.
     }
 
     if (mat->m_alphaMode == 2u)                                           // +0x17C
@@ -1824,29 +1823,8 @@ void StaticMesh::updateObjectParameters()
     op.objectSpaceWorldUp.value[0] = (m[8]  + m[0]) * 0.0f + m[4];
     op.objectSpaceWorldUp.value[1] = (m[9]  + m[1]) * 0.0f + m[5];
 
-    bool casterThisFrame = false;
-    if (m_dword34C)
-    {
-        typedef void* (__thiscall* GetDword350Fn)(const void*);
-        const void* const stamped =
-            reinterpret_cast<GetDword350Fn>(m_vptr[0xB0 / 4])(this);
-        // The pointer-typed slot carries a 32-bit frame ordinal.
-        if (static_cast<unsigned int>(reinterpret_cast<uintptr_t>(stamped))
-            == dx9rend::rendererFrameOrdinal())                                  // +0x54
-            casterThisFrame = true;
-    }
-    m_byte355 = casterThisFrame ? 1 : 0;
-
-    if (casterThisFrame)
-    {
-        const LightShadowRecord* const caster = reinterpret_cast<const LightShadowRecord*>(m_dword34C);
-        Mat4 projection = Mat4::getIdentity();
-        projection.fullMult(*m_transform, caster->matrices[4]);                 // +0x2F8
-        std::memcpy(op.shadowProjMat.value, projection.m, sizeof(op.shadowProjMat.value));
-        Mat4 trapezoid = Mat4::getIdentity();
-        trapezoid.fullMult(*m_transform, caster->matrices[7]);                  // +0x3B8
-        std::memcpy(op.shadowTrapMat.value, trapezoid.m, sizeof(op.shadowTrapMat.value));
-    }
+    // [RENDER] Retail then flagged a sun shadow caster this frame (+0x355) and copied its
+    // directional shadow record's matrices; that pass is gone.
 }
 
 
@@ -2350,7 +2328,7 @@ void StaticMesh::drawVanilla()
                     sun->color[0] = sx * f;
                     sun->color[1] = sy * f;
                     staticMeshMaterialShader(material) = staticMeshFindShaderBits(
-                        qualityMask & (m_byte355 ? 0xF0000200u : 0xF0000000u));
+                        qualityMask & 0xF0000000u);
 
                     const Vec3& ambient = g_LightManager->getTreeAmbientColor();  // +0x40
                     const float scaled[3] = { f * ambient.x, f * ambient.y, f * ambient.z };
@@ -2370,8 +2348,7 @@ void StaticMesh::drawVanilla()
                 }
                 else
                 {
-                    unsigned int key = m_byte355 ? 0x200u : 0u;
-                    key |= (bits & 4u) ? 0xF9000000u : 0xFA000000u;
+                    const unsigned int key = (bits & 4u) ? 0xF9000000u : 0xFA000000u;
                     staticMeshMaterialShader(material) = staticMeshFindShaderBits(qualityMask & key);
 
                     const float f2 = m_float25C * m_float25C;
@@ -2407,8 +2384,7 @@ void StaticMesh::drawVanilla()
                     dx9rend::Ra::RaShader* pointShader;
                     if (material->m_vegetationNonTiled)                        // +0x1EC
                     {
-                        pointShader = staticMeshFindShaderBits(
-                            m_byte355 ? 0xF0000600u : 0xF0000400u);
+                        pointShader = staticMeshFindShaderBits(0xF0000400u);
                     }
                     else
                     {
@@ -3043,10 +3019,7 @@ void staticMeshDrawExpansion(void* self)
                         expansionEnqueue(entry, false, 0);
                     if (material->m_vegetationNonTiled)
                     {
-                        unsigned int pointBits = 0xF0000400u;
-                        if (mesh.m_byte355 && dx9rend::rendererGetVideoOptions()->getQuality(4))
-                            pointBits = 0xF0000600u;
-                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(pointBits);
+                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(0xF0000400u);
                     }
                     else
                     {
@@ -3138,10 +3111,7 @@ void staticMeshDrawExpansion(void* self)
                         sun->color[2] = static_cast<float>(ExpansionReal(second) * ExpansionReal(blue));
                         sun->color[0] = static_cast<float>(red * ExpansionReal(second));
                         sun->color[1] = static_cast<float>(ExpansionReal(second) * ExpansionReal(green));
-                        unsigned int treeBits = 0xF0000000u;
-                        if (mesh.m_byte355 && dx9rend::rendererGetVideoOptions()->getQuality(4))
-                            treeBits = 0xF0000200u;
-                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(treeBits & qualityMask);
+                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(0xF0000000u & qualityMask);
                         const float ambientScale = mesh.m_float25C;
                         const Vec3& ambient = g_LightManager->getTreeAmbientColor();
                         const float scaled[] = {
@@ -3158,11 +3128,8 @@ void staticMeshDrawExpansion(void* self)
                     }
                     else
                     {
-                        unsigned int shadow = 0;
-                        if (mesh.m_byte355 && dx9rend::rendererGetVideoOptions()->getQuality(4))
-                            shadow = 0x200u;
                         staticMeshMaterialShader(material) = staticMeshFindShaderBits(
-                            ((bits & 4u ? 0xF9000000u : 0xFA000000u) | shadow) & qualityMask);
+                            (bits & 4u ? 0xF9000000u : 0xFA000000u) & qualityMask);
                         if (dx9rend::rendererIsExpansionPack())
                         {
                             const float f = mesh.m_float25C;
@@ -3209,8 +3176,6 @@ void staticMeshDrawExpansion(void* self)
                         pointBits = 0xF0000000u;
                         if (dx9rend::rendererGetVideoOptions()->getQuality(3))
                             pointBits = 0xF0000400u;
-                        if (mesh.m_byte355 && dx9rend::rendererGetVideoOptions()->getQuality(4))
-                            pointBits |= 0x200u;
                     }
                     else
                     {

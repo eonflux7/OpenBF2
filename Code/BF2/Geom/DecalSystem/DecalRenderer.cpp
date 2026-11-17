@@ -1,6 +1,6 @@
-// Collects changed decal objects into texture/shadow batches, then draws and clears them.
+// Collects changed decal objects into texture batches, then draws and clears them.
 // [INFERRED] source placement; [CHOSEN, not recovered] filename.
-// Batches hold at most ten objects and 12288 vertices. Draws preserve kind/texture/shadow ordering.
+// Batches hold at most ten objects and 12288 vertices. Draws are ordered by texture.
 // Geometry and lighting fields use narrow access seams until their owners expose typed accessors.
 // Fade computations depend on the renderer's 24-bit floating-point precision.
 
@@ -115,69 +115,11 @@ float clampRange(float value, float low, float high)
 }
 
 
-// RendDX9's OWN objects, reached by retail offset. Identical in both flavours; kept narrow and named
-// so the owners (the geometry classes, XpLightManager.cpp) can replace them with typed accessors.
-// [CHOSEN, not recovered] seams.
-
-
-// The geometry instance's primary slot +0x28 - the XpLightManager render record assigned to it
-// (StaticMesh 0x10103BA0 `mov eax,[ecx+34Ch]`, SkinnedMesh 0x101A8A20 `+0x33C`; the "matrix triple"
-// the SkinnedMesh draw chases is this record's +0x2F8 / +0x338 / +0x3B8). No typed IGeometry
-// interface exists in the tree yet.
-void* geometryLightRecord(void* geometry)
-{
-    typedef void* (__thiscall* Fn)(void*);
-    return reinterpret_cast<Fn>((*static_cast<void***>(geometry))[0x28 / 4])(geometry);
-}
-
-// The geometry instance's primary slot +0xB0 - the renderer frame ordinal the instance was last
-// drawn in (StaticMesh.h: "+0xAC/+0xB0 ... the current frame's").
-unsigned int geometryDrawnFrame(void* geometry)
-{
-    typedef unsigned int (__thiscall* Fn)(void*);
-    return reinterpret_cast<Fn>((*static_cast<void***>(geometry))[0xB0 / 4])(geometry);
-}
-
-// XpLightManager.h's LightShadowRecord (0x498 bytes in the PE): matrices[4] at +0x2F8, matrices[7]
-// at +0x3B8, atlasBounds at +0x438, and the first tail byte +0x494.
-const Mat4* lightRecordShadowMatrix(void* record)
-{
-    return &static_cast<LightShadowRecord*>(record)->matrices[4];
-}
-
-const Mat4* lightRecordTrapezoidMatrix(void* record)
-{
-    return &static_cast<LightShadowRecord*>(record)->matrices[7];
-}
-
-const float* lightRecordViewPort(void* record)
-{
-    return static_cast<LightShadowRecord*>(record)->atlasBounds;
-}
-
-bool lightRecordUsesSecondShadowMap(void* record)
-{
-    return static_cast<LightShadowRecord*>(record)->tail494[0] != 0;
-}
-
-// The LightManager's two shadow-map textures (+0x21C the directional map, +0x230 the point/spot
-// atlas) are read through XpLightManager.h's lightManagerShadowMapTexture /
-// lightManagerPointShadowMapTexture.
-
-// the sort predicate _Sort receives in edx (0x101AA75C):
-//     key = (((texture & 0xFFFFC000) | (kind << 26)) << 4) | (shadowMap >> 14)
-// compared unsigned (`cmp; sbb; neg`). The texture's top four bits are shifted out.
-unsigned int batchSortKey(const DecalBatch& batch)
-{
-    const unsigned int texture = static_cast<unsigned int>(reinterpret_cast<size_t>(batch.texture));
-    const unsigned int shadow  = static_cast<unsigned int>(reinterpret_cast<size_t>(batch.shadowMap));
-    return (((texture & 0xFFFFC000u) | (static_cast<unsigned int>(batch.kind) << 26)) << 4) |
-           (shadow >> 14);
-}
-
+// The sort predicate (retail 0x101AA75C keyed kind, texture and shadow map; [RENDER] only the
+// texture is left).
 bool batchLess(const DecalBatch& a, const DecalBatch& b)
 {
-    return batchSortKey(a) < batchSortKey(b);
+    return a.texture < b.texture;
 }
 
 } // anonymous namespace
@@ -190,7 +132,6 @@ DecalRenderer::DecalRenderer()
     : m_batches()
     , m_byte14(0)
     , m_boundTexture(0)
-    , m_boundShadowMap(0)
     , m_enabled(true)
 {
     m_viewColumn.x = 0.0f;
@@ -210,14 +151,6 @@ DecalRenderer::DecalRenderer()
     m_fadeDistanceAndInterval.z = 0.0f;                     // +0x78
     m_fadeDistanceAndInterval.w = 200.0f;                   // +0x7C
 
-    for (int i = 0; i < 10; ++i)
-    {
-        m_shadowViewPorts[i].x = 0.0f;
-        m_shadowViewPorts[i].y = 0.0f;
-        m_shadowViewPorts[i].z = 0.0f;
-        m_shadowViewPorts[i].w = 0.0f;
-    }
-
     m_effect = static_cast<dx9rend::Effect*>(
         dx9rend::shaderManagerGetEffect(dx9rend::g_shaderManager,
                                         "mods/xpack/shaders/Decals"));
@@ -233,12 +166,6 @@ DecalRenderer::DecalRenderer()
         m_effect, std::string("DecalFadeDistanceAndInterval"));          // +0x1B8
     m_paramInstanceTransformations = dx9rend::effectGetShaderParameterTyped(
         m_effect, std::string("InstanceTransformations"));               // +0x1BC
-    m_paramShadowTransformations = dx9rend::effectGetShaderParameterTyped(
-        m_effect, std::string("ShadowTransformations"));                 // +0x1C0
-    m_paramShadowTrapezoidMats = dx9rend::effectGetShaderParameterTyped(
-        m_effect, std::string("ShadowTrapezoidMats"));                   // +0x1C4
-    m_paramShadowViewPortMaps = dx9rend::effectGetShaderParameterTyped(
-        m_effect, std::string("ShadowViewPortMaps"));                    // +0x1C8
     m_paramAmbientColor = dx9rend::effectGetShaderParameterTyped(
         m_effect, std::string("AmbientColor"));                          // +0x1CC
     m_paramSunColor = dx9rend::effectGetShaderParameterTyped(
@@ -249,8 +176,6 @@ DecalRenderer::DecalRenderer()
         m_effect, std::string("WorldViewProjection"));                   // +0x1D8
     m_paramTexLayer0 = dx9rend::effectGetShaderParameterTyped(
         m_effect, std::string("TEXLAYER0"));                             // +0x1DC
-    m_paramShadowMapTex = dx9rend::effectGetShaderParameterTyped(
-        m_effect, std::string("ShadowMapTex"));                          // +0x1E0
     m_paramFogRange = dx9rend::effectGetShaderParameterTyped(
         m_effect, std::string("fogRange"));                              // +0x1E4
     m_paramFogColor = dx9rend::effectGetShaderParameterTyped(
@@ -276,15 +201,11 @@ DecalRenderer::~DecalRenderer()
 {
     if (m_paramFadeDistanceAndInterval) m_paramFadeDistanceAndInterval->release();
     if (m_paramInstanceTransformations) m_paramInstanceTransformations->release();
-    if (m_paramShadowTransformations) m_paramShadowTransformations->release();
-    if (m_paramShadowTrapezoidMats) m_paramShadowTrapezoidMats->release();
-    if (m_paramShadowViewPortMaps) m_paramShadowViewPortMaps->release();
     if (m_paramAmbientColor) m_paramAmbientColor->release();
     if (m_paramSunColor) m_paramSunColor->release();
     if (m_paramSunDirection) m_paramSunDirection->release();
     if (m_paramWorldViewProjection) m_paramWorldViewProjection->release();
     if (m_paramTexLayer0) m_paramTexLayer0->release();
-    if (m_paramShadowMapTex) m_paramShadowMapTex->release();
     if (m_paramFogRange) m_paramFogRange->release();
     if (m_paramFogColor) m_paramFogColor->release();
     if (m_paramWaterFogColor) m_paramWaterFogColor->release();
@@ -299,33 +220,13 @@ DecalRenderer::~DecalRenderer()
 }
 
 
-// the batch kind of an object: 2 when its slot +0x08 answers a static
-// shadow light record; 1 when it has a geometry (+0x20) whose +0xB0 equals the renderer's frame
-// ordinal (+0x54) - geometry asked first; else 0.
-
-// PE 0x101A9B10
-int DecalRenderer::classify(DecalObject* object)
-{
-    if (object->getShadowRecord())                        // slot +0x08
-        return 2;
-    void* const geometry = object->ownerGeometry();         // +0x20
-    if (geometry)
-    {
-        const unsigned int drawnFrame = geometryDrawnFrame(geometry);      // geometry +0xB0
-        if (drawnFrame == renderer()->getFrameOrdinal())                   // renderer +0x54
-            return 1;
-    }
-    return 0;
-}
-
-
 // see the file header. Details kept from the stream:
 //   * the early out is `!enabled || instances.size() == 0`, before any local is built;
 //   * the "changed" byte is read AND cleared for every active object, drawable or not;
 //   * the view's inverse matrix (+0x68 - on the caller's copy) gives +0x20..+0x2C its third column,
 //     which nothing in the image reads back;
-//   * a batch is flushed at exactly 10 objects (`== 0Ah`) with its kind kept, and at the end of
-//     each bucket when it holds any object; boundTexture / boundShadowMap restart at 0 per bucket.
+//   * a batch is flushed at exactly 10 objects (`== 0Ah`), and at the end when it holds any
+//     object.
 
 // PE 0x101AAA90
 void DecalRenderer::collect(dx9rend::IRenderView& view, DecalObjectMap& instances)
@@ -333,14 +234,15 @@ void DecalRenderer::collect(dx9rend::IRenderView& view, DecalObjectMap& instance
     if (!m_enabled || instances.size() == 0)
         return;
 
-    std::vector<DecalObject*> buckets[3];                                  // [ebp-6Ch..-3Ch]
+    // [RENDER] Retail sorted the objects into three buckets by shadow kind first.
+    std::vector<DecalObject*> bucket;
     for (DecalObjectMap::iterator it = instances.begin(); it != instances.end(); ++it)
     {
         DecalObject* const object = it->second;
         const unsigned char changed = object->renderFlag();
         object->renderFlag() = false;
         if (changed && object->getNumDecals() != 0)      // slot +0x20
-            buckets[classify(object)].push_back(object);
+            bucket.push_back(object);
     }
 
     const Mat4* const inverseView = view.getInverseViewMatrixPtr();        // +0x68
@@ -349,30 +251,19 @@ void DecalRenderer::collect(dx9rend::IRenderView& view, DecalObjectMap& instance
     m_viewColumn.z = inverseView->m[10];
     m_viewColumn.w = inverseView->m[14];
 
-    DecalBatch batch;                                                      // [ebp-3Ch]
-    for (int kind = 0; kind < 3; ++kind)
+    DecalBatch batch;
+    m_boundTexture = 0;                                                    // +0x18
+    for (unsigned int i = 0; i < bucket.size(); ++i)
     {
-        m_boundTexture = 0;                                                // +0x18
-        m_boundShadowMap = 0;                                              // +0x1C
-        batch.reset(kind);
-
-        std::vector<DecalObject*>& bucket = buckets[kind];
-        for (unsigned int i = 0; i < bucket.size(); ++i)
+        addObject(view, bucket[i], batch);
+        if (batch.objects.size() == 10)
         {
-            addObject(view, bucket[i], batch);
-            if (batch.objects.size() == 10)
-            {
-                pushBatch(batch);
-                batch.vertexCount = 0;
-                batch.texture = 0;
-                batch.shadowMap = 0;
-                batch.objects.clear();
-                batch.records.clear();
-            }
-        }
-        if (batch.objects.size() != 0)
             pushBatch(batch);
+            batch.reset();
+        }
     }
+    if (batch.objects.size() != 0)
+        pushBatch(batch);
 }
 
 
@@ -415,7 +306,7 @@ void DecalRenderer::addObject(dx9rend::IRenderView& view, DecalObject* object, D
 }
 
 
-// Adds a visible-alpha record, flushing on texture/shadow change or the 12288-vertex limit.
+// Adds a visible-alpha record, flushing on a texture change or the 12288-vertex limit.
 // NaN alpha is retained. A flush includes the current object, then restarts its slot at zero.
 
 // PE 0x101AA830
@@ -426,31 +317,6 @@ void DecalRenderer::addRecord(DecalBatch& batch, DecalRecord* record, DecalObjec
         return;
 
     bool changed = false;
-    dx9rend::EngineTexture* shadowMap = 0;
-    bool haveShadowMap = false;
-    if (batch.kind == 1)
-    {
-        void* const geometry = object->ownerGeometry();     // DecalObject +0x20
-        if (geometry && geometryLightRecord(geometry))                     // geometry +0x28
-        {
-            if (lightRecordUsesSecondShadowMap(geometryLightRecord(geometry)))   // +0x28 again
-                shadowMap = lightManagerPointShadowMapTexture(g_LightManager);   // +0x230
-            else
-                shadowMap = lightManagerShadowMapTexture(g_LightManager);        // +0x21C
-            haveShadowMap = true;
-        }
-    }
-    else if (batch.kind == 2)
-    {
-        shadowMap = lightManagerShadowMapTexture(g_LightManager);              // +0x21C
-        haveShadowMap = true;
-    }
-    if (haveShadowMap && shadowMap != m_boundShadowMap)
-    {
-        m_boundShadowMap = shadowMap;
-        changed = true;
-    }
-
     if (record->texture != m_boundTexture)                                 // record +0x30
     {
         m_boundTexture = record->texture;
@@ -462,7 +328,7 @@ void DecalRenderer::addRecord(DecalBatch& batch, DecalRecord* record, DecalObjec
     {
         batch.objects.push_back(object);
         pushBatch(batch);
-        batch.reset(batch.kind);
+        batch.reset();
         *objectIndex = 0;
     }
 
@@ -470,7 +336,6 @@ void DecalRenderer::addRecord(DecalBatch& batch, DecalRecord* record, DecalObjec
     batch.records.push_back(record);
     batch.vertexCount += record->vertexCount;
     batch.texture = m_boundTexture;
-    batch.shadowMap = m_boundShadowMap;
 }
 
 // m_batches.push_back(batch): in place (the member copy 0x101AB990)
@@ -502,24 +367,12 @@ bool DecalRenderer::render(dx9rend::IRenderView* view)
     m_paramFadeDistanceAndInterval->setValue(&m_fadeDistanceAndInterval, 0);   // +0x18
 
     m_boundTexture = 0;
-    m_boundShadowMap = 0;
     std::sort(m_batches.begin(), m_batches.end(), batchLess);
 
-    int pass = 3;                                                          // [ebp-8]
+    beginPass();
     for (unsigned int i = 0; i < m_batches.size(); ++i)
-    {
-        const DecalBatch& batch = m_batches[i];
-        if (batch.kind != pass)
-        {
-            if (pass != 3)
-                dx9rend::effectEnd(m_effect);
-            pass = batch.kind;
-            beginPass(batch.kind);
-        }
-        drawBatch(view, batch);
-    }
-    if (pass != 3)
-        dx9rend::effectEnd(m_effect);
+        drawBatch(view, m_batches[i]);
+    dx9rend::effectEnd(m_effect);
 
     m_batches.clear();                         // 0x101ABC60; retail's VC7.1 clear also freed storage
     dx9rend::stateManagerPop();
@@ -531,7 +384,7 @@ bool DecalRenderer::render(dx9rend::IRenderView* view)
 // Resets the vertex cursor so the next lock discards previous data.
 
 // PE 0x101AACF0
-void DecalRenderer::beginPass(int kind)
+void DecalRenderer::beginPass()
 {
     m_vertexCursor = 100000;                                               // 0x186A0
 
@@ -576,7 +429,7 @@ void DecalRenderer::beginPass(int kind)
 
     dx9rend::vertexBufferBindStream(m_vertexBuffer, 0);
     dx9rend::effectBegin(m_effect);
-    dx9rend::effectBeginPass(m_effect, static_cast<unsigned int>(kind));
+    dx9rend::effectBeginPass(m_effect, 0u);   // [RENDER] passes 1 and 2 were the shadowed kinds
 }
 
 
@@ -590,23 +443,6 @@ bool DecalRenderer::drawBatch(dx9rend::IRenderView* view, const DecalBatch& batc
         return true;
 
     setInstanceTransforms(batch);
-    switch (batch.kind)
-    {
-    case 1:
-        setDynamicShadowParameters(batch);
-        break;
-    case 2:
-        setStaticShadowParameters(batch);
-        break;
-    default:
-        break;
-    }
-
-    if (batch.shadowMap && m_boundShadowMap != batch.shadowMap)
-    {
-        m_paramShadowMapTex->setValue(batch.shadowMap, 0);                 // +0x1E0
-        m_boundShadowMap = batch.shadowMap;
-    }
     if (batch.texture && m_boundTexture != batch.texture)
     {
         m_paramTexLayer0->setValue(batch.texture, 0);                      // +0x1DC
@@ -685,84 +521,6 @@ void DecalRenderer::setInstanceTransforms(const DecalBatch& batch)
         reinterpret_cast<const void* const*>(m_instanceTransforms), count);      // +0x28
 }
 
-
-// kind 1: per object, when its geometry has a render record (+0x28,
-// called three times - test, matrix, viewport): ShadowTransformations[i] = the record's +0x2F8 and
-// ShadowViewPortMaps[i] = its +0x438..+0x444; otherwise the identity and a zero viewport. Then the
-// two parameters, each with the object count.
-
-// PE 0x101A9C00
-void DecalRenderer::setDynamicShadowParameters(const DecalBatch& batch)
-{
-    for (unsigned int i = 0; i < batch.objects.size(); ++i)
-    {
-        void* const geometry = batch.objects[i]->ownerGeometry();
-        if (geometry && geometryLightRecord(geometry))
-        {
-            m_shadowTransforms[i] = lightRecordShadowMatrix(geometryLightRecord(geometry));
-            const float* const viewPort = lightRecordViewPort(geometryLightRecord(geometry));
-            m_shadowViewPorts[i].y = viewPort[1];
-            m_shadowViewPorts[i].z = viewPort[2];
-            m_shadowViewPorts[i].w = viewPort[3];
-            m_shadowViewPorts[i].x = viewPort[0];
-        }
-        else
-        {
-            m_shadowTransforms[i] = &Mat4::getIdentity();
-            m_shadowViewPorts[i].y = 0.0f;
-            m_shadowViewPorts[i].z = 0.0f;
-            m_shadowViewPorts[i].w = 0.0f;
-            m_shadowViewPorts[i].x = 0.0f;
-        }
-    }
-    unsigned int count = static_cast<unsigned int>(batch.objects.size());
-    m_paramShadowTransformations->setMatrixPointerArray(
-        reinterpret_cast<const void* const*>(m_shadowTransforms), count);  // +0x1C0, +0x28
-    count = static_cast<unsigned int>(batch.objects.size());
-    m_paramShadowViewPortMaps->setValue(m_shadowViewPorts, count);         // +0x1C8, +0x18
-}
-
-
-// kind 2: per object, its slot +0x08 record (called once): the
-// record's +0x2F8 and +0x3B8 matrices and its viewport; otherwise the identity twice (two
-// sub_100791E0 calls) and a zero viewport. Then ShadowTransformations, ShadowTrapezoidMats and
-// ShadowViewPortMaps, each with the object count.
-
-// PE 0x101A9D20
-void DecalRenderer::setStaticShadowParameters(const DecalBatch& batch)
-{
-    for (unsigned int i = 0; i < batch.objects.size(); ++i)
-    {
-        void* const record = batch.objects[i]->getShadowRecord();   // slot +0x08
-        if (record)
-        {
-            m_shadowTransforms[i] = lightRecordShadowMatrix(record);
-            m_shadowTrapezoidMats[i] = lightRecordTrapezoidMatrix(record);
-            const float* const viewPort = lightRecordViewPort(record);
-            m_shadowViewPorts[i].y = viewPort[1];
-            m_shadowViewPorts[i].z = viewPort[2];
-            m_shadowViewPorts[i].w = viewPort[3];
-            m_shadowViewPorts[i].x = viewPort[0];
-        }
-        else
-        {
-            m_shadowTransforms[i] = &Mat4::getIdentity();
-            m_shadowTrapezoidMats[i] = &Mat4::getIdentity();
-            m_shadowViewPorts[i].y = 0.0f;
-            m_shadowViewPorts[i].z = 0.0f;
-            m_shadowViewPorts[i].w = 0.0f;
-            m_shadowViewPorts[i].x = 0.0f;
-        }
-    }
-    unsigned int count = static_cast<unsigned int>(batch.objects.size());
-    m_paramShadowTransformations->setMatrixPointerArray(
-        reinterpret_cast<const void* const*>(m_shadowTransforms), count);  // +0x1C0
-    count = static_cast<unsigned int>(batch.objects.size());
-    m_paramShadowTrapezoidMats->setMatrixPointerArray(
-        reinterpret_cast<const void* const*>(m_shadowTrapezoidMats), count);   // +0x1C4
-    count = static_cast<unsigned int>(batch.objects.size());
-    m_paramShadowViewPortMaps->setValue(m_shadowViewPorts, count);         // +0x1C8
-}
 
 } // namespace geom
 } // namespace hfe

@@ -363,20 +363,10 @@ private:
     LightShadowRecord& operator=(const LightShadowRecord&);
 };
 
-// Typed reads of LightManager state other draws need. [CHOSEN, not recovered] accessors for fields
-// those draws read by offset (issue #7); each answers the live member.
-// +0x79C - the directional shadow records this frame (empty when no record was built).
-std::vector<LightShadowRecord>& lightManagerShadowRecords(LightManager* manager);
 // +0x7DC - the point shadow records ([INFERRED] name; PE 0x1015C570).
 std::vector<LightShadowRecord>& lightManagerPointShadowRecords(LightManager* manager);
 // A frustum's near plane pulled back over the box (minimum, maximum); the terrain culler's shadow gather.
 void fitShadowFrustumNearPlaneToBounds(Frustum& frustum, const Vec3& boxMin, const Vec3& boxMax);
-// +0x278 - the light-space frustum the directional pass fits over the camera frustum.
-const Frustum& lightManagerShadowFrustum(const LightManager* manager);
-// +0x16C - the distance the directional pass pulls a frustum back toward the light (200).
-float lightManagerShadowPullbackDistance(const LightManager* manager);
-// +0x21C - the directional shadow map.
-dx9rend::EngineTexture* lightManagerShadowMapTexture(const LightManager* manager);
 // +0x230 - the point/spot shadow atlas.
 dx9rend::EngineTexture* lightManagerPointShadowMapTexture(const LightManager* manager);
 // +0x248 - the black 8 x 8 cube texture the constructor builds.

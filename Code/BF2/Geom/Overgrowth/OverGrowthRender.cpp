@@ -86,12 +86,6 @@ inline void geometryDraw(void* geometry, IRenderView* view)
     reinterpret_cast<DrawFn>(geometrySlot(geometry, 0x18))(geometry, view, 0, 1);
 }
 
-// +0x24 - the shadow record this geometry receives from (StaticMesh +0x34C), one argument.
-inline void geometryAttachShadowRecord(void* geometry, void* record)
-{
-    typedef void (__thiscall* AttachFn)(void*, void*);
-    reinterpret_cast<AttachFn>(geometrySlot(geometry, 0x24))(geometry, record);
-}
 
 // +0x40 getLocalBounds - the selected lod's box (StaticMesh lod record + 4).
 inline const LocalBoundingBox& geometryLocalBounds(void* geometry)
@@ -122,13 +116,6 @@ inline void geometrySetTransformation(void* geometry, const Mat4* transform)
     // StaticMesh's slot body is PE 0x100FF2B0.
     typedef void (__thiscall* SetTransformFn)(void*, const Mat4*);
     reinterpret_cast<SetTransformFn>(geometrySlot(geometry, 0x50))(geometry, transform);
-}
-
-// +0xAC - the shadow-caster frame stamp (StaticMesh +0x350), one argument: renderer +0x54.
-inline void geometryStampShadowFrame(void* geometry, unsigned int frameOrdinal)
-{
-    typedef void (__thiscall* StampFn)(void*, unsigned int);
-    reinterpret_cast<StampFn>(geometrySlot(geometry, 0xAC))(geometry, frameOrdinal);
 }
 
 
@@ -377,58 +364,6 @@ void fitShadowFrustumNearPlane(Frustum& frustum, const Vec3* corners)
 
 // Moves the frustum toward the light, extending its far distance and transforming its planes.
 
-void shiftShadowFrustumTowardLight(Frustum& frustum, float distance)
-{
-    Mat4 transformation = frustum.m_transformation;
-    const Vec3 normal = frustum.m_planes[4].normal;
-    const float x = normal.x * distance;
-    const float y = normal.y * distance;
-    const float z = normal.z * distance;
-#if defined(__APPLE__)
-    // [CHOSEN, not recovered] PE 0x10161642..0x10161678 (inlined twice in 0x10161610): the x
-    // product stays on the x87 stack for the m[12] add; only y and z are stored first.
-    transformation.m[12] = bf2x87::store(bf2x87::add(
-        bf2x87::wide(transformation.m[12]),
-        bf2x87::mul(bf2x87::wide(normal.x), bf2x87::wide(distance))));
-    (void)x;
-#else
-    transformation.m[12] = transformation.m[12] + x;
-#endif
-    transformation.m[13] = transformation.m[13] + y;
-    transformation.m[14] = transformation.m[14] + z;
-    frustum.m_farDist = frustum.m_farDist + distance;
-    rendmath::frustumTransform(frustum, transformation);
-}
-
-// PE 0x10161610
-void lightManagerAttachShadowReceiver(LightManager* manager, void* geometry)
-{
-    Frustum shadowFrustum(lightManagerShadowFrustum(manager));              // +0x278, [ebp-0x274]
-    shiftShadowFrustumTowardLight(shadowFrustum, lightManagerShadowPullbackDistance(manager));   // +0x16C
-    {
-        const Mat4* const transform = geometryTransformation(geometry);    // +0x48
-        const float radius = geometryBoundingRadius(geometry);             // +0x44
-        if (!rendmath::frustumInside(shadowFrustum, translationOf(*transform), radius))
-            return;
-    }
-
-    std::vector<LightShadowRecord>& records = lightManagerShadowRecords(manager);   // +0x79C
-    for (LightShadowRecord* record = records.data();
-         record != records.data() + records.size(); ++record)
-    {
-        Frustum recordFrustum(record->frustum);                             // [ebp-0x45C]
-        shiftShadowFrustumTowardLight(recordFrustum, lightManagerShadowPullbackDistance(manager));
-        const Mat4* const transform = geometryTransformation(geometry);    // +0x48, again
-        const float radius = geometryBoundingRadius(geometry);             // +0x44, again
-        if (rendmath::frustumInside(recordFrustum, translationOf(*transform), radius))
-        {
-            geometryAttachShadowRecord(geometry, record);                  // +0x24
-            geometryStampShadowFrame(geometry, dx9rend::rendererFrameOrdinal());   // +0x54, then +0xAC
-            return;
-        }
-    }
-}
-
 
 // PE 0x1015E9E0 (83 B), read in full - a member of the unpublished base (thiscall on the OverGrowth):
 // every draw type's two pools start the frame with nothing handed out - +0x38 (the "_lod" pool) and
@@ -576,7 +511,7 @@ void OverGrowth::render(IRenderView* view, float time)
                 }
                 if (objectDrawerOccludes(dx9rend::g_ObjectDrawer, geometry))
                     continue;
-                lightManagerAttachShadowReceiver(g_LightManager, geometry);
+                // [RENDER] Retail attached the instance to a directional shadow record here.
 
                 float fade = clampFloat((1.0f - std::sqrt(ratio)) / m_closeDistFade
                                         * std::sqrt(type->full.distanceScale), 0.0f, 1.0f);

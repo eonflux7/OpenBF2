@@ -382,7 +382,7 @@ unsigned int BundledMesh::animationIndex(const Vec3& camera)
     return index>=count ? m_template->m_u2-1 : index;
 }
 // PE 0x10103F00
-unsigned int BundledMesh::materialFeatures(BundledMeshMaterial* material,bool additive,unsigned int caps)
+unsigned int BundledMesh::materialFeatures(BundledMeshMaterial* material,bool additive,unsigned int /*caps*/)
 {
     const BundledMeshState& state=*material->m_state;
     unsigned int bits=0;
@@ -390,13 +390,9 @@ unsigned int BundledMesh::materialFeatures(BundledMeshMaterial* material,bool ad
     if(state.m_envMap)bits|=0x10; if(state.m_cockpit)bits|=0x20;
     if(!additive && !state.m_noHemiLight)bits|=0x40;
     if(!bits || bits==0x20)bits|=1;
-    if(!additive && dispatch<bool>(this,0xA8))
-    {
-        const unsigned int frame=dispatch<unsigned int>(this,0xB0);
-        if(frame==dx9rend::rendererFrameOrdinal() && !state.m_cockpit)bits|=0x80;
-    }
+    // [RENDER] Retail added hasshadow (0x80) for a sun shadow caster this frame and, with it,
+    // hasshadowocclusion (0x1000); the legacy sun shadow and those permutations are gone.
     if(state.m_colorMapGloss)bits|=0x100; if(state.m_feature39)bits|=0x200; if(state.m_alphaTest)bits|=0x400;
-    if(caps>=3 && !dispatch<bool>(dx9rend::g_Renderer,0xAC) && (bits&0x80))bits|=0x1000;
     if(additive)bits|=0x800;
     return bits;
 }

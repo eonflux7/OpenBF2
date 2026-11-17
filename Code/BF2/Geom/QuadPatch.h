@@ -116,7 +116,6 @@ public:
     void draw(TerrainCullerNode**& it);                              // 0x1018BE20  the Hi_/Low_Terrain pass-0 draw (accumulation target)
     void drawFinal(TerrainCullerNode**& it);                         // 0x1018C910  the diffuse detail passes (LOD 0 per layer, then the lower LODs)
     void drawShadow();                                               // 0x1018DD00  pass 7: this patch's gathered shadow ranges
-    bool gatherShadowRanges(void** lockedIndices, int* cursor);     // 0x1018BAE0
     // Appends this record's visible patch ranges and their cracked-grid indices. [INFERRED] name.
     void gatherShadowRecord(unsigned short* indices, int* cursor, LightShadowRecord* shadow,
                             std::vector<TerrainShadowRange>& ranges, float extrusionScale,

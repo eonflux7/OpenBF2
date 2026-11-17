@@ -329,18 +329,8 @@ bool staticMeshBuildTechniqueMasks(const std::string& mfxPath,
     if (maskCount < quality)
         quality = maskCount;
 
-    // The lookup uses "hasshadow", but the table names it "shadow"; clearing the
-    // resulting zero mask intentionally leaves the shadow bit set.
-    if (!::dice::hfe::dx9rend::rendererGetVideoOptions()->getQuality(4))
-    {
-        const std::string hasShadow("hasshadow");
-
-        // The shipped body computes the element address before the call (0x10192361) and applies
-        // the AND after it. Kept in that order because the element address is taken from the
-        // vector's _First as it stands at that instant.
-        unsigned int* const slot = maskVectorData(maskVector) + quality;
-        *slot &= ~shaderBitFromName(bitNames, hasShadow);
-    }
+    // [RENDER] Retail cleared the "hasshadow" bit from this quality's mask when shadows were off;
+    // no shadow permutation exists any more.
 
     const unsigned int mask = maskVectorData(maskVector)[quality];
 
@@ -445,21 +435,9 @@ void staticMeshInitTechniques()
     if (::dice::hfe::dx9rend::rendererGetVideoOptions()->getQuality(3))
         staticMeshRegisterTechnique("Leafpointlight", 0xF0000400u);
 
-    // the shadow quality setting.
-    if (::dice::hfe::dx9rend::rendererGetVideoOptions()->getQuality(4))
-    {
-        staticMeshRegisterTechnique("TrunkSTMDetailShadowed", 0xF9000200u);
-        staticMeshRegisterTechnique("TrunkSTMBaseShadowed",   0xFA000200u);
-        staticMeshRegisterTechnique("LeafShadowed",           0xF0000200u);
-    }
-
-    // a second, separately re-fetched shadow test, with the point-light test nested
-    // inside it rather than ANDed with it. Written the way the image branches.
-    if (::dice::hfe::dx9rend::rendererGetVideoOptions()->getQuality(4))
-    {
-        if (::dice::hfe::dx9rend::rendererGetVideoOptions()->getQuality(3))
-            staticMeshRegisterTechnique("LeafpointlightShadowed", 0xF0000600u);
-    }
+    // [RENDER] Retail registered the sun-shadowed tree techniques (TrunkSTMDetailShadowed,
+    // TrunkSTMBaseShadowed, LeafShadowed, LeafpointlightShadowed: key | 0x200) under the shadow
+    // quality setting; the legacy sun shadow and those effects are gone.
 
     staticMeshRegisterTechnique("TrunkSTMDetail",    0xF9000000u);
     staticMeshRegisterTechnique("TrunkSTMBase",      0xFA000000u);

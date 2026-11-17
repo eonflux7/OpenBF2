@@ -137,8 +137,7 @@ UndergrowthSystem::UndergrowthSystem()
     , m_paramStaticPointColor(0), m_paramFogRange(0), m_paramFogColor(0)
     , m_paramAmbientIlluminationRange(0), m_paramWaterFogRange(0), m_paramWaterFogColor(0)
     , m_paramPointLightPosAtten(0), m_paramPointLightColor(0), m_paramAlphaRef(0)
-    , m_paramTransparencyX8(0), m_paramCameraToWater(0), m_paramShadowMap(0)
-    , m_paramShadowProjMatrix(0), m_paramShadowTrapMatrix(0)
+    , m_paramTransparencyX8(0), m_paramCameraToWater(0)
     , m_lightingScale(1.8f)
     , m_cells(0)
     , m_patchCount(0)
@@ -197,9 +196,6 @@ UndergrowthSystem::~UndergrowthSystem()
     retireVector(m_visibleCells);                                           // +0x2D4
     retireVector(m_materials);                                              // +0xF8
 
-    destroyParameter(m_paramShadowTrapMatrix);
-    destroyParameter(m_paramShadowProjMatrix);
-    destroyParameter(m_paramShadowMap);
     destroyParameter(m_paramCameraToWater);
     destroyParameter(m_paramTransparencyX8);
     destroyParameter(m_paramAlphaRef);
@@ -319,9 +315,6 @@ void UndergrowthSystem::clear()
     releaseParameter(m_paramAlphaRef);                                       // +0xC0
     releaseParameter(m_paramTransparencyX8);                                 // +0xC4
     releaseParameter(m_paramCameraToWater);                                  // +0xC8
-    releaseParameter(m_paramShadowMap);                                      // +0xCC
-    releaseParameter(m_paramShadowProjMatrix);                               // +0xD0
-    releaseParameter(m_paramShadowTrapMatrix);                               // +0xD4
 
     delete[] m_cells;                                                        // sub_1005F370(p - 4)
     m_cells = 0;

@@ -842,11 +842,9 @@ unsigned int& terrainRendererStat(unsigned int byteOffset);
 // normalised, negated and carried through the transposed inverse of the render view's
 // inverse-view x projection product into `out`.
 void terrainViewClipPlane(float* out, const float* planes, int index);
-// LightManager +0x79C: the dynamic-shadow records (XpLightManager.h LightShadowRecord: the frustum,
-// matrices[4] lightviewprojortho and matrices[7] lightviewproj), rebuilt by the light coordinator.
+// XpLightManager.h's shadow record: the frustum, matrices[4] lightviewprojortho and matrices[7]
+// lightviewproj.
 struct LightShadowRecord;
-std::vector<LightShadowRecord>& terrainShadowRecords();
-unsigned int terrainShadowRecordCount();
 // sub_101C7980 - true unless one of the six frustum planes has the box entirely in front of it
 // (the plane's outcode picks the box corner to test).
 bool terrainFrustumIntersectsBox(const Frustum* frustum, const float* minMax);

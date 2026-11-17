@@ -28,7 +28,9 @@ kept in a private repository; this document describes only the contract between 
 Each step is accepted in game against the reference views (see [Tooling](#tooling)) before the next
 one starts.
 
-**5. Sun CSM.** Open: tuning of distance, resolution and bias, measured with the GPU pass timers.
+**5. Sun CSM.** Open, in this order: cull casters per cascade (the caster pass issues about four
+times the main pass's draws; terrain alone 495 a frame against 59 for its main pass), then tuning of
+distance, resolution and bias, measured with the GPU pass timers.
 
 **6. Shader audit and cleanup.** An inventory of the shader set: every effect and header, its
 techniques and permutations, which of them a PR session loads, the code each later step replaces,
@@ -37,11 +39,12 @@ itself lives with the private shaders; this document records only contract chang
 follows from it:
 - The toggles the engine fixed when steps 1–4 were accepted (reversed-Z, log depth, gamma-space
   lighting) and their dead branches.
-- BF2's directional (sun) shadow maps, which are no longer rendered or created (`renderShadowMaps`
-  draws point and spot maps only), so no sun shadow record exists and every receiver of one (mesh
-  shadow permutations `hasshadow` / `hasshadowocclusion`, terrain, undergrowth, overgrowth, decals)
-  is inactive. Their receivers, the unreferenced directional pass in `XpLightManager.cpp`, and the
-  effect parameters (`ShadowMap`, `ShadowProjMat`, ...) are deleted.
+- BF2's directional (sun) shadow maps (done). The directional pass in `XpLightManager.cpp`, its
+  records and every receiver are deleted: the mesh shadow permutations (bundled and skinned mesh
+  `hasshadow` / `hasshadowocclusion` / `hashemiocclusion`, static mesh `shadow`, the `*Shadowed` tree
+  techniques), terrain water's record matrices, undergrowth's `_ds` techniques, overgrowth's record
+  attach, and the decal renderer's shadowed batch kinds (decals draw pass 0 only). Point and spot
+  shadow maps are unchanged.
 - One terrain path. `Low_Terrain` had no `RaDepthPrepass` or `RaShadowDepth` technique, so the
   engine no longer enters it: not at load, not from the terrain-quality video option, not as a
   fallback. The `m_lowQuality` branches left in the terrain code are always false and go with the

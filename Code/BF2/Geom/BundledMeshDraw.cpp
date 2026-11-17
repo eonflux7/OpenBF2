@@ -415,17 +415,8 @@ void BundledMesh::draw(void*,void*,void*)
                 std::memcpy(m_parameters.userData.value.data()+64*i,
                     m_uvMatrices?&m_uvMatrices[i]:&Mat4::getIdentity(),64);
         }
-        if(castsDynamicShadow())
-        {
-            const unsigned int shadowFrame=frameOrdinal();
-            if(getShadowCasterFrame()==shadowFrame && m_shadowProjection && !(staticSun && state->m_cockpit))
-            {
-                const LightShadowRecord* const record=static_cast<const LightShadowRecord*>(m_shadowProjection);
-                std::memcpy(&m_parameters.shadowProjMat.value,&record->matrices[4],64);     // +0x2F8
-                std::memcpy(&m_parameters.shadowTrapMat.value,&record->matrices[7],64);     // +0x3B8
-                std::memcpy(&m_parameters.shadowOccProjMat.value,&record->matrices[5],64);  // +0x338
-            }
-        }
+        // [RENDER] Retail copied the directional shadow record's matrices here when the mesh was a
+        // sun shadow caster this frame; that pass is gone (the sun mask replaces it).
         if(slot<bool>(dx9rend::g_Renderer,0xAC))
         {
             const Vec3& sky=g_LightManager->getSkyColor();

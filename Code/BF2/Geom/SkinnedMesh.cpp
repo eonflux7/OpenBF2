@@ -1365,11 +1365,13 @@ void SkinnedMesh::drawShadowMap(void* caster, unsigned int, unsigned int, unsign
 }
 
 
-// Builds material shader-permutation flags, including this frame's shadow-caster state.
+// Builds material shader-permutation flags. [RENDER] Retail also added hasshadow (0x40) for a sun
+// shadow caster this frame and, with it, hasshadowocclusion (0x100); the legacy sun shadow and
+// those permutations are gone.
 
 // PE 0x101A6820
 unsigned int SkinnedMesh::buildShaderDefineMask(const SkinnedMeshMaterial* material, bool alphaPass,
-                                                unsigned int quality)
+                                                unsigned int /*quality*/)
 {
     unsigned int mask = 0;
     if (material->hasNormalMap)                                       // +0x188
@@ -1379,30 +1381,6 @@ unsigned int SkinnedMesh::buildShaderDefineMask(const SkinnedMeshMaterial* mater
     if (material->hasEnvMap)                                          // +0x18B
         mask |= 8u;
     mask |= 0x10u;
-
-    std::string name("");
-
-    if (!alphaPass)
-    {
-        if (viewSlot<unsigned char>(this, 0xA8))
-        {
-            const unsigned int frame = dx9rend::rendererFrameOrdinal();
-            // The pointer-typed slot carries a 32-bit frame ordinal.
-            if (static_cast<unsigned int>(reinterpret_cast<uintptr_t>(viewSlot<void*>(this, 0xB0)))
-                == frame)
-                mask |= 0x40u;
-        }
-    }
-
-    // The quality refinement is gated on the 0x40 bit just set, so it can only ever apply to a
-    // caster; and on the Renderer's +0xAC predicate being false.
-    typedef unsigned char(__thiscall * PredFn)(void*);
-    void* const renderer = dx9rend::g_Renderer;
-    if (quality >= 3
-        && !reinterpret_cast<PredFn>(
-               (*reinterpret_cast<void***>(renderer))[0xAC / 4])(renderer)
-        && (mask & 0x40u) != 0)
-        mask |= 0x100u;
 
     if (alphaPass)
         mask |= 0x80u;
@@ -1906,23 +1884,8 @@ void SkinnedMesh::draw(void*, void*, void*)
         void*& shaderSlot = raMaterialShaderSlot(skinnedMeshMaterialParameters(material));
         shaderSlot = findShaderForBits(bits);
 
-        // The shadow matrices, copied out of the +0x33C object - but only while this instance is a
-        // shadow caster on this frame, the same +0xA8/+0xB0 pair buildShaderDefineMask consults.
-        if (refreshAndGetByte334()
-            && static_cast<unsigned int>(reinterpret_cast<uintptr_t>(getShadowCasterFrame()))
-                   == dx9rend::rendererFrameOrdinal())
-        {
-            if (m_dword33C)
-            {
-                // The +0x33C object is a LightManager shadow record (XpLightManager.h): its
-                // matrices [4] (+0x2F8), [7] (+0x3B8) and [5] (+0x338).
-                const LightShadowRecord* const caster =
-                    static_cast<const LightShadowRecord*>(m_dword33C);
-                std::memcpy(ra.shadowProjMat.value, &caster->matrices[4], sizeof(Mat4));    // +0x438
-                std::memcpy(ra.shadowTrapMat.value, &caster->matrices[7], sizeof(Mat4));    // +0x4C0
-                std::memcpy(ra.shadowOccProjMat.value, &caster->matrices[5], sizeof(Mat4)); // +0x47C
-            }
-        }
+        // [RENDER] Retail copied the directional shadow record's matrices here for a sun shadow
+        // caster this frame; that pass is gone.
 
         // +0x560 = the sky colour -> HemiMapSkyColor. The ambient scale is applied only on the
         // expansion-pack path; the other arm copies the colour through untouched.
