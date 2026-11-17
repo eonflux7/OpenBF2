@@ -42,7 +42,10 @@ First load of muttrah_city_2 (PR, autohost, Wine), effect cache not invalidated,
 
 The Ra cache key is computed with `D3DXPreprocessShader` from `d3dx9_24.dll`. Wine's `d3dx9_24`
 (like `_25` and `_26`) does not export it, so every key was empty and every `.cfx.key` held `-`.
-The key now falls back to `d3dcompiler_47`'s `D3DPreprocess`.
+The key now falls back to `d3dcompiler_47`'s `D3DPreprocess`. With the cache filled, the same load
+takes 37 s instead of 186 s (to the loading bar's Textures part): Ra effects 19.5 s, of which 16.6 s
+is computing the content key (about 12 ms per effect) and 0.5 s reading the 1337 blobs. Console
+scripts (9.4 s, all in the Objects part) are now the largest item.
 
 ## What the code already shows
 
@@ -77,4 +80,4 @@ These come from reading the code. The baseline trace will confirm or rule out ea
 | Step | State |
 |---|---|
 | Load trace (`dev`) | Done; baseline above |
-| Ra cache key under Wine (`fix`) | Built; not yet seen in game |
+| Ra cache key under Wine (`fix`) | Done: seen in game, muttrah_city_2, 186 s to 37 s with a filled cache |
