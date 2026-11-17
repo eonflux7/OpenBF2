@@ -2004,14 +2004,50 @@ bool g_raPrefetchStarted = false;
 std::set<std::string> g_raManifestNames;                  // main thread only
 bool g_raManifestRead = false;
 
-void raPrefetchCompile(RaPrefetchJob& job)
+// D3DX's effect compiler runs one compile at a time per loaded module (8 threads on one module:
+// no faster than serial; on 8 copies: 4.6 times faster). Each worker therefore loads its own copy
+// of the module the main thread compiles with: the same file under another name in a temp
+// directory. Null when the copy cannot be made or loaded; the worker then uses the shared module.
+RaD3dxCreateEffectCompilerFn raLoadPrivateCompiler(unsigned int index)
+{
+    char source[MAX_PATH];
+    if (!s_raD3dxModule || !::GetModuleFileNameA(s_raD3dxModule, source, MAX_PATH))
+        return 0;
+    char directory[MAX_PATH];
+    const DWORD length = ::GetTempPathA(MAX_PATH, directory);
+    if (length == 0 || length > MAX_PATH - 40)
+        return 0;
+    ::strcat_s(directory, "openbf2-d3dx");
+    ::CreateDirectoryA(directory, 0);
+    char target[MAX_PATH];
+    ::sprintf_s(target, "%s\\d3dx9_24_w%u.dll", directory, index);
+    if (!::CopyFileA(source, target, FALSE))
+    {
+        // Another running game may hold the copy open; it is the same file if the size matches.
+        WIN32_FILE_ATTRIBUTE_DATA a, b;
+        if (!::GetFileAttributesExA(source, GetFileExInfoStandard, &a)
+            || !::GetFileAttributesExA(target, GetFileExInfoStandard, &b)
+            || a.nFileSizeLow != b.nFileSizeLow || a.nFileSizeHigh != b.nFileSizeHigh)
+            return 0;
+    }
+    const HMODULE module = ::LoadLibraryA(target);
+    return module ? reinterpret_cast<RaD3dxCreateEffectCompilerFn>(
+                        ::GetProcAddress(module, "D3DXCreateEffectCompiler"))
+                  : 0;
+}
+
+void raPrefetchCompile(RaPrefetchJob& job, RaD3dxCreateEffectCompilerFn create)
 {
     ::dice::hfe::loadtrace::Scope trace("fx.worker", job.name.c_str());   // [DEV] BF2_LOAD_TRACE
     RaMemoryInclude include(job);
     ID3DXEffectCompiler* compiler = 0;
     ID3DXBuffer* errors = 0;
-    if (raCreateEffectCompiler(job.source.c_str(), static_cast<unsigned int>(job.source.size()),
-                               job.defines, &include, job.flags, &compiler, &errors) == 0 && compiler)
+    const long created = create
+        ? create(job.source.c_str(), static_cast<UINT>(job.source.size()), job.defines, &include,
+                 job.flags, &compiler, &errors)
+        : raCreateEffectCompiler(job.source.c_str(), static_cast<unsigned int>(job.source.size()),
+                                 job.defines, &include, job.flags, &compiler, &errors);
+    if (created == 0 && compiler)
     {
         if (errors)
         {
@@ -2030,7 +2066,7 @@ void raPrefetchCompile(RaPrefetchJob& job)
         errors->Release();
 }
 
-void raPrefetchWorker(RaPrefetchPool* pool)
+void raPrefetchWorker(RaPrefetchPool* pool, RaD3dxCreateEffectCompilerFn create)
 {
     for (;;)
     {
@@ -2041,7 +2077,7 @@ void raPrefetchWorker(RaPrefetchPool* pool)
             job = pool->queue.front();
             pool->queue.pop_front();
         }
-        raPrefetchCompile(*job);
+        raPrefetchCompile(*job, create);
         {
             std::lock_guard<std::mutex> lock(pool->mutex);
             job->done = true;
@@ -2070,8 +2106,16 @@ void raPrefetchQueue(RaPrefetchJob* job)
         threads = threads > 1 ? threads - 1 : 1;
         if (threads > 8)
             threads = 8;
+        unsigned int privateCompilers = 0;
         for (unsigned int i = 0; i < threads; ++i)
-            std::thread(raPrefetchWorker, g_raPrefetchPool).detach();
+        {
+            const RaD3dxCreateEffectCompilerFn create = raLoadPrivateCompiler(i);
+            privateCompilers += create ? 1 : 0;
+            std::thread(raPrefetchWorker, g_raPrefetchPool, create).detach();
+        }
+        ::fprintf(stderr, "[EFFECTPREFETCH] %u worker threads, %u with their own compiler module\n",
+                  threads, privateCompilers);
+        ::fflush(stderr);
     }
     g_raPrefetchJobs[job->name] = job;
     {
