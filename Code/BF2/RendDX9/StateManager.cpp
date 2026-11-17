@@ -244,6 +244,11 @@ struct StateManager
     /* 0x3E98 */ unsigned int     psConstMax;      // ctor: 0
     /* 0x3E9C */ ConstantIssueFn  psConstIssueFn;  // sub_100272B0 - device SetPixelShaderConstantF
 
+    // [CHOSEN, not recovered] Render targets 1..3 (MRT). The shipped object mirrors only RT0 and
+    // every shipped caller passes index 0; these sit past the retail fields so its layout holds.
+    /* 0x3EA0 */ IDirect3DSurface9* extraRenderTarget[3];   // refcounted, RT1..RT3
+    /*        */ unsigned char    extraRenderTargetDirty[3];
+
     void setRenderStatePersistent(unsigned int state, unsigned int value);
     void setTransparencyAA(bool enabled);
 };
@@ -252,8 +257,8 @@ struct StateManager
 // the object through the seams below (the listener and RT0 accessors included), so the x64 object is
 // native.
 #if defined(_M_IX86)
-static_assert(sizeof(StateManager) == 16032,
-              "RendDX9Init.cpp:232 allocates 0x3EA0 for the StateManager");
+// RendDX9Init.cpp:232 allocates 0x3EA0; the MRT slots extend the object past it.
+static_assert(offsetof(StateManager, extraRenderTarget) == 0x3EA0, "MRT slots follow the retail object");
 static_assert(offsetof(StateManager, renderStates)      == 0x0010, "RS block at +0x10");
 static_assert(offsetof(StateManager, textures)          == 0x1204, "texture block at +0x1204");
 static_assert(offsetof(StateManager, samplers)          == 0x132C, "sampler blocks at +0x132C");
@@ -668,6 +673,11 @@ void resetToDefaults(StateManager* self)
     self->vertexShader      = 0;  self->vertexShaderDirty = 0;
     self->pixelShader       = 0;  self->pixelShaderDirty  = 0;
     self->renderTarget      = 0;  self->renderTargetDirty = 0;
+    for (unsigned int i = 0; i < 3; ++i)
+    {
+        self->extraRenderTarget[i]      = 0;
+        self->extraRenderTargetDirty[i] = 0;
+    }
     self->depthStencil      = 0;  self->depthStencilDirty = 0;
 }
 
@@ -940,12 +950,13 @@ int __stdcall smSetVertexDeclaration(StateManager* self, void* decl)
 // and `this + 0x1E94 + index`; measuring from the named members keeps that aliasing on x64.
 int __stdcall smSetRenderTarget(StateManager* self, unsigned int index, IDirect3DSurface9* surface)
 {
-    IDirect3DSurface9** value =
-        reinterpret_cast<IDirect3DSurface9**>(reinterpret_cast<unsigned char*>(self)
-                                              + offsetof(StateManager, renderTarget)
-                                              + sizeof(IDirect3DSurface9*) * index);
-    unsigned char* dirtyByte = reinterpret_cast<unsigned char*>(self)
-                             + offsetof(StateManager, renderTargetDirty) + index;
+    // [CHOSEN, not recovered] Indices 1..3 address the MRT slots (the shipped body indexes past
+    // RT0 into the depth-stencil mirror).
+    if (index > 3)
+        return static_cast<int>(D3DERR_INVALIDCALL);
+    IDirect3DSurface9** value = index ? &self->extraRenderTarget[index - 1] : &self->renderTarget;
+    unsigned char* dirtyByte = index ? &self->extraRenderTargetDirty[index - 1]
+                                     : &self->renderTargetDirty;
     if (*value != surface)
     {
         if (*value)
@@ -996,6 +1007,32 @@ IDirect3DSurface9* topSurfaceOf(void* baseTexture)
     return surface;             // compared by identity only - never dereferenced
 }
 
+// A texture bound on any stage that is about to become a render target is unbound first (the
+// device must not sample what it writes).
+void unbindTexturesOfTarget(StateManager* self, IDirect3DSurface9* target)
+{
+    for (unsigned int stage = 0; stage < 16; ++stage)
+    {
+        StateCell& cell = self->textures.cells[stage];
+        if ((cell.flags & 4u) == 0)
+            continue;
+        if ((cell.flags & 2u) != 0 && cell.f2Wanted)
+        {
+            if (topSurfaceOf(reinterpret_cast<void*>(cell.f2Wanted)) == target)
+                cell.f2Wanted = 0;
+        }
+        if (cell.f0Device)
+        {
+            if (topSurfaceOf(reinterpret_cast<void*>(cell.f0Device)) == target)
+            {
+                reinterpret_cast<IUnknown*>(cell.f0Device)->Release();
+                cell.f0Device = 0;
+                self->device->SetTexture(stage, 0);
+            }
+        }
+    }
+}
+
 void flushRenderTargets(StateManager* self)
 {
     if (self->renderTargetDirty)
@@ -1009,31 +1046,20 @@ void flushRenderTargets(StateManager* self)
         }
         else
         {
-            for (unsigned int stage = 0; stage < 16; ++stage)
-            {
-                StateCell& cell = self->textures.cells[stage];
-                if ((cell.flags & 4u) == 0)
-                    continue;
-                if ((cell.flags & 2u) != 0 && cell.f2Wanted)
-                {
-                    if (topSurfaceOf(reinterpret_cast<void*>(cell.f2Wanted))
-                        == self->renderTarget)
-                        cell.f2Wanted = 0;
-                }
-                if (cell.f0Device)
-                {
-                    if (topSurfaceOf(reinterpret_cast<void*>(cell.f0Device))
-                        == self->renderTarget)
-                    {
-                        reinterpret_cast<IUnknown*>(cell.f0Device)->Release();
-                        cell.f0Device = 0;
-                        self->device->SetTexture(stage, 0);
-                    }
-                }
-            }
+            unbindTexturesOfTarget(self, self->renderTarget);
             self->device->SetRenderTarget(0, self->renderTarget);
             self->renderTargetDirty = 0;
         }
+    }
+    // [CHOSEN, not recovered] RT1..RT3 (MRT); null unbinds, which D3D allows above target 0.
+    for (unsigned int i = 0; i < 3; ++i)
+    {
+        if (!self->extraRenderTargetDirty[i])
+            continue;
+        if (self->extraRenderTarget[i])
+            unbindTexturesOfTarget(self, self->extraRenderTarget[i]);
+        self->device->SetRenderTarget(i + 1, self->extraRenderTarget[i]);
+        self->extraRenderTargetDirty[i] = 0;
     }
     if (self->depthStencilDirty)
     {
@@ -1169,6 +1195,12 @@ void RD9_THUNK listenerOnDeviceLost(void* listener RD9_THUNK_EDX)
     if (self->renderTarget)
         self->renderTarget->Release();
     self->renderTarget = 0;
+    for (unsigned int i = 0; i < 3; ++i)
+    {
+        if (self->extraRenderTarget[i])
+            self->extraRenderTarget[i]->Release();
+        self->extraRenderTarget[i] = 0;
+    }
     if (self->depthStencil)
         self->depthStencil->Release();
     self->depthStencil = 0;
@@ -1388,11 +1420,13 @@ IDirect3DSurface9* stateManagerGetDepthStencilSurface()
 }
 
 // PE 0x10025A70, a non-virtual member: the desired render target at `index`, without an AddRef.
-// Like smSetRenderTarget it addresses `this + 0x1E90 + 4 * index`; only index 0 has storage, and
-// every shipped caller passes 0. Indexed from the named member, as the setter is.
+// The shipped body addresses `this + 0x1E90 + 4 * index` (only index 0 has storage there); 1..3 read
+// the MRT slots.
 IDirect3DSurface9* smGetRenderTarget(StateManager* self, unsigned int index)
 {
-    return (&self->renderTarget)[index];
+    if (index > 3)
+        return 0;
+    return index ? self->extraRenderTarget[index - 1] : self->renderTarget;
 }
 
 // PE 0x10005790: loads the state manager singleton and tail-jumps to 0x10025A70 with the caller's
