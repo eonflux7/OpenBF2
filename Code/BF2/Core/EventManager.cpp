@@ -354,8 +354,12 @@ void EventManager::dispatchEvent(EventNode* node)
     while (h != 0)
     {
         // [DEV] BF2_LOAD_TRACE: an "event" span for each delivery of 1 ms or more, named by the
-        // listener's class, category and id.
-        const long long traceStart = loadtrace::enabled() ? loadtrace::now() : -1;
+        // listener's class, category and id. Both are read before the call: a listener may
+        // unregister (freeing h) or delete itself while handling the event.
+        const bool traced = loadtrace::enabled();
+        const char* const traceListener = traced ? typeid(*h->m_listener).name() : 0;
+        const int traceCategory = static_cast<int>(node->m_category);
+        const long long traceStart = traced ? loadtrace::now() : -1;
         h->m_listener->handleEvent(node->m_category, id, node, userData);
         if (traceStart >= 0)
         {
@@ -363,8 +367,7 @@ void EventManager::dispatchEvent(EventNode* node)
             if (traceEnd - traceStart >= 1000)
             {
                 char name[256];
-                std::snprintf(name, sizeof name, "%s %d/%u", typeid(*h->m_listener).name(),
-                              static_cast<int>(node->m_category), id);
+                std::snprintf(name, sizeof name, "%s %d/%u", traceListener, traceCategory, id);
                 loadtrace::span("event", name, traceStart, traceEnd);
             }
         }
