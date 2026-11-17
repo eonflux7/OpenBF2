@@ -2564,7 +2564,8 @@ bool renderQueueCaptureCaster(RenderQueue* queue, RenderQueueEntry* entry)
         return false;
     if (entry->shader && isWorldQueue(queue))
     {
-        ShadowCaster caster = { entry, { 0.0f, 0.0f, 0.0f, -1.0f } };
+        ShadowCaster caster = { entry, { 0.0f, 0.0f, 0.0f, -1.0f }, entry->shader,
+                                entry->material };
         g_casterCapture.casters.push_back(caster);
     }
     return true;
@@ -2578,14 +2579,16 @@ void rendererBeginCasterCapture(const Frustum* volume)
     g_casterCapture.active = true;
 }
 
-// Groups the casters by effect and material, so each cascade switches each once.
+// Groups the casters by effect and material, so each cascade switches each once. The keys are
+// the caster's copies: following each entry pointer in every comparison cost about 5 % of the
+// main thread on Muttrah (frametime.md).
 struct CasterDrawOrder
 {
     bool operator()(const ShadowCaster& a, const ShadowCaster& b) const
     {
-        if (a.entry->shader != b.entry->shader)
-            return a.entry->shader < b.entry->shader;
-        return a.entry->material < b.entry->material;
+        if (a.shader != b.shader)
+            return a.shader < b.shader;
+        return a.material < b.material;
     }
 };
 

@@ -59,3 +59,5 @@ Main thread, 10 s of samples:
 
 - `Renderer::tailField` answers from a table indexed by retail offset (plan 1). Built; not yet
   measured in game.
+- The sun casters carry their sort keys (shader, material), copied at capture (plan 2). Built;
+  not yet measured in game.
