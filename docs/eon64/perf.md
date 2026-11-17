@@ -28,6 +28,22 @@ on worker threads). Each image writes its own file, and both share one clock:
 of each category, the time between marks, and the heaviest names. "(untraced)" is phase time
 that no instrumented span covers.
 
+## Baseline
+
+First load of muttrah_city_2 (PR, autohost, Wine), effect cache not invalidated, before any
+`perf` change. From the menu click to the end of loading: about 190 s.
+
+| Where | Time | What |
+|---|---|---|
+| Ra effect compiles | 176 s | 1338 effects, all compiled from source: the `.cfx` cache was never used under Wine (below). About 37 s are terrain effects during `Init.con`/`Sky.con` (0.6 to 0.76 s each), 133 s are mesh effects in the loading bar's Geometries part |
+| Console scripts | 9 s | 13,305 runs |
+| File opens | 1.5 s | 40,000 opens, mostly from archives |
+| Startup to menu | 10.4 s | 5.2 s HUD scripts, 2 s `compileEffectFile` (`fsquaddrawer.fx` alone 1 s) |
+
+The Ra cache key is computed with `D3DXPreprocessShader` from `d3dx9_24.dll`. Wine's `d3dx9_24`
+(like `_25` and `_26`) does not export it, so every key was empty and every `.cfx.key` held `-`.
+The key now falls back to `d3dcompiler_47`'s `D3DPreprocess`.
+
 ## What the code already shows
 
 These come from reading the code. The baseline trace will confirm or rule out each one.
@@ -60,4 +76,5 @@ These come from reading the code. The baseline trace will confirm or rule out ea
 
 | Step | State |
 |---|---|
-| Load trace (`dev`) | Built; baseline not yet taken |
+| Load trace (`dev`) | Done; baseline above |
+| Ra cache key under Wine (`fix`) | Built; not yet seen in game |

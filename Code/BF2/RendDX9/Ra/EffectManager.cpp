@@ -1634,6 +1634,10 @@ long raPreprocessShader(const char*, unsigned int, const D3DXMACRO*, LPD3DXINCLU
 #else
 typedef HRESULT (WINAPI* RaD3dxPreprocessShaderFn)(LPCSTR, UINT, CONST D3DXMACRO*, LPD3DXINCLUDE,
                                                    LPD3DXBUFFER*, LPD3DXBUFFER*);
+// d3dcompiler's D3DPreprocess. D3D_SHADER_MACRO, ID3DInclude and ID3DBlob have the layouts of
+// D3DXMACRO, ID3DXInclude and ID3DXBuffer, so the D3DX types are passed through.
+typedef HRESULT (WINAPI* RaD3dPreprocessFn)(LPCVOID, SIZE_T, LPCSTR, CONST D3DXMACRO*, LPD3DXINCLUDE,
+                                            LPD3DXBUFFER*, LPD3DXBUFFER*);
 
 long raPreprocessShader(const char* srcData, unsigned int srcDataLen, const D3DXMACRO* defines,
                         LPD3DXINCLUDE include, ID3DXBuffer** textOut, ID3DXBuffer** errorsOut)
@@ -1641,17 +1645,29 @@ long raPreprocessShader(const char* srcData, unsigned int srcDataLen, const D3DX
     // The compiler's module: D3DXPreprocessShader must expand exactly as its compiler does.
     // Its own handle: sharing s_raD3dxModule made raCreateEffectCompiler skip resolving its entry
     // point (it resolves only when it loads the module itself) and call null.
-    static RaD3dxPreprocessShaderFn preprocess = 0;
-    if (!preprocess)
+    // [FIX] Wine's d3dx9_24 (like _25 and _26) does not export D3DXPreprocessShader, so the key
+    // was never computed and the cache never used under Wine. There it falls back to
+    // d3dcompiler_47's D3DPreprocess: the key only has to be a deterministic expansion of the
+    // effect through the same include handler and defines.
+    static RaD3dxPreprocessShaderFn d3dxPreprocess = 0;
+    static RaD3dPreprocessFn        d3dPreprocess = 0;
+    static bool                     resolved = false;
+    if (!resolved)
     {
-        const HMODULE module = ::LoadLibraryA("d3dx9_24.dll");
-        if (module)
-            preprocess = reinterpret_cast<RaD3dxPreprocessShaderFn>(
+        resolved = true;
+        if (const HMODULE module = ::LoadLibraryA("d3dx9_24.dll"))
+            d3dxPreprocess = reinterpret_cast<RaD3dxPreprocessShaderFn>(
                 ::GetProcAddress(module, "D3DXPreprocessShader"));
-        if (!preprocess)
-            return static_cast<long>(0x80004005);             // E_FAIL
+        if (!d3dxPreprocess)
+            if (const HMODULE module = ::LoadLibraryA("d3dcompiler_47.dll"))
+                d3dPreprocess = reinterpret_cast<RaD3dPreprocessFn>(
+                    ::GetProcAddress(module, "D3DPreprocess"));
     }
-    return preprocess(srcData, srcDataLen, defines, include, textOut, errorsOut);
+    if (d3dxPreprocess)
+        return d3dxPreprocess(srcData, srcDataLen, defines, include, textOut, errorsOut);
+    if (d3dPreprocess)
+        return d3dPreprocess(srcData, srcDataLen, 0, defines, include, textOut, errorsOut);
+    return static_cast<long>(0x80004005);                     // E_FAIL
 }
 #endif
 
