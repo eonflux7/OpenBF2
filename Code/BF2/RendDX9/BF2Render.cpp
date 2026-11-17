@@ -4075,9 +4075,11 @@ namespace {
 IDirect3DTexture9* g_linearDepthTexture = 0;
 IDirect3DSurface9* g_linearDepthStencil = 0;
 IDirect3DTexture9* g_shadowMaskTexture = 0;
-IDirect3DTexture9* g_whiteTexture = 0;          // managed; the mask outside the main world pass
+IDirect3DTexture9* g_surfaceNormalTexture = 0;  // A2R10G10B10, the prepass's world normals
+IDirect3DTexture9* g_bakedSunTexture = 0;       // managed 1x1 (1, 0, 0): the mask outside the world pass
 const DWORD kLinearDepthSampler = 15;
 const DWORD kShadowMaskSampler = 14;
+const DWORD kSurfaceNormalSampler = 12;
 
 void bindSampler(DWORD stage, IDirect3DTexture9* texture, D3DTEXTUREFILTERTYPE filter)
 {
@@ -4091,28 +4093,29 @@ void bindSampler(DWORD stage, IDirect3DTexture9* texture, D3DTEXTUREFILTERTYPE f
     device->SetSamplerState(stage, D3DSAMP_SRGBTEXTURE, FALSE);
 }
 
-// The sun mask every view sees unless the main world pass has bound the real one: 1 = lit.
-void bindWhiteShadowMask()
+// The sun mask every view sees unless the main world pass has bound the real one: visibility 1 at
+// weight 0, so every receiver keeps its baked sunlight.
+void bindBakedSunMask()
 {
     if (!g_rendererBase)
         return;
-    if (!g_whiteTexture)
+    if (!g_bakedSunTexture)
     {
         IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
         if (device->CreateTexture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED,
-                                  &g_whiteTexture, 0) < 0)
+                                  &g_bakedSunTexture, 0) < 0)
         {
-            g_whiteTexture = 0;
+            g_bakedSunTexture = 0;
             return;
         }
         D3DLOCKED_RECT locked;
-        if (g_whiteTexture->LockRect(0, &locked, 0, 0) >= 0)
+        if (g_bakedSunTexture->LockRect(0, &locked, 0, 0) >= 0)
         {
-            *static_cast<DWORD*>(locked.pBits) = 0xFFFFFFFFu;
-            g_whiteTexture->UnlockRect(0);
+            *static_cast<DWORD*>(locked.pBits) = 0xFFFF0000u;   // A8R8G8B8: r = 1, g = b = 0
+            g_bakedSunTexture->UnlockRect(0);
         }
     }
-    bindSampler(kShadowMaskSampler, g_whiteTexture, D3DTEXF_POINT);
+    bindSampler(kShadowMaskSampler, g_bakedSunTexture, D3DTEXF_POINT);
 }
 
 bool ensureLinearDepthTargets()
@@ -4128,7 +4131,8 @@ bool ensureLinearDepthTargets()
         D3DSURFACE_DESC have;
         if (g_linearDepthTexture->GetLevelDesc(0, &have) >= 0
             && have.Width == desc.Width && have.Height == desc.Height)
-            return g_linearDepthStencil != 0 && g_shadowMaskTexture != 0;
+            return g_linearDepthStencil != 0 && g_shadowMaskTexture != 0
+                && g_surfaceNormalTexture != 0;
         rendererDepthPrepassRelease();
     }
     IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
@@ -4137,6 +4141,9 @@ bool ensureLinearDepthTargets()
     if (hr >= 0)
         hr = device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_RENDERTARGET,
                                    D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &g_shadowMaskTexture, 0);
+    if (hr >= 0)
+        hr = device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_RENDERTARGET,
+                                   D3DFMT_A2R10G10B10, D3DPOOL_DEFAULT, &g_surfaceNormalTexture, 0);
     if (hr >= 0)
         hr = device->CreateDepthStencilSurface(desc.Width, desc.Height, D3DFMT_D24S8,
                                                D3DMULTISAMPLE_NONE, 0, TRUE,
@@ -4170,7 +4177,7 @@ IDirect3DTexture9* rendererLinearDepthTexture()
 
 void rendererDepthPrepass(bool drawTerrain, float time)
 {
-    bindWhiteShadowMask();
+    bindBakedSunMask();
     if (!rendererDepthPrepassEnabled() || !ensureLinearDepthTargets())
         return;
 
@@ -4181,6 +4188,7 @@ void rendererDepthPrepass(bool drawTerrain, float time)
 
     IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
     device->SetTexture(kLinearDepthSampler, 0);       // never sampled while it is the target
+    device->SetTexture(kSurfaceNormalSampler, 0);
 
     IDirect3DSurface9* savedTarget = stateManagerGetRenderTarget(0);
     IDirect3DSurface9* savedDepth = stateManagerGetDepthStencilSurface();
@@ -4195,7 +4203,10 @@ void rendererDepthPrepass(bool drawTerrain, float time)
 
     IDirect3DSurface9* target = 0;
     g_linearDepthTexture->GetSurfaceLevel(0, &target);
+    IDirect3DSurface9* normals = 0;
+    g_surfaceNormalTexture->GetSurfaceLevel(0, &normals);
     stateManagerSetRenderTarget(0, target);
+    stateManagerSetRenderTarget(1, normals);
     stateManagerSetDepthStencilSurface(g_linearDepthStencil);
     stateManagerClear(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, 0);
 
@@ -4207,11 +4218,15 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     // The sun shadow mask: world positions rebuilt from the linear depth (s15). The camera rows
     // are the render view's camera transform (right, up, forward, position) over the projection
     // scales, so position + depth * (forward + ndc.x * right' + ndc.y * up') is the world point.
+    stateManagerSetRenderTarget(1, 0);
+    if (normals)
+        normals->Release();
     IDirect3DSurface9* mask = 0;
     g_shadowMaskTexture->GetSurfaceLevel(0, &mask);
     stateManagerSetRenderTarget(0, mask);
-    stateManagerClear(D3DCLEAR_TARGET, 0xFFFFFFFFu, 1.0f, 0);
+    stateManagerClear(D3DCLEAR_TARGET, 0xFFFF0000u, 1.0f, 0);
     bindSampler(kLinearDepthSampler, g_linearDepthTexture, D3DTEXF_POINT);
+    bindSampler(kSurfaceNormalSampler, g_surfaceNormalTexture, D3DTEXF_POINT);
     {
         IRenderView* const view = rendererGetRenderView();
         const float* const c = view->getViewMatrixPtr()->m;
@@ -4244,7 +4259,7 @@ void rendererDepthPrepass(bool drawTerrain, float time)
 
 void rendererDepthPrepassEndWorldPass()
 {
-    bindWhiteShadowMask();
+    bindBakedSunMask();
 }
 
 void rendererDepthPrepassRelease()
@@ -4253,6 +4268,11 @@ void rendererDepthPrepassRelease()
         static_cast<RendDX9Base*>(g_rendererBase)->device->SetTexture(kLinearDepthSampler, 0);
     if (g_shadowMaskTexture && g_rendererBase)
         static_cast<RendDX9Base*>(g_rendererBase)->device->SetTexture(kShadowMaskSampler, 0);
+    if (g_surfaceNormalTexture && g_rendererBase)
+        static_cast<RendDX9Base*>(g_rendererBase)->device->SetTexture(kSurfaceNormalSampler, 0);
+    if (g_surfaceNormalTexture)
+        g_surfaceNormalTexture->Release();
+    g_surfaceNormalTexture = 0;
     if (g_shadowMaskTexture)
         g_shadowMaskTexture->Release();
     g_shadowMaskTexture = 0;

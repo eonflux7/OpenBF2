@@ -2553,6 +2553,7 @@ bool rendererShadowCascadeTouches(const ShadowCascadeCull& cull, const float sph
     return std::fabs(x) <= reach && std::fabs(y) <= reach && z <= reach;
 }
 
+namespace {
 bool renderQueueCaptureCaster(RenderQueue* queue, RenderQueueEntry* entry)
 {
     if (!g_casterCapture.active)
@@ -2563,6 +2564,7 @@ bool renderQueueCaptureCaster(RenderQueue* queue, RenderQueueEntry* entry)
         g_casterCapture.casters.push_back(caster);
     }
     return true;
+}
 }
 
 void rendererBeginCasterCapture(const Frustum* volume)

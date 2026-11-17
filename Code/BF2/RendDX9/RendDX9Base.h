@@ -702,10 +702,14 @@ void rendererHdrReleaseSurface();
 // drawn, terrain and every opaque Ra entry whose effect has the technique "RaDepthPrepass" draw
 // their linear view depth into a single-sample R32F target (0 where nothing was drawn). The
 // texture stays bound to sampler s15 for the rest of the frame. The sun shadow mask built from it
-// (A8R8G8B8, .r = sun visibility) is bound to s14 until rendererDepthPrepassEndWorldPass, which binds
-// a 1x1 white texture so the first-person passes and every other view read "lit". Samplers s14 and
-// s15 are reserved for these renderer frame resources: no effect may use them for anything else.
-// s13 is reserved likewise for the sun shadow atlas (rendererSunShadowsRender).
+// (A8R8G8B8: .r = cascade sun visibility, .g = the cascades' weight against baked sunlight,
+// .b = the surface's N.L) is bound to s14 until rendererDepthPrepassEndWorldPass, which binds a 1x1
+// (1, 0, 0) texture so the first-person passes and every other view keep their baked sunlight.
+// Samplers s14 and s15 are reserved for these renderer frame resources: no effect may use them for
+// anything else.
+// s13 is reserved likewise for the sun shadow atlas (rendererSunShadowsRender), and s12 for the
+// prepass's second target, the surfaces' world normals (A2R10G10B10, n * 0.5 + 0.5), which the
+// prepass techniques write to COLOR1.
 bool rendererDepthPrepassEnabled();
 void rendererDepthPrepass(bool drawTerrain, float time);
 void rendererDepthPrepassEndWorldPass();
@@ -755,7 +759,7 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 bool rendererSunShadowsEnabled();
 bool rendererSunShadowsRender(float time, float* maskConstants /* kSunShadowMaskVec4s float4s */);
 void rendererSunShadowsRelease();
-const unsigned int kSunShadowMaskVec4s = 20;
+const unsigned int kSunShadowMaskVec4s = 21;
 IDirect3DSurface9* rendererDepthStencilSurface();       // +0x770, the depth-stencil reference
 // The render-path target texture at retail `retailOffset` (+0x778..+0x7D4).
 EngineTexture*     rendererPathTarget(unsigned int retailOffset);

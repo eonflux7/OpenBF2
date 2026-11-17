@@ -338,6 +338,7 @@ bool rendererSunShadowsRender(float time, float* constants)
     constants[4 * 17 + 1] = -forward.y;
     constants[4 * 17 + 2] = -forward.z;
     constants[4 * 17 + 3] = 0.9f * cascades[kCascades - 1].splitFar;
+    constants[4 * 20 + 0] = 1.0f / static_cast<float>(size * 2);   // RASM[20]: atlas texel
 
     stateManagerSetRenderTarget(0, savedTarget);
     stateManagerSetDepthStencilSurface(savedDepth);
