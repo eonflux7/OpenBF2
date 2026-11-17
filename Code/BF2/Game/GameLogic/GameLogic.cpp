@@ -2470,6 +2470,7 @@ int GameLogic::getTeamFromName(const std::string& name)
 // HUD the load is over (ECHud/8).
 void GameLogic::endLoadStats()
 {
+    loadtrace::mark("load:resources");   // [DEV] BF2_LOAD_TRACE: the loading bar's end
     io::archivePrefetchEnd();   // [PERF] archive prefetch: the load is over; write its list
 
     loadStat->unregisterLoadCallback();
