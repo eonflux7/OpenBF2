@@ -28,7 +28,7 @@ Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`
 | `BF2_PERF_FILEPREFETCH=0` | on | Archive entries inflate on the main thread when opened or read again, and no per-level list of opened entries (`@HOME@/<mod>/cache/fileorder_*.lst`) is recorded or prefetched | The archive prefetch is accepted in game |
 | `BF2_PERF_CONDISPATCH=0` | on | The console compares every line's first token against its twelve keywords again, and searches the binding multimap for every binding call instead of using the cached equal range | The faster dispatch is accepted in game |
 | `BF2_PERF_SWIFFIMG=0` | on | Every menu and loading-screen image is created with D3DXCreateTextureFromFileInMemory again (rescaled, recompressed and mipmapped on the CPU), and none is read from or written to `@HOME@/<mod>/cache/swiffimg/` | The image cache is accepted in game |
-| `BF2_PERF_PROBECACHE=0` | on | During a level load, every loose-file existence probe asks the disk again instead of the directory's listing | The probe cache is accepted in game |
+| `BF2_PERF_PROBECACHE=0` | on | From the start of a game through the level load, every loose-file existence and file-information query asks the disk again instead of the directory's listing | The probe cache is accepted in game |
 | `BF2_PERF_FXSTAT=0` | on | The Ra effect key looks up the size and write time of every include file for every effect again, instead of once per frame | The file-info memo is accepted in game |
 | `BF2_PERF_FXSRC=0` | on | Effects loaded through `compileEffectFile` (fsquaddrawer, postproduction, skydome, terrainshader, ...) compile from source on every load again, with no bytecode cache | The source-effect cache is accepted in game |
 
