@@ -543,10 +543,19 @@ bool GameLogic::load(const std::string& levelPath)
 
     loadtrace::mark("load:setup");                             // [DEV] BF2_LOAD_TRACE
     // stats, sun, and the first scripted phase (0x80CEC4A-0x80CEE12)
-    beginLoadStats(levelPath);
-    createSunTemplate();                                       // virtual +0x2F8
-    eventManager->postEvent(static_cast<EventCategory>(10), 6,
-                            const_cast<char*>("Loading Templates.."), 0.0f);
+    {
+        loadtrace::Scope statsTrace("setup", "beginLoadStats");   // [DEV] BF2_LOAD_TRACE
+        beginLoadStats(levelPath);
+    }
+    {
+        loadtrace::Scope sunTrace("setup", "createSunTemplate");   // [DEV] BF2_LOAD_TRACE
+        createSunTemplate();                                   // virtual +0x2F8
+    }
+    {
+        loadtrace::Scope eventTrace("setup", "loadingTemplatesEvent");   // [DEV] BF2_LOAD_TRACE
+        eventManager->postEvent(static_cast<EventCategory>(10), 6,
+                                const_cast<char*>("Loading Templates.."), 0.0f);
+    }
     runScript(std::string("Settings/ScoreManagerSetup.con"));
 
     // the AIDefault detour (0x80CEF05-0x80CEF19 -> the hoisted 0x80D19BB block): a

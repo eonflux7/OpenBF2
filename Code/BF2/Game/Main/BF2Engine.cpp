@@ -1777,7 +1777,10 @@ bool BF2Engine::startGame(bool noAutoJoin, bool startFromMenu)   // 2nd bool fro
         SingletonRegInfo sri = { std::string("Game"), reinterpret_cast<IBase**>(&game), IID_IGame, CID_GameServer, 2 };
         classManager->registerSingleton(sri);           // ClassManager vtable +0x44, 0x81383c8
 
+        const long long gameInitT0 = loadtrace::enabled() ? loadtrace::now() : 0;   // [DEV] BF2_LOAD_TRACE
         const bool gameInit = game->init();
+        if (loadtrace::enabled())
+            loadtrace::span("start", "game.init", gameInitT0, loadtrace::now());
         BF2_HOST_TRACE_SITE("server game->init", gameInit);
         if (!gameInit)                                  // IGame vtable +0x18, 0x81383ff
             return false;                               // > edx=0, return 0
@@ -1795,7 +1798,10 @@ bool BF2Engine::startGame(bool noAutoJoin, bool startFromMenu)   // 2nd bool fro
 
         setGameLogic(CID_ServerGameLogic);              // releases the old gameLogic and
                                                         // createInstance2(cid, IID_IGameLogic)
+        const long long logicInitT0 = loadtrace::enabled() ? loadtrace::now() : 0;   // [DEV] BF2_LOAD_TRACE
         const bool logicInit = gameLogic->init();
+        if (loadtrace::enabled())
+            loadtrace::span("start", "gameLogic.init", logicInitT0, loadtrace::now());
         BF2_HOST_TRACE_SITE("server gameLogic->init", logicInit);
         if (!logicInit)                                 // IGameLogic vtable +0x10, 0x81384d0
             return false;
@@ -1804,7 +1810,10 @@ bool BF2Engine::startGame(bool noAutoJoin, bool startFromMenu)   // 2nd bool fro
         if (settings->intGet("GSPort", 16567) != 16567) // 16567 == 0x40B7
             port = settings->intGet("GSPort", 16567);   // queried a second time; intGet
                                                         // [UNRESOLVED] The third startServer argument's meaning; this caller passes zero.
-        ok = gameServer->startServer(serverSettings->m_serverIP, port, 0);
+        {
+            loadtrace::Scope serverTrace("start", "startServer");   // [DEV] BF2_LOAD_TRACE
+            ok = gameServer->startServer(serverSettings->m_serverIP, port, 0);
+        }
         BF2_HOST_TRACE_SITE("server startServer", ok);
     }
     else

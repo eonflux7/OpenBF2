@@ -12,7 +12,8 @@ on worker threads). Each image (BF2.exe, RendDX9, BF2Audio) writes its own file,
 |---|---|---|
 | `phase` | `BF2Engine::init`, `initEngine`, `startGame`, `GameLogic::load` | `boot`, `engine.init`, `game.start`, `level.load` |
 | `mark` | `GameLogic::load`, `LoadStat::setNextLoadPart`, first `renderMenu`, autohost | `load:*` sections, `part:*` loading-bar phases, `menu.first`, `menu.host` (where a player's click would be) |
-| `init` | `BF2Engine::init`, `initEngine` | Startup stages: `modules` (inside it `modules.singletons` and one span per module init, named by class), `filesystem`, `archives`, `localization`, `usersettings`, `modinfo`, `renderer` (inside it `renderer.window`, `renderer.dll`, `renderer.initialize`), `input`, `hud`, `swiff`, `network` |
+| `start` / `setup` | `BF2Engine::startGame`, `GameLogic::load` | Hosting: `game.init`, `gameLogic.init`, `startServer`; level setup: `beginLoadStats`, `createSunTemplate`, `loadingTemplatesEvent` |
+| `init` | `BF2Engine::init`, `initEngine` | Startup stages: `modules` (inside it `modules.construct`, `modules.register`, `modules.singletons` and one span per module init, named by class), `filesystem`, `archives`, `localization`, `usersettings`, `modinfo`, `renderer` (inside it `renderer.window`, `renderer.dll`, `renderer.initialize`), `input`, `hud`, `swiff`, `network` |
 | `mount` | `FileManager::mountArchive` | Opening an archive and reading its directory |
 | `open.arc` / `open.loose` / `open.miss` | `FileManager::open` (read) | Where the file resolved; archive entries up to 64 KiB are inflated here |
 | `exists.arc` / `exists.loose` / `exists.miss` | `FileManager::fileExistsEx` | The same for existence probes |

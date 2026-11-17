@@ -94,6 +94,8 @@ BF2EngineSetup::~BF2EngineSetup()
 // Every module is heap-allocated with a refcount of 1 in its second word.
 bool BF2EngineSetup::initModules()
 {
+    // [DEV] BF2_LOAD_TRACE: constructing the module objects, then registering them.
+    loadtrace::Scope* constructTrace = new loadtrace::Scope("init", "modules.construct");
     s_modules.push_back(new Module());                                  //  1  8 bytes
     s_modules.push_back(new ModuleBF2());                               //  2  8
     s_modules.push_back(new ModuleGame());                              //  3 16  (extra ptr at +4)
@@ -144,8 +146,12 @@ bool BF2EngineSetup::initModules()
 #endif
     // [CHOSEN, not recovered] The editor omits client front-end modules, HUD (unless asked), and
     // profiles. Register the remaining modules' class servers for lazy construction.
-    for (size_t i = 0; i < s_modules.size(); ++i)
-        classManager->registerServer(s_modules[i]);
+    delete constructTrace;   // [DEV] BF2_LOAD_TRACE
+    {
+        loadtrace::Scope registerTrace("init", "modules.register");   // [DEV] BF2_LOAD_TRACE
+        for (size_t i = 0; i < s_modules.size(); ++i)
+            classManager->registerServer(s_modules[i]);
+    }
 
     classManager->setDefaultClass(IID_IMemoryPool, CID_MemoryPool);
 #if defined(BF2_IMAGE_EDITOR) && BF2_IMAGE_EDITOR
