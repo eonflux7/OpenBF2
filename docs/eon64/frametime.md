@@ -49,7 +49,6 @@ Main thread by subsystem (RendDX9 and BF2.exe): object culling 17 %, mesh draws 
 
 ### Unoptimised plugins (superseded)
 
-
 Engine `074b3d39`, before `/O2`: RendDX9, SwiffPlayer and BF2Audio were compiled without
 optimisation (the plugin targets followed the `.cmd` scripts' flags).
 
@@ -73,18 +72,24 @@ Main thread, 10 s of samples:
 
 ## Plan
 
+Parked on 2026-11-18: at 153 fps there is headroom, so the renderer roadmap goes first. Resume here.
+
 1. Measure what the sun cascades cost the CPU in total (a run with them off) before redesigning
    the caster submission, which repeats the culling over the cascades' light volume.
 2. Object culling (17 %): the object manager's grid and cull fade, the object drawer's box tests.
 3. Per-draw cost: D3DX effect calls (15 %) and Ra parameter apply. Replacing D3DX's per-draw
    parameter and pass handling with the renderer's own constant uploads is `render` work.
 
+Open:
+- An intermittent stack overflow while loading, seen once with the unoptimised plugins
+  (`virtual_setup_exception stack overflow`, address at RendDX9 offset `0x821d` of engine `b3342099`).
+  Rebuild that commit's `RendDX9.map` to name the function; with `/O2` it may have moved or gone. If
+  it returns, `WINEDEBUG=+seh` with the module base pins it.
+
 ## State
 
-- `Renderer::tailField` answers from a table indexed by retail offset (plan 1). Built; not yet
-  measured in game.
-- `tailField`: 5.6 % to 0.8 % of the main thread, measured in game (unoptimised RendDX9).
-- The sun casters carry their sort keys (shader, material), copied at capture (plan 2). No gain in
+- `Renderer::tailField` answers from a table indexed by retail offset: 5.6 % to 0.8 % of the main thread, measured in game (unoptimised RendDX9).
+- The sun casters carry their sort keys (shader, material), copied at capture No gain in
   the unoptimised build: the sort's cost was the unoptimised insertion sort (every move a call and
   a `rep movsb`), not the pointer chasing.
 - The plugin DLLs compile with `/O2` (`BF2_PLUGIN_OPTIMIZE`): 12.2 ms to 6.6 ms a frame on Muttrah.
