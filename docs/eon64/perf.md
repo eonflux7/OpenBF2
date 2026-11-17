@@ -96,3 +96,4 @@ These come from reading the code. The baseline trace will confirm or rule out ea
 | Ra cache key under Wine (`fix`) | Done: seen in game, muttrah_city_2, 186 s to 37 s with a filled cache |
 | Ra cache key from source and includes, no preprocessor | Done: accepted in game; keys 16.6 s to 2.2 s per load |
 | Ra effect prefetch: stale effects listed in `effects.lst` compile on worker threads | Done: accepted in game; a full recompile loads in 31 s instead of 186 s |
+| Bytecode cache for `compileEffectFile` effects, `@HOME@/<mod>/cache/fxsrc/`, keyed by source, defines, flags and every include read (`BF2_PERF_FXSRC`) | In development: these took 2 s before the menu, 3.9 s at game start (the define-change reload compiles them again) and 0.7 s in the level load |

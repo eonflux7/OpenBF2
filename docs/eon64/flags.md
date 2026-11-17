@@ -17,7 +17,11 @@ Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`
 
 ## `perf`: select the old serial path while a step is in development
 
-None at present. Retired with their steps on 2026-11-17: `BF2_PERF_FXKEY`, `BF2_PERF_FXPREFETCH`.
+| Flag | Default | Effect | Removed when |
+|---|---|---|---|
+| `BF2_PERF_FXSRC=0` | on | Effects loaded through `compileEffectFile` (fsquaddrawer, postproduction, skydome, terrainshader, ...) compile from source on every load again, with no bytecode cache | The source-effect cache is accepted in game |
+
+Retired with their steps on 2026-11-17: `BF2_PERF_FXKEY`, `BF2_PERF_FXPREFETCH`.
 
 ## `compat`: gate behaviour retail BF2 must not see
 

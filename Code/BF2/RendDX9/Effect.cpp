@@ -1271,6 +1271,239 @@ bool needsLightmapGenerationInclude(const char* path, const char* source, unsign
 }
 #endif
 
+// [PERF] Bytecode cache for effects compiled from source. Retail compiles every one of them
+// (fsquaddrawer, postproduction, skydome, terrainshader, ...) from source on every start and
+// again in the define-change reload sweep at game start, with D3DXCreateEffect. Here the compile
+// is split into D3DXCreateEffectCompiler + CompileEffect (as DiceEffect and Ra do) and the
+// bytecode is kept under @HOME@/<mod>/cache/fxsrc/. A file is used only when the deobfuscated
+// source, the defines, the flags, and the text of every file the compile's include handler was
+// asked for (missing ones included) are all unchanged; an include is re-read through the same
+// handler to check it. A compile that reports any message (an error, or a warning that
+// GSMaxValidation would raise) is not cached, and any failure of this path falls back to the
+// retail D3DXCreateEffect call, so its errors reach the caller unchanged. BF2_PERF_FXSRC=0 compiles
+// every one from source again, as retail does.
+bool fxsEnabled()
+{
+    static int enabled = -1;
+    if (enabled < 0)
+    {
+        const char* const v = ::getenv("BF2_PERF_FXSRC");
+        enabled = (v && v[0] == '0' && v[1] == 0) ? 0 : 1;
+    }
+    return enabled == 1;
+}
+
+unsigned long long fxsFnv(unsigned long long hash, const void* data, std::size_t size)
+{
+    const unsigned char* bytes = static_cast<const unsigned char*>(data);
+    for (std::size_t i = 0; i < size; ++i)
+    {
+        hash ^= bytes[i];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+struct FxsInclude
+{
+    std::string        name;
+    bool               present;
+    unsigned long long hash;
+};
+
+// Forwards to the ShaderManager's include handler and records what each name resolved to.
+struct FxsRecordingInclude : ID3DXInclude
+{
+    ID3DXInclude*           inner;
+    std::vector<FxsInclude> seen;
+
+    explicit FxsRecordingInclude(ID3DXInclude* i) : inner(i) {}
+
+    STDMETHOD(Open)(D3DXINCLUDE_TYPE type, LPCSTR name, LPCVOID parent, LPCVOID* data, UINT* bytes)
+    {
+        const HRESULT hr = inner->Open(type, name, parent, data, bytes);
+        FxsInclude record;
+        record.name    = name ? name : "";
+        record.present = hr >= 0;
+        record.hash    = record.present ? fxsFnv(14695981039346656037ull, *data, *bytes) : 0;
+        bool known = false;
+        for (std::size_t i = 0; i < seen.size() && !known; ++i)
+            known = seen[i].name == record.name;
+        if (!known)
+            seen.push_back(record);
+        return hr;
+    }
+    STDMETHOD(Close)(LPCVOID data) { return inner->Close(data); }
+};
+
+bool fxsIncludeCurrent(ID3DXInclude* include, const FxsInclude& record)
+{
+    LPCVOID data = 0;
+    UINT    bytes = 0;
+    const HRESULT hr = include->Open(D3DXINC_LOCAL, record.name.c_str(), 0, &data, &bytes);
+    if (hr < 0)
+        return !record.present;
+    const bool same = record.present && fxsFnv(14695981039346656037ull, data, bytes) == record.hash;
+    include->Close(data);
+    return same;
+}
+
+// @HOME@/<mod>/cache/fxsrc/<path with '/' as '_'>.<defines and flags hash>.fxs
+std::string fxsCachePath(const char* path, unsigned long long definesHash)
+{
+    std::string mod;
+    readStringSettingDefault("GSModDirectory", "", mod);
+    while (!mod.empty() && (mod[mod.size() - 1] == '/' || mod[mod.size() - 1] == '\\'))
+        mod.erase(mod.size() - 1);
+    if (mod.empty())
+        mod = "mods/bf2";
+    std::string stem(path);
+    for (std::size_t i = 0; i < stem.size(); ++i)
+    {
+        const char c = stem[i];
+        stem[i] = (c == '/' || c == '\\' || c == ':') ? '_' : ((c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c);
+    }
+    char suffix[32];
+    ::sprintf_s(suffix, ".%016llx.fxs", definesHash);
+    return "@HOME@/" + mod + "/cache/fxsrc/" + stem + suffix;
+}
+
+const char kFxsMagic[8] = { 'B', 'F', '2', 'F', 'X', 'S', '1', 0 };
+
+// The cached bytecode, or null when there is none or it is stale.
+ID3DXBuffer* fxsRead(const std::string& cachePath, unsigned long long sourceHash, ID3DXInclude* include)
+{
+    if (!::dice::hfe::fileManager)
+        return 0;
+    io::IStream* const in = ::dice::hfe::fileManager->open(
+        cachePath, static_cast<io::FileMode>(2), static_cast<io::FileAccess>(0), 0);
+    if (!in)
+        return 0;
+    ID3DXBuffer* blob = 0;
+    bool ok = false;
+    char magic[8];
+    unsigned long long hash = 0;
+    unsigned int count = 0;
+    if (in->read(magic, 8) == 8 && ::memcmp(magic, kFxsMagic, 8) == 0
+        && in->read(&hash, 8) == 8 && hash == sourceHash && in->read(&count, 4) == 4 && count < 4096)
+    {
+        ok = true;
+        for (unsigned int i = 0; i < count && ok; ++i)
+        {
+            FxsInclude record;
+            unsigned int length = 0;
+            unsigned char present = 0;
+            ok = in->read(&length, 4) == 4 && length < 4096;
+            if (ok)
+            {
+                record.name.resize(length);
+                ok = (length == 0 || in->read(&record.name[0], length) == length)
+                     && in->read(&present, 1) == 1 && in->read(&record.hash, 8) == 8;
+            }
+            record.present = present != 0;
+            ok = ok && fxsIncludeCurrent(include, record);
+        }
+        unsigned int size = 0;
+        ok = ok && in->read(&size, 4) == 4 && size > 0 && D3DXCreateBuffer(size, &blob) == 0
+             && in->read(blob->GetBufferPointer(), size) == size;
+    }
+    in->release();
+    if (!ok && blob)
+    {
+        blob->Release();
+        blob = 0;
+    }
+    return blob;
+}
+
+void fxsWrite(const std::string& cachePath, unsigned long long sourceHash,
+              const std::vector<FxsInclude>& includes, ID3DXBuffer* blob)
+{
+    if (!::dice::hfe::fileManager)
+        return;
+    io::IStream* const out = ::dice::hfe::fileManager->open(
+        cachePath, static_cast<io::FileMode>(0), static_cast<io::FileAccess>(2), 0);
+    if (!out)
+        return;
+    out->write(kFxsMagic, 8);
+    out->write(&sourceHash, 8);
+    const unsigned int count = static_cast<unsigned int>(includes.size());
+    out->write(&count, 4);
+    for (unsigned int i = 0; i < count; ++i)
+    {
+        const unsigned int length = static_cast<unsigned int>(includes[i].name.size());
+        const unsigned char present = includes[i].present ? 1 : 0;
+        out->write(&length, 4);
+        out->write(includes[i].name.data(), length);
+        out->write(&present, 1);
+        out->write(&includes[i].hash, 8);
+    }
+    const unsigned int size = blob->GetBufferSize();
+    out->write(&size, 4);
+    out->write(blob->GetBufferPointer(), size);
+    out->release();
+}
+
+// The effect from cached or freshly compiled bytecode; null sends the caller to the retail call.
+ID3DXEffect* fxsCreate(const char* path, const void* source, unsigned int sourceSize,
+                       const std::vector<const char*>& macros, ID3DXInclude* include,
+                       unsigned long flags, IDirect3DDevice9* device)
+{
+    if (!device || !include || !::dice::hfe::fileManager || !fxsEnabled())
+        return 0;
+    unsigned long long definesHash = 14695981039346656037ull;
+    for (std::size_t i = 0; i + 1 < macros.size(); ++i)
+        definesHash = fxsFnv(definesHash, macros[i], ::strlen(macros[i]) + 1);
+    definesHash = fxsFnv(definesHash, &flags, sizeof flags);
+    const unsigned long long sourceHash = fxsFnv(definesHash, source, sourceSize);
+    const std::string cachePath = fxsCachePath(path, definesHash);
+
+    ID3DXBuffer* blob = 0;
+    {
+        ::dice::hfe::loadtrace::Scope trace("fx.src.cache", path);   // [DEV] BF2_LOAD_TRACE
+        blob = fxsRead(cachePath, sourceHash, include);
+    }
+    if (!blob)
+    {
+        ::dice::hfe::loadtrace::Scope trace("fx.src.compile", path);   // [DEV] BF2_LOAD_TRACE
+        FxsRecordingInclude recording(include);
+        ID3DXEffectCompiler* compiler = 0;
+        ID3DXBuffer* messages = 0;
+        HRESULT hr = D3DXCreateEffectCompiler(static_cast<const char*>(source), sourceSize,
+                                              reinterpret_cast<const D3DXMACRO*>(macros.data()),
+                                              &recording, flags, &compiler, &messages);
+        if (hr >= 0 && compiler && !messages)
+            hr = compiler->CompileEffect(flags, &blob, &messages);
+        if (compiler)
+            compiler->Release();
+        const bool clean = hr >= 0 && blob && (!messages || messages->GetBufferSize() <= 1);
+        if (messages)
+            messages->Release();
+        if (!clean)
+        {
+            if (blob)
+                blob->Release();
+            return 0;
+        }
+        fxsWrite(cachePath, sourceHash, recording.seen, blob);
+    }
+
+    ID3DXEffect* effect = 0;
+    ID3DXBuffer* messages = 0;
+    const HRESULT hr = D3DXCreateEffect(device, blob->GetBufferPointer(), blob->GetBufferSize(), 0, 0,
+                                        flags, 0, &effect, &messages);
+    blob->Release();
+    const bool clean = hr >= 0 && effect && (!messages || messages->GetBufferSize() <= 1);
+    if (messages)
+        messages->Release();
+    if (!clean && effect)
+    {
+        effect->Release();
+        effect = 0;
+    }
+    return effect;
+}
+
 } // anonymous namespace
 
 
@@ -1360,6 +1593,15 @@ static ID3DXEffect* compileEffectFile(const char* rawPath, ID3DXBuffer** errors)
                            "(hr=0x%08X); the shipped source is compiled", path, static_cast<unsigned>(extendedHr));
     }
 #endif
+
+    // [PERF] The bytecode cache (fxsCreate); the retail call below when it has no effect.
+    effect = fxsCreate(path, file.data, file.size, macros, static_cast<ID3DXInclude*>(include), flags,
+                       static_cast<IDirect3DDevice9*>(device));
+    if (effect)
+    {
+        ::renddx9abi::freeEngineFile(file);
+        return effect;
+    }
 
     const long hr = D3DXCreateEffect(static_cast<IDirect3DDevice9*>(device), file.data, file.size,
                                      reinterpret_cast<const D3DXMACRO*>(macros.data()),
