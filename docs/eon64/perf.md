@@ -93,6 +93,11 @@ These come from reading the code. The baseline trace will confirm or rule out ea
 
 ## State
 
+Traced A/B on muttrah_city_2 skirmish (autohost, warm caches), the batch below with its seven
+flags at `=0` against all on: boot to the first menu frame 8.5 s to 1.5 s; the autohost click to
+the level load 3.7 s to 1.8 s; the level load to the Textures part 23.9 s to 17.4 s (Objects 12.0 s
+to 9.1 s, Geometries 6.1 s to 3.3 s). The spawn screen and HUD draw as before.
+
 | Step | State |
 |---|---|
 | Load trace (`dev`) | Done; baseline above |
@@ -100,7 +105,7 @@ These come from reading the code. The baseline trace will confirm or rule out ea
 | Ra cache key from source and includes, no preprocessor | Done: accepted in game; keys 16.6 s to 2.2 s per load |
 | Ra effect prefetch: stale effects listed in `effects.lst` compile on worker threads | Done: accepted in game; a full recompile loads in 31 s instead of 186 s |
 | Console lines split and tokenized without `std::istringstream`, reproducing its token, `std::ws`, `get` and `getline` behaviour and state bits (`BF2_PERF_CONPARSE`) | In development: the interpreter's own time was 7.3 s of part:Objects over 2.6 million lines; the four streams per line were about 4.5 s of it |
-| Id and name index for ClassManager's class list (`BF2_PERF_CLASSINDEX`) | In development; traced in game: no gain. Module registration's 1.0 s was the TSC calibration (next row), not the scans |
+| Id and name index for ClassManager's class list (`BF2_PERF_CLASSINDEX`) | In development; traced: about 50 ms of the level's 53,439 `*.create` commands. Module registration's 1.0 s was the TSC calibration (next row), not the scans |
 | TSC calibration on a worker thread, joined at the end of engine init (`BF2_PERF_TSCCAL`) | In development: the Profiler singleton's construction spun the main thread for exactly 1.0 s to measure the TSC rate, which only the in-game ragdoll budget reads |
 | The video quality heuristic is skipped where its level is dropped: renderer initialization and `detectVideoOptionScheme`, which answers High regardless (`BF2_PERF_VIDEODETECT`) | In development: its CPU benchmark sleeps 1000 ms, once inside the Renderer singleton's creation and once at every profile login (`loadCurrentProfile` resets the video settings to defaults). Traced: Renderer creation 1.48 s to 0.45 s |
 | Name index for the HUD's BFMeme registry, beside each container's child list (`BF2_PERF_MEMEINDEX`) | In development: HUD setup took 5.3 s of startup, each hudBuilder command slower than the last (9 us in the first tenth, about 300 us in the last) |
