@@ -598,16 +598,6 @@ Mat4* RenderView::getCameraMatrixPtr()
 // getter recomputes on every call and also affects another cache's dirty state.
 
 // PE 0x101C2AF0
-// [CHOSEN, not recovered] Reversed-Z prototype switch (BF2_REVERSED_Z), see rebuildProjection.
-static bool renderViewReversedZ()
-{
-    static const bool on = [] {
-        const char* v = std::getenv("BF2_REVERSED_Z");
-        return v && *v && *v != '0';
-    }();
-    return on;
-}
-
 Mat4* RenderView::getLinearProjectionMatrixPtr()
 {
     rebuildProjection();
@@ -615,14 +605,10 @@ Mat4* RenderView::getLinearProjectionMatrixPtr()
     if ((m_dirty428 & 4u) != 0)
     {
         m_matrix[5] = m_matrix[4];                         // sub_10030E80, the sixteen-float copy
-        m_matrix[5].m[10] = 1.0f;                          // +0x1A4
-        m_matrix[5].m[14] = -m_nearPlane;                  // +0x1B4 from +0x28
-        // [CHOSEN, not recovered] reversed-Z: z' = w - z = near, so depth = near / z (the sky dome).
-        if (renderViewReversedZ())
-        {
-            m_matrix[5].m[10] = 0.0f;
-            m_matrix[5].m[14] = m_nearPlane;
-        }
+        // [RENDER] Reversed depth. Retail stores z' = z - near (m10 = 1, m14 = -near); here
+        // z' = near, so after the divide depth = near / z: 1 at the near plane, toward 0 far away.
+        m_matrix[5].m[10] = 0.0f;                          // +0x1A4
+        m_matrix[5].m[14] = m_nearPlane;                   // +0x1B4 from +0x28
 
         m_dirty428 &= ~2u;                                 // bit 1, see above
     }
@@ -714,10 +700,9 @@ void RenderView::rebuildProjection()
         m[15] = 0.0f;
     }
 
-    // [CHOSEN, not recovered] Reversed-Z prototype (BF2_REVERSED_Z=1): z' = 1 - z, so near maps
-    // to 1 and far to 0. The renderer's state manager mirrors ZFUNC/depth bias and depth clears to
-    // match (RendDX9/StateManager.cpp). Perspective: z'w = (1 - q) z + q n. Ortho: z' = 1 - z.
-    if (renderViewReversedZ())
+    // [RENDER] Reversed depth: z' = 1 - z, so near maps to 1 and far to 0. The renderer's state
+    // manager mirrors ZFUNC/depth bias and depth clears to match (RendDX9/StateManager.cpp).
+    // Perspective: z'w = (1 - q) z + q n. Ortho: z' = 1 - z.
     {
         float* m = m_matrix[4].m;
         if (m_projectionMode == 1)
@@ -729,13 +714,6 @@ void RenderView::rebuildProjection()
         {
             m[10] = 1.0f - m[10];
             m[14] = -m[14];
-        }
-        static int traced = 0;
-        if (traced < 8)
-        {
-            ++traced;
-            std::fprintf(stderr, "[REVZ] view %p mode %u near %.3f far %.1f -> m10 %.6f m14 %.6f\n",
-                         static_cast<void*>(this), m_projectionMode, m_nearPlane, m_farPlane, m[10], m[14]);
         }
     }
 

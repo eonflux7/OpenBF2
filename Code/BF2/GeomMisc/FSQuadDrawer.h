@@ -36,7 +36,7 @@ void fsQuadDrawerDrawHemiMap(dx9rend::EngineTexture* source,
 // The published drawer's drawViewportQuad(grid): the viewport-sized quad (grid 0: one quad,
 // 1: 10x10), drawn inside the effect pass the caller began.
 void fsQuadDrawerDrawCurrentEffect(unsigned int grid = 0);
-// [CHOSEN, not recovered] Depth prepass shadow mask (BF2_DEPTH_PREPASS): the "RaShadowMask"
+// [RENDER] Depth prepass shadow mask: the "RaShadowMask"
 // technique over the viewport into the current render target, with `count` float4s of RASM
 // constants: [0..3] the camera rows (position, forward, right / projection[0][0],
 // up / projection[1][1]), then the sun cascades as rendererSunShadowsRender fills them.

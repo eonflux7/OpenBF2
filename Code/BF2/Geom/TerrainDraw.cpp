@@ -915,46 +915,10 @@ void Terrain::drawMain()
     std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
     TerrainCullerNode** it = 0;
     m_shadowPatches.clear();                                              // sub_100E1C20(0, 0)
-    QuadPatch* previous = 0;
     m_shadowRanges.clear();                                               // sub_100E2430(0, ...)
 
-    // [CHOSEN, not recovered] BF2_DEPTH_PREPASS: the sun shadow comes from the renderer's screen-space
-    // mask in the final passes; the per-caster shadow pass (7) and its range gathering are not drawn.
-    const bool legacySunShadows = !dx9rend::rendererDepthPrepassEnabled();
-    if (legacySunShadows
-        && terrainShadowRecordCount() != 0u                               // the LightManager's +0x79C records
-        && g_LightManager->getShadowUpdatesEnabled()                      // +0x128
-        && m_shadowGatherThreshold > 0.1f
-        && m_indexBufferCount > 1000u)
-    {
-        m_shadowExtrusionScale = m_shadowGatherThreshold;
-        const Vec3 sun = g_LightManager->getSunDirection();               // +0x1A4
-        const double v = 0.64300001 - (-static_cast<double>(sun.y));      // flt_1021A31C
-        int cursor = 0;
-        m_shadowExtrusionScale = static_cast<float>((v + 1.0) * m_shadowExtrusionScale);
-        lockDynamicIndexBuffer();
-        it = list->data();
-        TerrainCullerNode** const end = list->data() + list->size();
-        while (it != end)
-        {
-            QuadPatch* const patch = (*it)->patch;
-            if (previous != patch)
-            {
-                if (m_indexBufferCount < static_cast<unsigned int>(cursor + 12))
-                    break;
-                previous = patch;
-                if (patch->gatherShadowRanges(&m_indexBufferBits, &cursor))
-                    m_shadowPatches.push_back(patch);
-            }
-            ++it;
-        }
-        if (m_indexBufferLocked)
-        {
-            dx9rend::indexBufferUnlock(m_indexBuffer);
-            m_indexBufferBits = 0;
-            m_indexBufferLocked = 0;
-        }
-    }
+    // [RENDER] The sun shadow comes from the renderer's screen-space mask in the final passes;
+    // retail's per-caster shadow pass (7) and its range gathering are not drawn.
 
     if (!isMultisampleActive())
     {
@@ -999,19 +963,6 @@ void Terrain::drawMain()
     dx9rend::effectSetTechniqueByName(m_effect, std::string(technique));
     dx9rend::effectBegin(m_effect);
 
-    if (legacySunShadows && g_LightManager->getDynamicShadowsEnabled())   // +0xF0
-    {
-        const unsigned int count = static_cast<unsigned int>(m_shadowRanges.size());
-        if (count)
-        {
-            dx9rend::effectBeginPass(m_effect, 7u);
-            dx9rend::indexBufferBind(m_indexBuffer);
-            param(m_hShadowMap)->setValue(lightManagerShadowMapTexture(g_LightManager), 0);  // +0x21C
-            for (std::vector<QuadPatch*>::iterator p = m_shadowPatches.begin();
-                 p != m_shadowPatches.end(); ++p)
-                (*p)->drawShadow();
-        }
-    }
     dx9rend::indexBufferBind(m_lodIndexBuffer);
     dx9rend::effectBeginPass(m_effect, 0u);
     it = list->data();
@@ -1032,7 +983,7 @@ void Terrain::drawMain()
     {
         IDirect3DSurface9* const surface = dx9rend::textureGetLevelSurface(
             dx9rend::rendererGetHemiScratchTexture(), 0, 0x7FFFFFFFu);
-        IDirect3DSurface9* const backBuffer = dx9rend::rendererSceneColorSurface();   // Renderer +0x76C; [CHOSEN] BF2_HDR
+        IDirect3DSurface9* const backBuffer = dx9rend::rendererSceneColorSurface();   // Renderer +0x76C; [RENDER] the HDR scene
         dx9rend::Ra::raRendererDevice()->StretchRect(backBuffer, 0, surface, 0, D3DTEXF_NONE);   // device +0x88
         surface->Release();
         dx9rend::stateManagerClear(1u, 0u, 0.0f, 0u);
@@ -1043,7 +994,7 @@ void Terrain::drawMain()
 }
 
 
-// [CHOSEN, not recovered] Depth prepass (BF2_DEPTH_PREPASS): the visible patches through the
+// [RENDER] Depth prepass: the visible patches through the
 // effect's RaDepthPrepass technique into the renderer's linear depth target. It uses the patch
 // draw of drawMain's pass 0, so positions and LOD morphing match the passes that follow.
 // [CHOSEN, not recovered] Sun shadow casters, see Terrain.h.

@@ -2426,7 +2426,7 @@ void renderQueuesFlushWorldPass()
     static_cast<RenderQueueTable*>(g_renderQueues)->flushWorldPass();
 }
 
-// [CHOSEN, not recovered] Depth prepass (BF2_DEPTH_PREPASS). Draws every opaque world-queue entry
+// [RENDER] Depth prepass. Draws every opaque world-queue entry
 // whose Ra effect has the technique `key`, front to back, WITHOUT consuming the queues: the world
 // pass flushes them afterwards as usual. Entries whose effect lacks the technique are skipped.
 // The point-light queues are additive re-draws of the same geometry and are not walked.

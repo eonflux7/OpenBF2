@@ -491,7 +491,7 @@ public:
     // effect parameter RaShadowViewProj (semantic) = `viewProjection`, into the bound target.
     void  gatherShadowCasters(const Frustum& volume);
     void  drawShadowCasters(const float* viewProjection, const dx9rend::ShadowCascadeCull& cull);
-    void  drawDepthPrepass();                                        // [CHOSEN, not recovered] BF2_DEPTH_PREPASS, technique RaDepthPrepass
+    void  drawDepthPrepass();                                        // [RENDER] technique RaDepthPrepass
     void  drawDetailPass();                                          // sub_100DF990  the ShaderVersion-1 detail/light pass [read - stops, see the body]
     void  drawMaskLights();                                          // sub_100DE5B0  the point-light pass over getVisibleLightsByMask(2313) - LightManager +0x18, the frame's visible lights
     void  reloadForLowQuality();                                     // sub_100DDF90  the Low_Terrain fallback reload

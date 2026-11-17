@@ -306,7 +306,6 @@ void queryReleaseRef(void* query);
 unsigned int postProductionFrameWorkOwnerSize();
 void* postProductionFrameWorkInterface(void* owner);
 bool  postProductionFrameWorkIsActive();
-bool  postProductionFrameGradeEnabled();   // [CHOSEN] PostProductionFrameWork.cpp
 
 // Code/BF2/Core/Ids.h already carries both, recovered from the ELF, and both are confirmed here:
 // getSingletonList registers the pair (830001, 831001) and queryInterface tests 830001.
@@ -1032,8 +1031,8 @@ void releaseRendererPathResources(Renderer* renderer)
     if (depth) depth->Release();
     depth = 0;
 
-    dx9rend::rendererHdrReleaseSurface();                         // [CHOSEN] BF2_HDR
-    dx9rend::rendererDepthPrepassRelease();                       // [CHOSEN] BF2_DEPTH_PREPASS
+    dx9rend::rendererHdrReleaseSurface();                         // [RENDER] HDR
+    dx9rend::rendererDepthPrepassRelease();                       // [RENDER] depth prepass
     dx9rend::rendererSunShadowsRelease();                         // [CHOSEN] BF2_SUN_SHADOWS
     renderer->releaseHemiScratchTexture();
     for (unsigned int offset = 0x778; offset <= 0x7C8; offset += 4)
@@ -1092,11 +1091,11 @@ void createRendererPathResources(Renderer* renderer)
         quarterHeight = height / 4;
     }
 
-    // [CHOSEN, not recovered] BF2_HDR: the scene target is float (A16B16G16R16F).
+    // [RENDER] The scene target is float (A16B16G16R16F; retail A8R8G8B8).
     pathTarget(renderer, 0x788) =
         static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
             static_cast<unsigned int>(width), static_cast<unsigned int>(height),
-            dx9rend::rendererHdrEnabled() ? D3DFMT_A16B16G16R16F : D3DFMT_A8R8G8B8, 1,
+            D3DFMT_A16B16G16R16F, 1,
             D3DUSAGE_RENDERTARGET, 0));
     pathTarget(renderer, 0x7A0) =
         static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
@@ -2511,7 +2510,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
         if (sw(1717) && g_PostProductionFrameWorkOwner
             && (!m_postProductionNeedsActive || postProductionActive()))
         {
-            rendererHdrBeginScene();                                     // [CHOSEN] BF2_HDR
+            rendererHdrBeginScene();                                     // [RENDER] HDR
             postProductionPrepare();
         }
 
@@ -2672,7 +2671,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 if (shouldToggleTransparencyAA())
                     stateManagerSetTransparencyAA(false);
 
-                // [CHOSEN, not recovered] BF2_DEPTH_PREPASS: the queues are complete here (the
+                // [RENDER] Depth prepass: the queues are complete here (the
                 // overgrowth enqueues above), and nothing has consumed them yet.
                 rendererDepthPrepass(sw(1701) && geom::g_Terrain, timeF);
 
@@ -2793,7 +2792,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 postProductionPass();
             }
 
-            // [CHOSEN, not recovered] BF2_DEPTH_PREPASS: the mask describes the world pass only; the
+            // [RENDER] Depth prepass: the mask describes the world pass only; the
             // first-person passes and every later view read a lit mask.
             rendererDepthPrepassEndWorldPass();
 
@@ -2843,7 +2842,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 postProductionFinish();
                 QueueProfiler::end();
             }
-            rendererHdrEndScene();          // [CHOSEN] BF2_HDR: the HUD and overlays go to the back buffer
+            rendererHdrEndScene();          // [RENDER] HDR: the HUD and overlays go to the back buffer
 
             if (sw(1704))
             {
@@ -3480,7 +3479,7 @@ void rendererSetHemiTarget(EngineTexture* texture)
     // AddRefs it around StateManager +0x60, then releases that temporary reference.
     IDirect3DSurface9* selected = fallback;
     if (!selected)
-        selected = rendererSceneColorSurface();                         // +0x76C; [CHOSEN] BF2_HDR
+        selected = rendererSceneColorSurface();                         // +0x76C; [RENDER] HDR
     if (selected)
         selected->AddRef();
     stateManagerSetRenderTarget(0, selected);
@@ -3992,7 +3991,7 @@ IDirect3DSurface9* rendererBackBufferSurface()
     return publishedRenderer()->m_backBuffer;                                // +0x76C
 }
 
-// [CHOSEN, not recovered] HDR scene colour. BF2_HDR=1 keeps the scene in A16B16G16R16F until the
+// [RENDER] HDR scene colour. The scene stays in A16B16G16R16F until the
 // frame grade (FSQuadDrawer pass 0) tonemaps it into the 8-bit back buffer. Without multisampling
 // the scene target +0x788 itself is float. With multisampling retail draws the scene straight into
 // the back buffer and resolves it into +0x788; here a multisampled float surface stands in for the
@@ -4001,17 +4000,6 @@ IDirect3DSurface9* rendererBackBufferSurface()
 namespace {
 IDirect3DSurface9* g_hdrSceneSurface = 0;
 bool g_hdrSceneActive = false;
-}
-
-bool rendererHdrEnabled()
-{
-    static const bool enabled = [] {
-        const char* v = std::getenv("BF2_HDR");
-        const bool on = v && *v && *v != '0';
-        std::fprintf(stderr, "[HDR] float scene target %s\n", on ? "on" : "off");
-        return on;
-    }();
-    return enabled;
 }
 
 IDirect3DSurface9* rendererSceneColorSurface()
@@ -4023,7 +4011,7 @@ IDirect3DSurface9* rendererSceneColorSurface()
 
 void rendererHdrBeginScene()
 {
-    if (!rendererHdrEnabled() || !isMultisampleActive())
+    if (!isMultisampleActive())
         return;
     IDirect3DSurface9* const backBuffer = publishedRenderer()->m_backBuffer;
     if (!backBuffer)
@@ -4159,17 +4147,6 @@ bool ensureLinearDepthTargets()
 }
 }
 
-bool rendererDepthPrepassEnabled()
-{
-    static const bool enabled = [] {
-        const char* v = std::getenv("BF2_DEPTH_PREPASS");
-        const bool on = v && *v && *v != '0';
-        std::fprintf(stderr, "[DEPTHPREPASS] %s\n", on ? "on" : "off");
-        return on;
-    }();
-    return enabled;
-}
-
 IDirect3DTexture9* rendererLinearDepthTexture()
 {
     return g_linearDepthTexture;
@@ -4178,7 +4155,7 @@ IDirect3DTexture9* rendererLinearDepthTexture()
 void rendererDepthPrepass(bool drawTerrain, float time)
 {
     bindBakedSunMask();
-    if (!rendererDepthPrepassEnabled() || !ensureLinearDepthTargets())
+    if (!ensureLinearDepthTargets())
         return;
 
     // The mask constants (RaShadowMask's RASM): zero means no cascade covers anything, so every
@@ -5517,7 +5494,7 @@ void rendererPostResolveScene()
     IDirect3DSurface9* const destination =
         textureGetLevelSurface(pathTarget(renderer, 0x788), 0, 0x7FFFFFFFu);
     static_cast<RendDX9Base*>(g_rendererBase)->device->StretchRect(
-        rendererSceneColorSurface(), 0, destination, 0, D3DTEXF_NONE);     // [CHOSEN] BF2_HDR
+        rendererSceneColorSurface(), 0, destination, 0, D3DTEXF_NONE);     // [RENDER] HDR
     destination->Release();
 }
 
@@ -5635,9 +5612,9 @@ bool Renderer::renderScene(double time, const RenderFlags* flags, void* drawObje
     if (g_PostProductionFrameWorkOwner)
         postProductionSetGlowEnabled(postProduction);                             // owner +0x24
 
-    // [CHOSEN, not recovered] BF2_FRAME_GRADE also routes this path through post-production.
-    const bool postProductionPath = postProduction || postProductionFrameGradeEnabled();
-    if (m_fullSizeRenderTargets && postProductionPath && g_PostProductionFrameWorkOwner)
+    // [RENDER] This path always goes through post-production, whose final copy is the frame
+    // grade (retail: only when flags->postProduction is set).
+    if (m_fullSizeRenderTargets && g_PostProductionFrameWorkOwner)
     {
         postProductionPrepare();                                                  // sub_1004F210
     }

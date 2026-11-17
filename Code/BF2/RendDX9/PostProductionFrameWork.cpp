@@ -1055,32 +1055,12 @@ void* postProductionFrameWorkInterface(void* owner)
 
 // sub_1004F1C0 - whether post-production is active, on the published owner (false while none is
 // published): a noise texture, glow, a started tinnitus, TV, +0x220, flashbang or a gas-mask blend.
-// [CHOSEN, not recovered] BF2_FRAME_GRADE=1 keeps post-production running every frame so the
-// final scene -> back buffer copy (FSQuadDrawer pass 0) always runs; the shader side puts the
-// frame's tonemap and colour grade in that pass. Off by default.
-bool postProductionFrameGradeEnabled()
-{
-    static const bool enabled = [] {
-        const char* v = std::getenv("BF2_FRAME_GRADE");
-        return v && *v && *v != '0';
-    }();
-    return enabled;
-}
-
+// [RENDER] Always true while an owner is published: the final scene -> back buffer copy
+// (FSQuadDrawer pass 0) is the frame grade, the only encode from linear HDR to display values, so
+// post-production runs every frame. Retail ran it only for the effects listed above.
 bool postProductionFrameWorkIsActive()
 {
-    PostProductionOwner* const o = publishedOwner();
-    if (!o)
-        return false;
-    if (postProductionFrameGradeEnabled())
-        return true;
-    if (o->noiseTexture || Bt<36>(o))
-        return true;
-    return o->tinnitus.state == 1
-        || Bt<39>(o)
-        || o->preset
-        || Bt<250>(o)
-        || F<224>(o) > 0.0f;
+    return publishedOwner() != 0;
 }
 
 
@@ -1760,16 +1740,11 @@ bool drawPostProduction(PostProductionOwner* o)
         drawGasMask(o);                                               // sub_1004E970
     if (o->tinnitus.state == 1)
     {
-        // [CHOSEN, not recovered] BF2_HDR: the scene target holds linear radiance that only the
-        // final copy (the frame grade) turns into display values, so tinnitus blends over the scene
-        // target and the copy still runs, multisampled or not.
-        if (rendererHdrEnabled())
-            geom::lightManagerSetRenderTargetTexture(0, target<0x788>());
-        else if (rendererPostMultisampleActive())
-        {
-            copyScene = false;
-            rendererPostSetTarget(0);
-        }
+        // [RENDER] The scene target holds linear radiance that only the final copy (the frame
+        // grade) turns into display values, so tinnitus blends over the scene target and the copy
+        // still runs, multisampled or not. Retail drew tinnitus into the back buffer and skipped
+        // the copy when multisampled.
+        geom::lightManagerSetRenderTargetTexture(0, target<0x788>());
         drawTinnitus(o);
     }
     if (Bt<0x27>(o))
@@ -1804,7 +1779,7 @@ void postProductionFinish()
         stateManagerSetRenderStatePersistent(D3DRS_MULTISAMPLEANTIALIAS, 0);
         rendererPostResolveScene();
     }
-    rendererHdrEndScene();          // [CHOSEN] BF2_HDR: from here the null target is the back buffer
+    rendererHdrEndScene();          // [RENDER] HDR: from here the null target is the back buffer
     if (drawPostProduction(o))
         geom::fsQuadDrawerBlitToBackBuffer(rendererPostSceneTexture());
     if (rendererPostMultisampleActive())

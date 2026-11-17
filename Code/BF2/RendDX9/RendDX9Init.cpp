@@ -879,17 +879,15 @@ void buildPresentParameters(void* renderer)
 
     b->pp.AutoDepthStencilFormat = firstDepthCandidate(b);
 
-    // [CHOSEN, not recovered] Reversed-Z prototype: a float depth buffer is where reversed depth
-    // gains its precision (D24FS8 keeps the stencil; DXVK maps it to D32_SFLOAT_S8_UINT).
-    if (rendererReversedZ() && b->d3d9 &&
+    // [RENDER] Reversed depth gains its precision in a float depth buffer (D24FS8 keeps the
+    // stencil; DXVK backs it with D32_SFLOAT_S8_UINT when d3d9.useD32forD24 is set).
+    if (b->d3d9 &&
         SUCCEEDED(b->d3d9->CheckDeviceFormat(b->adapter, static_cast<D3DDEVTYPE>(b->deviceType),
             D3DFMT_X8R8G8B8, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_SURFACE, D3DFMT_D24FS8)))
-    {
         b->pp.AutoDepthStencilFormat = D3DFMT_D24FS8;
-        std::fprintf(stderr, "[REVZ] reversed-Z on, depth format D24FS8\n");
-    }
-    else if (rendererReversedZ())
-        std::fprintf(stderr, "[REVZ] reversed-Z on, D24FS8 unsupported: keeping format %d\n",
+    else
+        std::fprintf(stderr, "[RENDER] D24FS8 unsupported: reversed depth keeps format %d "
+                     "(integer depth loses far precision)\n",
                      static_cast<int>(b->pp.AutoDepthStencilFormat));
 
     // The multisample pair, 8 bytes, only if the vector is non-empty.

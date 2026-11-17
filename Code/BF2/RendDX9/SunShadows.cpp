@@ -146,7 +146,7 @@ bool rendererSunShadowsEnabled()
         std::fprintf(stderr, "[SUNSHADOWS] %s\n", on ? "on" : "off");
         return on;
     }();
-    return enabled && rendererDepthPrepassEnabled();
+    return enabled;
 }
 
 void rendererSunShadowsRelease()

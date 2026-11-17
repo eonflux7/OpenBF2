@@ -47,28 +47,19 @@ unsigned int  g_transparencyAAState = 0;
 unsigned char g_transparencyAAOn[4]  = { 0, 0, 0, 0 };
 unsigned char g_transparencyAAOff[4] = { 0, 0, 0, 0 };
 
-// [CHOSEN, not recovered] Reversed-Z prototype (BF2_REVERSED_Z=1). Every RenderView projection maps
-// near to 1 and far to 0 (RendMisc/RenderView.cpp). While any depth buffer other than a shadow map
-// is bound, the issued ZFUNC is mirrored (LESS <-> GREATER) and DEPTHBIAS / SLOPESCALEDEPTHBIAS are
-// negated, and depth clears write 1 - z. The mirror cells keep the effects' logical (forward-Z)
-// values, so shaders and callers stay unchanged. XpLightManager marks its shadow-map depth buffers
-// standard (they use their own light matrices).
-bool rendererReversedZ()
-{
-    static const bool on = [] {
-        const char* v = std::getenv("BF2_REVERSED_Z");
-        return v && *v && *v != '0';
-    }();
-    return on;
-}
-
+// [RENDER] Reversed depth. Every RenderView projection maps near to 1 and far to 0
+// (RendMisc/RenderView.cpp). While any depth buffer other than a shadow map is bound, the issued
+// ZFUNC is mirrored (LESS <-> GREATER) and DEPTHBIAS / SLOPESCALEDEPTHBIAS are negated, and depth
+// clears write 1 - z. The mirror cells keep the effects' logical (forward-Z) values, so shaders and
+// callers stay unchanged. XpLightManager marks its shadow-map depth buffers standard (they use
+// their own light matrices).
 namespace {
 bool g_standardDepthBound = false;   // a shadow-map depth buffer is the wanted depth-stencil
 }
 
 bool stateManagerReversedDepthBound()
 {
-    return rendererReversedZ() && !g_standardDepthBound;
+    return !g_standardDepthBound;
 }
 
 void stateManagerMarkStandardDepth(bool standard)
@@ -76,29 +67,13 @@ void stateManagerMarkStandardDepth(bool standard)
     g_standardDepthBound = standard;
 }
 
-// BF2_REVERSED_Z=2: trace the first depth clears and depth-state issues to stderr ([REVZ]).
-static int reversedZTraceBudget()
-{
-    static int budget = [] {
-        const char* v = std::getenv("BF2_REVERSED_Z");
-        return (v && v[0] == '2') ? 400 : 0;
-    }();
-    return budget > 0 ? budget-- : 0;
-}
-
 float stateManagerClearDepth(float depth)
 {
-    const float out = stateManagerReversedDepthBound() ? 1.0f - depth : depth;
-    if (reversedZTraceBudget())
-        std::fprintf(stderr, "[REVZ] clear depth %.3f -> %.3f standard=%d\n", depth, out,
-                     g_standardDepthBound ? 1 : 0);
-    return out;
+    return stateManagerReversedDepthBound() ? 1.0f - depth : depth;
 }
 
 unsigned int stateManagerMapDepthState(unsigned int state, unsigned int value)
 {
-    if (state == 23u && rendererReversedZ() && reversedZTraceBudget())
-        std::fprintf(stderr, "[REVZ] zfunc %u standard=%d\n", value, g_standardDepthBound ? 1 : 0);
     if (!stateManagerReversedDepthBound())
         return value;
     if (state == 23u)   // D3DRS_ZFUNC
@@ -1065,18 +1040,15 @@ void flushRenderTargets(StateManager* self)
     {
         self->device->SetDepthStencilSurface(self->depthStencil);
         self->depthStencilDirty = 0;
-        // [CHOSEN, not recovered] reversed-Z: the depth convention follows the buffer, so the
-        // depth states the device holds are re-sent for the new one.
-        if (rendererReversedZ())
+        // [RENDER] reversed depth: the depth convention follows the buffer, so the depth states
+        // the device holds are re-sent for the new one.
+        static const unsigned int kDepthStates[3] = { 23u, 175u, 195u };
+        for (unsigned int i = 0; i < 3; ++i)
         {
-            static const unsigned int kDepthStates[3] = { 23u, 175u, 195u };
-            for (unsigned int i = 0; i < 3; ++i)
-            {
-                const unsigned int st = kDepthStates[i];
-                self->device->SetRenderState(static_cast<D3DRENDERSTATETYPE>(st),
-                    stateManagerMapDepthState(st,
-                        static_cast<unsigned int>(self->renderStates.cells[st].f0Device)));
-            }
+            const unsigned int st = kDepthStates[i];
+            self->device->SetRenderState(static_cast<D3DRENDERSTATETYPE>(st),
+                stateManagerMapDepthState(st,
+                    static_cast<unsigned int>(self->renderStates.cells[st].f0Device)));
         }
     }
 }

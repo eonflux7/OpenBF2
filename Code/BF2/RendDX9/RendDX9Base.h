@@ -635,8 +635,7 @@ IDirect3DSurface9* stateManagerGetRenderTarget(unsigned int index);
 DeviceLostResetListener* stateManagerDeviceLostListener();
 void stateManagerSetDepthStencilSurface(IDirect3DSurface9* surface);
 IDirect3DSurface9* stateManagerGetDepthStencilSurface();   // [CHOSEN] no AddRef
-// [CHOSEN, not recovered] Reversed-Z prototype (BF2_REVERSED_Z=1), see StateManager.cpp.
-bool rendererReversedZ();
+// [RENDER] Reversed depth, see StateManager.cpp.
 bool stateManagerReversedDepthBound();
 void stateManagerMarkStandardDepth(bool standard);
 float stateManagerClearDepth(float depth);
@@ -690,15 +689,14 @@ unsigned int       rendererRaPath();                    // +0x6CC, the RAPATH sh
 void*              rendererFrameTimer();                // +0x5DC, the 48-byte QPC frame timer
 double             rendererPostTime();                  // PE 0x100286E0, the frame timer's seconds
 IDirect3DSurface9* rendererBackBufferSurface();         // +0x76C, the device back buffer reference
-// [CHOSEN, not recovered] HDR scene colour (BF2_HDR=1). The surface the scene draws into where
-// retail draws into the back buffer: the multisampled float scene surface between
-// rendererHdrBeginScene and rendererHdrEndScene, else the back buffer.
-bool rendererHdrEnabled();
+// [RENDER] HDR scene colour. The surface the scene draws into where retail draws into the back
+// buffer: the multisampled float scene surface between rendererHdrBeginScene and
+// rendererHdrEndScene, else the back buffer.
 IDirect3DSurface9* rendererSceneColorSurface();
 void rendererHdrBeginScene();
 void rendererHdrEndScene();
 void rendererHdrReleaseSurface();
-// [CHOSEN, not recovered] Depth prepass (BF2_DEPTH_PREPASS=1): before the world queues are
+// [RENDER] Depth prepass: before the world queues are
 // drawn, terrain and every opaque Ra entry whose effect has the technique "RaDepthPrepass" draw
 // their linear view depth into a single-sample R32F target (0 where nothing was drawn). The
 // texture stays bound to sampler s15 for the rest of the frame. The sun shadow mask built from it
@@ -710,7 +708,6 @@ void rendererHdrReleaseSurface();
 // s13 is reserved likewise for the sun shadow atlas (rendererSunShadowsRender), and s12 for the
 // prepass's second target, the surfaces' world normals (A2R10G10B10, n * 0.5 + 0.5), which the
 // prepass techniques write to COLOR1.
-bool rendererDepthPrepassEnabled();
 void rendererDepthPrepass(bool drawTerrain, float time);
 void rendererDepthPrepassEndWorldPass();
 void rendererDepthPrepassRelease();
