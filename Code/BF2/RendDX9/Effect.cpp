@@ -1280,18 +1280,7 @@ bool needsLightmapGenerationInclude(const char* path, const char* source, unsign
 // asked for (missing ones included) are all unchanged; an include is re-read through the same
 // handler to check it. A compile that reports any message (an error, or a warning that
 // GSMaxValidation would raise) is not cached, and any failure of this path falls back to the
-// retail D3DXCreateEffect call, so its errors reach the caller unchanged. BF2_PERF_FXSRC=0 compiles
-// every one from source again, as retail does.
-bool fxsEnabled()
-{
-    static int enabled = -1;
-    if (enabled < 0)
-    {
-        const char* const v = ::getenv("BF2_PERF_FXSRC");
-        enabled = (v && v[0] == '0' && v[1] == 0) ? 0 : 1;
-    }
-    return enabled == 1;
-}
+// retail D3DXCreateEffect call, so its errors reach the caller unchanged.
 
 unsigned long long fxsFnv(unsigned long long hash, const void* data, std::size_t size)
 {
@@ -1449,7 +1438,7 @@ ID3DXEffect* fxsCreate(const char* path, const void* source, unsigned int source
                        const std::vector<const char*>& macros, ID3DXInclude* include,
                        unsigned long flags, IDirect3DDevice9* device)
 {
-    if (!device || !include || !::dice::hfe::fileManager || !fxsEnabled())
+    if (!device || !include || !::dice::hfe::fileManager)
         return 0;
     unsigned long long definesHash = 14695981039346656037ull;
     for (std::size_t i = 0; i + 1 < macros.size(); ++i)

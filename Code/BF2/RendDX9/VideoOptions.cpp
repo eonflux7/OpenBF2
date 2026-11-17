@@ -1822,15 +1822,6 @@ void videoOptionsDestruct(void* base)
 // Initializes quality tables and hardware-dependent limits for the renderer's VideoOptions.
 // base must be an initialized RendDX9Base. Quality queries use the second eight-entry row;
 // some other row roles remain [UNRESOLVED]. Deferred initialization calls are marked below.
-namespace {
-bool videoDetectSkipEnabled()
-{
-    static int on = -1;
-    if (on < 0) { const char* e = std::getenv("BF2_PERF_VIDEODETECT"); on = (e && *e == '0') ? 0 : 1; }
-    return on == 1;
-}
-} // namespace
-
 void videoOptionsInitialize(void* base)
 {
     RendDX9Base* b = static_cast<RendDX9Base*>(base);
@@ -1910,13 +1901,7 @@ void videoOptionsInitialize(void* base)
     PluginVideoOptions* const options = reinterpret_cast<PluginVideoOptions*>(vo);
     // [PERF] The heuristic only reads the hardware (its CPU benchmark sleeps 1000 ms) and this
     // caller drops its level, so retail spent a second of every startup here for nothing. The
-    // callers that use the level (VideoSettings::detectVideoOptionScheme) still run it.
-    // BF2_PERF_VIDEODETECT=0 keeps the call.
-    if (!videoDetectSkipEnabled())
-    {
-        ::dice::hfe::loadtrace::Scope trace("init", "video.detect");   // [DEV] BF2_LOAD_TRACE
-        options->detectQualityLevel();
-    }
+    // call is skipped.
     options->applyQualityPreset(1);
 
     // [CHOSEN, not recovered] diagnostic line; retail logs nothing here.

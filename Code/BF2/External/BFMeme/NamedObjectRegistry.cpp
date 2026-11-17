@@ -23,14 +23,7 @@ namespace {
 // only while the list has the shape the walk relies on (containers before objects, objects in
 // strcmp order); a list in any other shape keeps the walk. A rename through an entry rebuilds the
 // indexes on next use; replacing a container's children drops its index. The layout of the
-// registry classes is unchanged (the index lives beside them). BF2_PERF_MEMEINDEX=0 keeps the
-// walk everywhere.
-bool memeIndexEnabled()
-{
-    static int on = -1;
-    if (on < 0) { const char* e = std::getenv("BF2_PERF_MEMEINDEX"); on = (e && *e == '0') ? 0 : 1; }
-    return on == 1;
-}
+// registry classes is unchanged (the index lives beside them).
 struct ChildIndex
 {
     ChildIndex() : epoch(0), built(false), usable(false) {}
@@ -42,12 +35,10 @@ struct ChildIndex
 std::unordered_map<const NameTreeNode*, ChildIndex> g_childIndexes;
 unsigned int g_nameEpoch = 0;   // bumped by NameTreeObjectEntry::setName
 
-// The container's index, built from its list when missing or stale; null when the index is off
-// or the list does not have the indexed shape.
+// The container's index, built from its list when missing or stale; null when the list does not
+// have the indexed shape.
 ChildIndex* childIndex(const NameTreeNode* container, NameTreeNode* children)
 {
-    if (!memeIndexEnabled())
-        return nullptr;
     ChildIndex& index = g_childIndexes[container];
     if (index.built && index.epoch == g_nameEpoch)
         return index.usable ? &index : nullptr;

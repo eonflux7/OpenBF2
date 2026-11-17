@@ -16,7 +16,6 @@
 #include <windows.h>
 #include <shlobj.h>      // SHGetFolderPathW(CSIDL_PERSONAL), crash-directory setup
 #include <shellapi.h>   // SHFileOperationW directory deletion
-#include <cstdlib>       // [PERF] getenv
 #include <mutex>         // [PERF] LooseProbeCache.h
 #include <unordered_map>
 #include <unordered_set>
@@ -1138,16 +1137,10 @@ namespace io {
 // [PERF] LooseProbeCache.h
 void looseProbeCacheBegin()
 {
-    static int on = -1;
-    if (on < 0)
-    {
-        const char* e = std::getenv("BF2_PERF_PROBECACHE");
-        on = (e && *e == '0') ? 0 : 1;
-    }
     ProbeCache& cache = probeCache();
     std::lock_guard<std::mutex> lock(cache.mutex);
     cache.listings.clear();                         // fresh listings; written names stay dirty
-    cache.active = on == 1;
+    cache.active = true;
 }
 
 void looseProbeCacheEnd()

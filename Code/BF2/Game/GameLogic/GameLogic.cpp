@@ -546,7 +546,6 @@ bool GameLogic::load(const std::string& levelPath)
     // [PERF] Archive prefetch (IO/File/ArchivePrefetch.h): with the level's archives mounted,
     // workers start inflating the entries the last load of this level, mode and size opened, and
     // this load's list is recorded until endLoadStats. Serially, each entry inflated on first use.
-    if (io::archivePrefetchEnabled())
     {
         std::string mod = settings->stringGet(std::string("GSModDirectory"), std::string());
         while (!mod.empty() && (mod[mod.size() - 1] == '/' || mod[mod.size() - 1] == '\\'))

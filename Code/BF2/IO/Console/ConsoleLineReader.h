@@ -19,54 +19,29 @@
 //                                 of 1023 or more stops the whole split (failbit), as does an
 //                                 attempt at the end with nothing left; a NUL inside a line cuts
 //                                 the line where the caller builds std::string(buf).
-//
-// BF2_PERF_CONPARSE=0 runs both on real istringstreams again.
 
 #ifndef BF2_IO_CONSOLE_CONSOLELINEREADER_H
 #define BF2_IO_CONSOLE_CONSOLELINEREADER_H
 
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
-#include <memory>
-#include <sstream>
 #include <string>
 
 namespace dice {
 namespace hfe {
 namespace io {
 
-inline bool consoleFastParseEnabled()
-{
-    static int on = -1;
-    if (on < 0) { const char* e = std::getenv("BF2_PERF_CONPARSE"); on = (e && *e == '0') ? 0 : 1; }
-    return on == 1;
-}
-
-// [PERF] BF2_PERF_CONDISPATCH=0: handleCommand compares every first token against its keywords
-// again (see there), and ConsoleObjects searches its map for every binding call.
-inline bool consoleFastDispatchEnabled()
-{
-    static int on = -1;
-    if (on < 0) { const char* e = std::getenv("BF2_PERF_CONDISPATCH"); on = (e && *e == '0') ? 0 : 1; }
-    return on == 1;
-}
-
 class ConsoleLineReader
 {
 public:
     // text must outlive the reader.
-    explicit ConsoleLineReader(const std::string& text, bool fast = consoleFastParseEnabled())
+    explicit ConsoleLineReader(const std::string& text)
         : m_text(text), m_pos(0), m_eof(false), m_fail(false)
     {
-        if (!fast)
-            m_stream.reset(new std::istringstream(text));
     }
 
     bool readToken(std::string& out)
     {
-        if (m_stream)
-            return static_cast<bool>(*m_stream >> out);
         if (m_eof || m_fail) { m_fail = true; return false; }
         const std::size_t size = m_text.size();
         while (m_pos < size && isSpace(m_text[m_pos]))
@@ -83,7 +58,6 @@ public:
 
     void skipWs()
     {
-        if (m_stream) { *m_stream >> std::ws; return; }
         if (m_eof || m_fail) { m_fail = true; return; }
         const std::size_t size = m_text.size();
         while (m_pos < size && isSpace(m_text[m_pos]))
@@ -94,15 +68,13 @@ public:
 
     int get()
     {
-        if (m_stream)
-            return m_stream->get();
         if (m_eof || m_fail) { m_fail = true; return EOF; }
         if (m_pos == m_text.size()) { m_eof = true; m_fail = true; return EOF; }
         return static_cast<unsigned char>(m_text[m_pos++]);
     }
 
-    bool eof() const { return m_stream ? m_stream->eof() : m_eof; }
-    bool fail() const { return m_stream ? m_stream->fail() : m_fail; }
+    bool eof() const { return m_eof; }
+    bool fail() const { return m_fail; }
 
 private:
     // The classic locale's isspace for char.
@@ -118,26 +90,21 @@ private:
     std::size_t                         m_pos;
     bool                                m_eof;
     bool                                m_fail;
-    std::unique_ptr<std::istringstream> m_stream;   // BF2_PERF_CONPARSE=0
 };
 
 class ConsoleLineSplitter
 {
 public:
     // text must outlive the splitter.
-    explicit ConsoleLineSplitter(const std::string& text, bool fast = consoleFastParseEnabled())
+    explicit ConsoleLineSplitter(const std::string& text)
         : m_text(text), m_pos(0), m_done(false)
     {
-        if (!fast)
-            m_stream.reset(new std::istringstream(text));
     }
 
     // Fills buf (at least 1023 bytes) with the next line, NUL-terminated; false when the split
     // ends, exactly where `while (stream.getline(buf, 1023, '\n'))` would stop.
     bool next(char* buf)
     {
-        if (m_stream)
-            return static_cast<bool>(m_stream->getline(buf, 1023, '\n'));
         if (m_done)
             return false;
         const std::size_t size = m_text.size();
@@ -165,7 +132,6 @@ private:
     const std::string&                  m_text;
     std::size_t                         m_pos;
     bool                                m_done;
-    std::unique_ptr<std::istringstream> m_stream;   // BF2_PERF_CONPARSE=0
 };
 
 } // namespace io

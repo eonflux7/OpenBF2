@@ -1765,13 +1765,6 @@ std::map<std::string, RaKeyFile> g_raKeyFiles;
 // the rest of that frame. A long load step is one frame, so each header is looked up about once
 // per step; an edit to a shader between frames is still seen. Only the include files the key
 // reads use the memo; the cache files, which compileEffect writes, are looked up every time.
-// BF2_PERF_FXSTAT=0 looks every file up every time.
-bool raStatMemoEnabled()
-{
-    static int on = -1;
-    if (on < 0) { const char* e = ::getenv("BF2_PERF_FXSTAT"); on = (e && *e == '0') ? 0 : 1; }
-    return on == 1;
-}
 
 // The names of a source's #include lines, in order.
 void raScanIncludes(const char* text, std::size_t size, std::vector<std::string>& out, bool& dynamic)
@@ -1813,7 +1806,7 @@ const RaKeyFile& raKeyFile(const std::string& path, bool obfuscated)
 {
     RaKeyFile& file = g_raKeyFiles[path];
     // [PERF] The file-info memo: already read this frame.
-    const bool memo = raStatMemoEnabled() && g_Renderer;
+    const bool memo = g_Renderer != 0;
     const unsigned int frame = memo ? rendererFrameOrdinal() : 0;
     if (memo && file.checked && file.checkedFrame == frame && file.hash != 0)
         return file;

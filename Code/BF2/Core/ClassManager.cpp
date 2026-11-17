@@ -10,7 +10,6 @@
 #include <map>                            // ClassInfo / SingletonInfo storage
 #include <algorithm>                      // std::find - unregisterServer
 #include <sstream>                        // std::stringstream - getPrintableSingletonList
-#include <cstdlib>                        // [PERF] getenv - BF2_PERF_CLASSINDEX
 #include <string>
 #include <unordered_map>
 
@@ -27,13 +26,6 @@ namespace {
 // returns. m_classInfos only grows at the back (registerServer) or loses entries
 // (unregisterServer): the index extends itself with new entries on the next lookup and is
 // rebuilt after an erase. It lives beside the class, whose layout is shared with the plugins.
-// BF2_PERF_CLASSINDEX=0 keeps the scans.
-bool classIndexEnabled()
-{
-    static int on = -1;
-    if (on < 0) { const char* e = std::getenv("BF2_PERF_CLASSINDEX"); on = (e && *e == '0') ? 0 : 1; }
-    return on == 1;
-}
 
 struct ClassIndex
 {
@@ -241,40 +233,29 @@ void ClassManager::registerSingleton(const SingletonRegInfo& info)
         className = formatString("Unknown ID %d", si.classId);
 }
 
-// Finds the first matching class record by scanning registration order.
+// Finds the first matching class record in registration order.
 // Names compare without case; IDs compare exactly. Earlier duplicate registrations shadow later ones.
 // On a match, copies the factory, class ID and name to the output record.
+// [PERF] Through the class index; retail scans m_classInfos from the front.
 bool ClassManager::getClassInfo(unsigned int classId, ClassInfo& out)
 {
-    if (classIndexEnabled())   // [PERF] the class index
-    {
-        const ClassIndex& index = classIndexFor(this, m_classInfos);
-        const std::unordered_map<unsigned int, std::size_t>::const_iterator it = index.byId.find(classId);
-        if (it == index.byId.end())
-            return false;
-        out = m_classInfos[it->second];
-        return true;
-    }
-    for (std::vector<ClassInfo>::iterator it = m_classInfos.begin(); it != m_classInfos.end(); ++it)
-        if (it->classId == classId) { out = *it; return true; }
-    return false;
+    const ClassIndex& index = classIndexFor(this, m_classInfos);
+    const std::unordered_map<unsigned int, std::size_t>::const_iterator it = index.byId.find(classId);
+    if (it == index.byId.end())
+        return false;
+    out = m_classInfos[it->second];
+    return true;
 }
 
 bool ClassManager::getClassInfo(const std::string& name, ClassInfo& out)
 {
-    if (classIndexEnabled())   // [PERF] the class index
-    {
-        const ClassIndex& index = classIndexFor(this, m_classInfos);
-        const std::unordered_map<std::string, std::size_t>::const_iterator it =
-            index.byName.find(classKey(name.c_str()));
-        if (it == index.byName.end())
-            return false;
-        out = m_classInfos[it->second];
-        return true;
-    }
-    for (std::vector<ClassInfo>::iterator it = m_classInfos.begin(); it != m_classInfos.end(); ++it)
-        if (equalsIgnoreCase(it->name, name)) { out = *it; return true; }
-    return false;
+    const ClassIndex& index = classIndexFor(this, m_classInfos);   // [PERF] the class index
+    const std::unordered_map<std::string, std::size_t>::const_iterator it =
+        index.byName.find(classKey(name.c_str()));
+    if (it == index.byName.end())
+        return false;
+    out = m_classInfos[it->second];
+    return true;
 }
 
 // Looks up iid's default class; writes cid only on success and returns whether a mapping exists.

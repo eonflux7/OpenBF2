@@ -13,8 +13,6 @@
 // case) still go to the disk. A name written, deleted, moved or copied through the file system, and
 // its directories, go to the disk for the rest of the window, and listings inside it are dropped,
 // so a file the load writes, or a stream still being written, is seen as before.
-//
-// BF2_PERF_PROBECACHE=0 asks the disk every time.
 
 #ifndef IO_FILE_LOOSEPROBECACHE_H
 #define IO_FILE_LOOSEPROBECACHE_H

@@ -2096,7 +2096,7 @@ bool BF2Engine::initEngine()
 #if !DEDICATED
     musicPlayer = new MusicPlayer();                    // operator new(8), 0x7E1B40 - client only; shutdown deletes it
 #endif
-    // [PERF] BF2_PERF_TSCCAL: the TSC rate measured on a worker since the Profiler's creation is
+    // [PERF] The TSC rate measured on a worker since the Profiler's creation is
     // stored before the first frame (its reader is the ragdoll update budget).
     g_system->finishTscCalibration();
     return true;

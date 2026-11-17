@@ -15,8 +15,6 @@
 // same entry the serial path would read (archive file, position and sizes are compared), so the
 // loaded state does not change. Workers stay at most a fixed number of bytes ahead of the main
 // thread, and entries the main thread has passed are dropped.
-//
-// BF2_PERF_FILEPREFETCH=0 neither records nor prefetches.
 
 #ifndef IO_FILE_ARCHIVEPREFETCH_H
 #define IO_FILE_ARCHIVEPREFETCH_H
@@ -32,8 +30,6 @@ namespace hfe {
 namespace io {
 
 class ZipArchive;
-
-bool archivePrefetchEnabled();
 
 // Main thread. Begin ends any previous prefetch, reads manifestPath (an @HOME@ path), queues its
 // entries and starts recording. End writes the recorded list to the manifest and stops the workers.

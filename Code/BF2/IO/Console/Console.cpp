@@ -602,8 +602,8 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
 
         // [PERF] Every keyword below is a single word; a binding call's first token has a dot
         // (Object.method) and matches none of them, so its twelve case-insensitive compares are
-        // skipped. The serial code compared each one (BF2_PERF_CONDISPATCH=0).
-        const bool mayBeKeyword = !consoleFastDispatchEnabled() || kw.find('.') == std::string::npos;
+        // skipped. The serial code compared each one.
+        const bool mayBeKeyword = kw.find('.') == std::string::npos;
 
         // An active block comment swallows everything except its own nesting tokens
         if (remDepth > 0)

@@ -9,7 +9,6 @@
 #include "../RendMisc/IRenderer.h"
 #include "../Core/SettingsRepostitory.h"  // settings - "GSLoadLevel" gates the antialiasing push
 #include <cstdio>                       // [CHOSEN] sscanf for the new-profile resolution pick
-#include <cstdlib>                      // [PERF] getenv - BF2_PERF_VIDEODETECT
 #include <new>
 #include <ostream>
 #include <sstream>
@@ -285,25 +284,17 @@ void VideoSettings::applyToOptions(IVideoOptions* options)
 // multiplier, RAM, pixel-shader major and the 2005 ATI/NVIDIA device whitelist), which caps every
 // GPU it does not list at Medium and a CPU it cannot identify at Low, so no current machine gets
 // High. [CHOSEN, not recovered] Owner decision 2026-11-14: with a renderer the answer is the High
-// scheme (2) on every platform; the renderer's heuristic still runs and is logged. Its callers are
-// setDefaults (new profiles) and the options page's detectVideoScheme (reset to default).
-// [PERF] setDefaults also runs on every profile login (loadCurrentProfile resets the video settings
-// before reading the profile's Video.con), and the heuristic's CPU benchmark sleeps 1000 ms, so
-// every start spent a second at login on a level that only reaches this log line. It is skipped;
-// BF2_PERF_VIDEODETECT=0 runs it again.
+// scheme (2) on every platform. Its callers are setDefaults (new profiles) and the options page's
+// detectVideoScheme (reset to default).
+// [PERF] The renderer's heuristic is not run: its level would be dropped, and its CPU benchmark
+// sleeps 1000 ms. setDefaults also runs on every profile login (loadCurrentProfile resets the video
+// settings before reading the profile's Video.con), so every start spent a second at login on it.
 int VideoSettings::detectVideoOptionScheme()
 {
     if (!g_bf2Render)
         return 1;
-    dx9rend::IRenderer* renderer = g_bf2Render->getRenderer();
-    if (!renderer)
+    if (!g_bf2Render->getRenderer())
         return 1;
-    const char* perf = std::getenv("BF2_PERF_VIDEODETECT");
-    if (!(perf && *perf == '0'))
-        return 2;
-    const int detected = renderer->getVideoOptions()->detectQualityLevel();
-    std::fprintf(stderr, "[CHOSEN, not recovered] VideoSettings::detectVideoOptionScheme: renderer "
-                         "autodetect %d, answering High (2)\n", detected);
     return 2;
 }
 

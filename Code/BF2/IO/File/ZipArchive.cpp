@@ -258,7 +258,6 @@ IStream* ZipArchive::open(const std::string& name, FileMode mode, FileAccess acc
 
     // [PERF] Archive prefetch (ArchivePrefetch.h): the serial path inflates here or as the stream
     // is read; a worker may already hold the inflated entry.
-    if (archivePrefetchEnabled())
     {
         archivePrefetchRecord(m_filename, fixed);
         std::unique_ptr<std::vector<char> > data =

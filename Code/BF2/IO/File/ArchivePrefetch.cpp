@@ -198,21 +198,8 @@ bool readManifest(const std::string& path, std::string& text)
 
 } // namespace
 
-bool archivePrefetchEnabled()
-{
-    static int on = -1;
-    if (on < 0)
-    {
-        const char* e = std::getenv("BF2_PERF_FILEPREFETCH");
-        on = (e && *e == '0') ? 0 : 1;
-    }
-    return on == 1;
-}
-
 void archivePrefetchBegin(const std::string& manifestPath)
 {
-    if (!archivePrefetchEnabled())
-        return;
     stopPool();
     g_recording = true;
     g_manifestPath = manifestPath;
@@ -280,8 +267,6 @@ void archivePrefetchBegin(const std::string& manifestPath)
 
 void archivePrefetchEnd()
 {
-    if (!archivePrefetchEnabled())
-        return;
     loadtrace::Scope trace("file.prefetch.end", g_manifestPath.c_str());   // [DEV] BF2_LOAD_TRACE
     stopPool();
     if (!g_recording)

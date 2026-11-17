@@ -17,9 +17,8 @@
 #include <dbghelp.h>
 #include <process.h>
 #include <algorithm>
-#include <atomic>       // [PERF] BF2_PERF_TSCCAL
-#include <cstdlib>      // [PERF] getenv
-#include <thread>       // [PERF] BF2_PERF_TSCCAL
+#include <atomic>       // [PERF] TSC calibration on a worker
+#include <thread>       // [PERF] TSC calibration on a worker
 #include <deque>
 #else
 #include <sys/time.h>   // gettimeofday, timeval
@@ -65,12 +64,6 @@ inline unsigned long long rdtsc()
 // counter itself rather than through getWallClockTime, whose origin g_startTime the main thread
 // resets meanwhile (ModuleIO::init calls resetExactTime again); the measured quantity, TSC ticks
 // in one wall-clock second less the cost of one clock read, is the same.
-bool tscCalibrationAsync()
-{
-    static int on = -1;
-    if (on < 0) { const char* e = std::getenv("BF2_PERF_TSCCAL"); on = (e && *e == '0') ? 0 : 1; }
-    return on == 1;
-}
 
 std::thread*                         g_tscCalibration = 0;
 std::atomic<unsigned long long>      g_tscTicksPerSecond(0);
@@ -283,17 +276,13 @@ void System::resetExactTime()
     if (m_cpuTicksPerSecond == 0)       // 0x83D20EA-0x83D20F7 (qword or-test)
     {
 #if defined(_WIN32)
-        // [PERF] The serial spin below holds the main thread for one second of startup (the
-        // Profiler singleton's construction calls this first). Its only reader is the ragdoll
-        // update budget, in game. Measure on a worker instead; finishTscCalibration joins it at
-        // the end of BF2Engine::initEngine. BF2_PERF_TSCCAL=0 keeps the spin here.
-        if (tscCalibrationAsync())
-        {
-            if (!g_tscCalibration)
-                g_tscCalibration = new std::thread(calibrateTscOnWorker);
-            return;
-        }
-#endif
+        // [PERF] Retail spins here for one second of startup (the Profiler singleton's
+        // construction calls this first), measuring as below. Its only reader is the ragdoll
+        // update budget, in game. Measured on a worker instead; finishTscCalibration joins it at
+        // the end of BF2Engine::initEngine.
+        if (!g_tscCalibration)
+            g_tscCalibration = new std::thread(calibrateTscOnWorker);
+#else
         // Calibrate the TSC against one wall-clock second, then subtract the cost of a single
         // getWallClockTime() call. getWallClockTime is dispatched virtually ([vptr+0x1C]).
         unsigned long long start = rdtsc();
@@ -305,6 +294,7 @@ void System::resetExactTime()
         unsigned long long callStart = rdtsc();
         getWallClockTime();                                 // 0x83D215C, result dropped (fstp st)
         m_cpuTicksPerSecond -= rdtsc() - callStart;         // 0x83D2161-0x83D2176 sub/sbb in place
+#endif
     }
 }
 

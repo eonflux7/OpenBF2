@@ -17,22 +17,11 @@ Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`
 
 ## `perf`: select the old serial path while a step is in development
 
-| Flag | Default | Effect | Removed when |
-|---|---|---|---|
-| `BF2_PERF_CONPARSE=0` | on | The console splits scripts into lines and lines into tokens with `std::istringstream` again (three or four streams per line) | Console parsing without string streams is accepted in game |
-| `BF2_PERF_CLASSINDEX=0` | on | ClassManager finds classes by id and name by scanning its class list again, with no index | The class index is accepted in game |
-| `BF2_PERF_MEMEINDEX=0` | on | The HUD's name registry (BFMeme) walks its child lists for every lookup and insert again, with no name index | The registry index is accepted in game |
-| `BF2_PERF_FXEVENT=0` | on | Every effect load posts a loading-screen repaint again, instead of at most thirty per second | The repaint throttle is accepted in game |
-| `BF2_PERF_TSCCAL=0` | on | The one-second TSC calibration spins on the main thread during startup again, instead of on a worker joined at the end of engine init | The worker calibration is accepted in game |
-| `BF2_PERF_VIDEODETECT=0` | on | The video quality heuristic runs again (its CPU benchmark sleeps one second) at renderer initialization and in VideoSettings::detectVideoOptionScheme (every profile login), although both drop its level | The skipped detection is accepted in game |
-| `BF2_PERF_FILEPREFETCH=0` | on | Archive entries inflate on the main thread when opened or read again, and no per-level list of opened entries (`@HOME@/<mod>/cache/fileorder_*.lst`) is recorded or prefetched | The archive prefetch is accepted in game |
-| `BF2_PERF_CONDISPATCH=0` | on | The console compares every line's first token against its twelve keywords again, and searches the binding multimap for every binding call instead of using the cached equal range | The faster dispatch is accepted in game |
-| `BF2_PERF_SWIFFIMG=0` | on | Every menu and loading-screen image is created with D3DXCreateTextureFromFileInMemory again (rescaled, recompressed and mipmapped on the CPU), and none is read from or written to `@HOME@/<mod>/cache/swiffimg/` | The image cache is accepted in game |
-| `BF2_PERF_PROBECACHE=0` | on | From the start of a game through the level load, every loose-file existence and file-information query asks the disk again instead of the directory's listing | The probe cache is accepted in game |
-| `BF2_PERF_FXSTAT=0` | on | The Ra effect key looks up the size and write time of every include file for every effect again, instead of once per frame | The file-info memo is accepted in game |
-| `BF2_PERF_FXSRC=0` | on | Effects loaded through `compileEffectFile` (fsquaddrawer, postproduction, skydome, terrainshader, ...) compile from source on every load again, with no bytecode cache | The source-effect cache is accepted in game |
-
-Retired with their steps on 2026-11-17: `BF2_PERF_FXKEY`, `BF2_PERF_FXPREFETCH`.
+None at present. Retired with their steps on 2026-11-17: `BF2_PERF_FXKEY`, `BF2_PERF_FXPREFETCH`,
+`BF2_PERF_CONPARSE`, `BF2_PERF_CLASSINDEX`, `BF2_PERF_MEMEINDEX`, `BF2_PERF_FXEVENT`,
+`BF2_PERF_TSCCAL`, `BF2_PERF_VIDEODETECT`, `BF2_PERF_FILEPREFETCH`, `BF2_PERF_CONDISPATCH`,
+`BF2_PERF_SWIFFIMG`, `BF2_PERF_PROBECACHE`, `BF2_PERF_FXSTAT`, `BF2_PERF_FXSRC`. Their behaviour is
+now unconditional.
 
 ## `compat`: gate behaviour retail BF2 must not see
 

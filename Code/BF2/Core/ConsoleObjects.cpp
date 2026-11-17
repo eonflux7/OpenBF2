@@ -6,7 +6,6 @@
 #include "ConsoleObjects.h"
 
 #include <string.h>     // strncasecmp / _strnicmp - see prefixMatchesNoCase below
-#include <cstdlib>      // [PERF] getenv
 #include <unordered_map>
 #include <vector>
 
@@ -98,54 +97,31 @@ ConsoleObject* ConsoleObjects::findInMultiMap(const std::string& key)
     // [PERF] The serial lookup searched the case-insensitive multimap twice (_stricmp per node),
     // about 0.9 us for each of the 1.5 million binding calls of a PR level load. The equal range
     // for a key as written is cached, in map order, until the map changes; the first active
-    // binding is still chosen at each call. BF2_PERF_CONDISPATCH=0 searches every time.
-    static int cacheOn = -1;
-    if (cacheOn < 0)
+    // binding is still chosen at each call.
+    static std::unordered_map<std::string, std::vector<ConsoleObject*> > cache;
+    static const ConsoleObjects* cacheOwner = 0;
+    static unsigned int cacheGeneration = 0;
+    if (cacheOwner != this || cacheGeneration != m_generation)
     {
-        const char* e = std::getenv("BF2_PERF_CONDISPATCH");
-        cacheOn = (e && *e == '0') ? 0 : 1;
+        cache.clear();
+        cacheOwner = this;
+        cacheGeneration = m_generation;
     }
-    if (cacheOn)
+    std::unordered_map<std::string, std::vector<ConsoleObject*> >::iterator hit = cache.find(key);
+    if (hit == cache.end())
     {
-        static std::unordered_map<std::string, std::vector<ConsoleObject*> > cache;
-        static const ConsoleObjects* cacheOwner = 0;
-        static unsigned int cacheGeneration = 0;
-        if (cacheOwner != this || cacheGeneration != m_generation)
-        {
-            cache.clear();
-            cacheOwner = this;
-            cacheGeneration = m_generation;
-        }
-        std::unordered_map<std::string, std::vector<ConsoleObject*> >::iterator hit = cache.find(key);
-        if (hit == cache.end())
-        {
-            std::vector<ConsoleObject*> range;
-            std::multimap<std::string, ConsoleObject*, NoCaseStringCompare>::iterator it =
-                m_consoleObjectMap.lower_bound(key);
-            const std::multimap<std::string, ConsoleObject*, NoCaseStringCompare>::iterator end =
-                m_consoleObjectMap.upper_bound(key);
-            for (; it != end; ++it)
-                range.push_back(it->second);
-            hit = cache.insert(std::make_pair(key, range)).first;
-        }
-        for (std::size_t i = 0; i < hit->second.size(); ++i)
-            if (hit->second[i]->isActive())
-                return hit->second[i];
-        return 0;
+        std::vector<ConsoleObject*> range;
+        std::multimap<std::string, ConsoleObject*, NoCaseStringCompare>::iterator it =
+            m_consoleObjectMap.lower_bound(key);
+        const std::multimap<std::string, ConsoleObject*, NoCaseStringCompare>::iterator end =
+            m_consoleObjectMap.upper_bound(key);
+        for (; it != end; ++it)
+            range.push_back(it->second);
+        hit = cache.insert(std::make_pair(key, range)).first;
     }
-
-    std::multimap<std::string, ConsoleObject*, NoCaseStringCompare>::iterator it =
-        m_consoleObjectMap.lower_bound(key);
-    const std::multimap<std::string, ConsoleObject*, NoCaseStringCompare>::iterator end =
-        m_consoleObjectMap.upper_bound(key);
-
-    for (; it != end; ++it)
-    {
-        ConsoleObject* object = it->second;
-        if (object->isActive())
-            return object;
-    }
-
+    for (std::size_t i = 0; i < hit->second.size(); ++i)
+        if (hit->second[i]->isActive())
+            return hit->second[i];
     return 0;
 }
 

@@ -477,19 +477,7 @@ std::string& modDirectory()
 // @HOME@/<mod>/cache/swiffimg/, keyed by a hash of the source bytes and the device's texture
 // caps; later loads create a texture with the same size, format, levels, usage and pool and copy
 // the bytes back. Formats other than DXT and plain RGB/luminance ones are not cached.
-// BF2_PERF_SWIFFIMG=0 creates every image with D3DX again.
 namespace swiffimg {
-
-bool enabled()
-{
-    static int on = -1;
-    if (on < 0)
-    {
-        const char* e = ::getenv("BF2_PERF_SWIFFIMG");
-        on = (e && *e == '0') ? 0 : 1;
-    }
-    return on == 1;
-}
 
 unsigned long long fnv(unsigned long long hash, const void* data, size_t size)
 {
@@ -752,7 +740,7 @@ int registryGetOrLoad(SwiffTextureRegistry& reg, const std::string& name,
     D3DXGetImageInfoFromFileInMemory(bytes, read, &info);
     // [PERF] The menu image cache (swiffimg above): the texture D3DX made from these bytes before.
     std::string imageCache;
-    if (swiffimg::enabled() && device && bytes && read > 0)
+    if (device && bytes && read > 0)
     {
         D3DCAPS9 caps;
         ::memset(&caps, 0, sizeof caps);

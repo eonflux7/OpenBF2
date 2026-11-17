@@ -43,14 +43,9 @@ inline float shaderLoadingPercent(LoadStat* stat)
 // the level's geometry part. The load callback, which posts the same update for everything else,
 // is throttled to thirty per second (GameLogic::beginLoadStats); this applies the same spacing to
 // the effect updates. The percentage is still computed (and the counter clamped) every time, and
-// the next update or the load callback paints the current value. BF2_PERF_FXEVENT=0 posts every
-// update.
+// the next update or the load callback paints the current value.
 inline bool shaderLoadingEventDue()
 {
-    static int on = -1;
-    if (on < 0) { const char* e = std::getenv("BF2_PERF_FXEVENT"); on = (e && *e == '0') ? 0 : 1; }
-    if (!on)
-        return true;
     typedef std::chrono::steady_clock Clock;
     static Clock::time_point last;
     static bool posted = false;
