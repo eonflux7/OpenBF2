@@ -33,7 +33,7 @@ public:
     bool        changeInformation(Handle handle, WeaponInfo* info);
     bool        swapInformation(Handle a, Handle b);
     bool        reset();
-    // [CHOSEN, not recovered] Invalidates every record built on the given engine weapon.
+    // [FIX] Invalidates every record built on the given engine weapon.
     int         releaseWeapon(const IWeapon* weapon);
 
     static WeaponInfoManager* m_instance;

@@ -306,7 +306,7 @@ bool SwiffHost::deleteControlMap(const std::string& name)
 
 // the per-frame update SwiffPlayer::update makes - the +0x24 hook, the demo library,
 // the server browser.
-// [CHOSEN, not recovered] BF2_AUTOHOST=<level>:<gameMode>:<size> (e.g. albasrah_2:gpm_coop:16).
+// [DEV] BF2_AUTOHOST=<level>:<gameMode>:<size> (e.g. albasrah_2:gpm_coop:16).
 // Developer shortcut for the menu path "Create local -> add map -> Deploy": once a profile is
 // logged in and the menu has run for a while, select the game mode, add the single map entry and
 // call hostServer() exactly as the Deploy button does. Fires once per process.
@@ -546,7 +546,7 @@ bool SwiffHost::setPlayerName(const std::string& name)
     return true;
 }
 
-// [COMPAT] [CHOSEN, not recovered] Project Reality's PRBF2.exe replaces "CommandLine.cmd" with
+// [COMPAT] Project Reality's PRBF2.exe replaces "CommandLine.cmd" with
 // "<modPath>\vars\fci" (its launcher handshake file; the menu RC4-checks +password against it).
 // BF2_CMDLINE_FILE names such a file relative to the mod directory (e.g. "vars/fci"); PR's launcher
 // expects the menu's reply to replace the key, so that path overwrites instead of appending.

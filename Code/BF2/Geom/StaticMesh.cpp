@@ -2233,7 +2233,7 @@ void StaticMesh::drawVanilla()
             {
                 StaticMeshBoundsCorners corners(material->m_bounds, *m_transform);   // +0x198
                 const Frustum* const frustum =
-                    dx9rend::rendererSubmitCullFrustum();   // [CHOSEN] submission context; retail +0x50, +0x74
+                    dx9rend::rendererSubmitCullFrustum();   // [RENDER] submission context; retail +0x50, +0x74
                 if (corners.outside(*frustum))
                 {
                     ++smr->m_culledMaterials;
@@ -2861,7 +2861,7 @@ void staticMeshDrawExpansion(void* self)
             {
                 StaticMeshBoundsCorners corners(material->m_bounds, *mesh.m_transform);   // +0x198
                 const Frustum* const frustum =
-                    dx9rend::rendererSubmitCullFrustum();   // [CHOSEN] submission context; retail +0x50, +0x74
+                    dx9rend::rendererSubmitCullFrustum();   // [RENDER] submission context; retail +0x50, +0x74
                 if (corners.outside(*frustum))
                 {
                     ++smr->m_culledMaterials;
@@ -3325,7 +3325,7 @@ bool StaticMesh::materialVisible(void* material, const Frustum* frustum)
     if (!smr->m_flags60[0])
         return true;
     const Frustum* const test =
-        frustum ? frustum : dx9rend::rendererSubmitCullFrustum();   // [CHOSEN] submission context
+        frustum ? frustum : dx9rend::rendererSubmitCullFrustum();   // [RENDER] submission context
     if (!staticMeshCornersOutside(material, *m_transform, *test))
         return true;
     ++smr->m_culledMaterials;

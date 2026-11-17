@@ -109,7 +109,7 @@ public:
 
     // the per-frame bodies. Each takes the visible-list iterator by reference and
     //      consumes every entry that belongs to this patch.
-    // [CHOSEN, not recovered] Sun shadow casters: the patch constants and stream, then one node's
+    // [RENDER] Sun shadow casters: the patch constants and stream, then one node's
     // index range at (lod, crackMask) with the matching morph constants, under the caller's pass.
     void beginCasterDraw();
     void drawCasterNode(const TerrainCullerNode* node, int lod, int crackMask);

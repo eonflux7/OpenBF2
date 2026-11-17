@@ -1,4 +1,4 @@
-# [CHOSEN, not recovered] BF2Audio.dll as a Ninja target: the same image Code/Build/bf2audio.cmd builds
+# [BUILD] BF2Audio.dll as a Ninja target: the same image Code/Build/bf2audio.cmd builds
 # (TU manifest Code/Build/bf2audio_sources.txt, flags, defines, link inputs and ABI checks), compiled
 # incrementally with compiler-reported header dependencies. The script remains for manual, smoke and x86
 # parity builds and reads the same manifest.

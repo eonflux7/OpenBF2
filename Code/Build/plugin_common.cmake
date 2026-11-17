@@ -1,4 +1,4 @@
-# [CHOSEN, not recovered] Shared setup of the native plugin DLL targets (Code/RendDX9Abi,
+# [BUILD] Shared setup of the native plugin DLL targets (Code/RendDX9Abi,
 # Code/SwiffPlayerAbi, Code/BF2AudioAbi), included at the top of each directory's CMakeLists.txt. Each
 # target builds the same image as its Code/Build/<name>.cmd script, from the same TU manifest, so the
 # directory takes no compiler flag the script does not pass: the configuration flags are cleared here and

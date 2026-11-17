@@ -621,7 +621,7 @@ void OverGrowth::render(IRenderView* view, float time)
 }
 
 
-// [CHOSEN, not recovered] See OverGrowth.h. The camera selection is render's, without its
+// [RENDER] See OverGrowth.h. The camera selection is render's, without its
 // state: the LOD crossfade picks the geometry that dominates at this distance (full when its
 // distance fade is at least one half), and nothing advances the instances' fade timers.
 void OverGrowth::submitShadowCasters(IRenderView* view, const Frustum& volume)

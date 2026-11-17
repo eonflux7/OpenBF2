@@ -1597,7 +1597,7 @@ long raCreateEffectCompiler(const char* srcData, unsigned int srcDataLen,
 #endif
 
 
-// [CHOSEN, not recovered] The content-keyed effect cache (see compileEffect).
+// [FIX] The content-keyed effect cache (see compileEffect).
 // raEffectContentKey: FNV-1a over the effect expanded by D3DXPreprocessShader (the same include
 // handler and defines the compile uses, so every included file's text is in the hash), then the
 // define list and the compile flags, as 16 hex digits. Empty when the source does not preprocess;
@@ -1625,7 +1625,7 @@ long raPreprocessShader(const char*, unsigned int, const D3DXMACRO*, LPD3DXINCLU
     if (!reported)
     {
         reported = true;
-        ::fprintf(stderr, "[CHOSEN, not recovered] Ra effect cache disabled: no D3DXPreprocessShader\n");
+        ::fprintf(stderr, "[EFFECTCACHE] Ra effect cache disabled: no D3DXPreprocessShader\n");
         ::fflush(stderr);
     }
     return static_cast<long>(0x80004001);                     // E_NOTIMPL
@@ -1973,7 +1973,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
     std::string modPath("mods/bf2");
     if (g_Renderer && static_cast<IRenderer*>(g_Renderer)->isExpansionPack())
         modPath = "mods/xpack";
-    // [CHOSEN, not recovered] Retail keys the cache by bf2/xpack only, so every mod shares
+    // [FIX] Retail keys the cache by bf2/xpack only, so every mod shares
     // mods/bf2/cache. The freshness test compares against the mod's .fx timestamps, and mod archives
     // usually carry older timestamps than a cache from an earlier vanilla run. Mods with their own
     // shaders then load stale vanilla blobs. Project Reality's log-depth shaders lose the depth test
@@ -2059,7 +2059,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
     if (readBoolSetting("GSLoadObfuscated", true))
         deobfuscateShader(source, sourceLen);
 
-    // [CHOSEN, not recovered] Content-keyed cache. Retail reuses the .cfx while it is newer than
+    // [FIX] Content-keyed cache. Retail reuses the .cfx while it is newer than
     // the .fx: an edited include never invalidates it, and a generated permutation (no file on
     // disk) is never recompiled. Here the key is a hash of the effect as the compiler sees it - the
     // source expanded through the same include handler with the first profile's defines - plus

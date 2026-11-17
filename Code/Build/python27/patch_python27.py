@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""[CHOSEN, not recovered] Patch a pristine CPython 2.7.12 tree so its core builds as dice_py.dll
+"""[COMPAT] Patch a pristine CPython 2.7.12 tree so its core builds as dice_py.dll
 with current MSVC (VS2015+ / Universal CRT). Idempotent. Usage: patch_python27.py <Python-2.7.12 dir>
 
 Why 2.7: Project Reality 1.9 ships its game scripts as Python 2.7 bytecode; the OpenBF2 x64 client
@@ -82,7 +82,7 @@ patch("Modules/_ctypes/callbacks.c",
 # 7. Project Reality's socket.py wraps _socket.socket.acceptEx(): a non-raising accept used by
 #    realitynetwork's per-tick poll of a non-blocking listen socket. Contract taken from PR's
 #    docstring ("acceptEx() -> sock, addr, errno") and its caller (adds a client iff errno == 0).
-#    [CHOSEN, not recovered]: on failure it returns (None, None, <WSA error>).
+#    [COMPAT] on failure it returns (None, None, <WSA error>).
 patch("Modules/socketmodule.c",
       "PyDoc_STRVAR(accept_doc,",
       """/* dice_py: Project Reality's acceptEx */

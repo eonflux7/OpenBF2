@@ -4542,7 +4542,7 @@ namespace gameswf
 	// Sets *this to this string plus the given string.
 	{
 		// SwiffPlayer.dll 0x1008B8F0: release, convert, set type, append.
-		// [CHOSEN, not recovered] Convert BEFORE releasing. Retail releases first, but its
+		// [FIX] Convert BEFORE releasing. Retail releases first, but its
 		// collector list keeps the object alive until the next sweep; with native reference
 		// counting (issue #7) drop_refs() can free the last reference (e.g. `new String(x) + ""`,
 		// a temporary on the stack), and the conversion then reads a dead object and yields

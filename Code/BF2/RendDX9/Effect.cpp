@@ -1370,7 +1370,7 @@ static ID3DXEffect* compileEffectFile(const char* rawPath, ID3DXBuffer** errors)
                            "(%u bytes, %u defines = %u macro pairs, include=0x%08X flags=0x%X)",
                            path, static_cast<unsigned>(hr), sourceBytes, macroCount, macroCount / 2,
                            ::renddx9abi::addr(include), flags);
-        // [CHOSEN, not recovered] diagnostic: the compiler's message text, which the caller owns.
+        // [DEV] diagnostic: the compiler's message text, which the caller owns.
         if (errors && *errors && (*errors)->GetBufferSize() > 0)
             ::renddx9abi::logf("compileEffectFromFile(\"%s\"): compiler says: %.*s", path,
                                static_cast<int>((*errors)->GetBufferSize()),

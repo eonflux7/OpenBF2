@@ -100,7 +100,7 @@ public:
         m_freeTail = index;
     }
 
-    // [CHOSEN, not recovered] Releases every live record whose value satisfies pred(value) and
+    // [FIX] Releases every live record whose value satisfies pred(value) and
     // returns how many were released. Used to drop AI weapon records whose engine weapon is gone.
     template <class Pred>
     int releaseIf(Pred pred)

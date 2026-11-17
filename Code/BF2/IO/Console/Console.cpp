@@ -86,7 +86,7 @@ namespace {
 // [CHOSEN interim] Per-depth block state for handleCommand: if/elseIf/else branches, beginRem and
 // beginNoExecution. Retail keeps it in each script's Level; move it there when the Level's
 // [UNRESOLVED] tail fields are identified.
-// [CHOSEN, not recovered] BF2_CONSOLE_TRACE=1: stderr trace of script runs and if/elseIf results
+// [DEV] BF2_CONSOLE_TRACE=1: stderr trace of script runs and if/elseIf results
 // (mod bring-up diagnostics).
 bool consoleTraceEnabled()
 {
@@ -95,7 +95,7 @@ bool consoleTraceEnabled()
     return on == 1;
 }
 
-// [CHOSEN, not recovered] if/elseIf operands drop one pair of surrounding double quotes, so
+// [FIX] if/elseIf operands drop one pair of surrounding double quotes, so
 // `if v_arg2 == "meinsurgent"` compares the run argument with the literal's contents. Retail
 // content depends on this (Project Reality's faction_init.con / InitSpawnKits.tweak branch on
 // quoted faction names); the retail site that strips them is not identified yet.

@@ -997,7 +997,7 @@ void Terrain::drawMain()
 // [RENDER] Depth prepass: the visible patches through the
 // effect's RaDepthPrepass technique into the renderer's linear depth target. It uses the patch
 // draw of drawMain's pass 0, so positions and LOD morphing match the passes that follow.
-// [CHOSEN, not recovered] Sun shadow casters, see Terrain.h.
+// [RENDER] Sun shadow casters, see Terrain.h.
 namespace {
 struct TerrainCaster
 {

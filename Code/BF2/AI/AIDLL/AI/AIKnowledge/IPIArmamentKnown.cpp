@@ -47,7 +47,7 @@ unsigned int IPIArmamentKnown::getWeapon(int index)
 {
     if (m_weaponsStale)
         updateWeaponsInternal();                                            // +16
-    // [CHOSEN, not recovered] pr/x64-local: index -1 / out of range answers the invalid handle
+    // [FIX] index -1 / out of range answers the invalid handle
     // (retail reads outside the vector; see IPIArmamentReal::getWeapon).
     if (index < 0 || static_cast<unsigned int>(index) >= m_weapons.size())
         return 0xFFFFFFFFu;

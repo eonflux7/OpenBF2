@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 rem ===========================================================================
-rem SCAFFOLDING - NOT RECOVERED SOURCE. [CHOSEN, not recovered]
+rem [COMPAT] Not recovered source.
 rem Builds CPython 2.7.12's core (PCbuild\pythoncore.vcxproj's source list, pythoncore27.files)
 rem into dice_py.dll / dice_py.lib for the x64 client with BF2_PYTHON27=ON (Project Reality ships
 rem its game scripts as Python 2.7 bytecode).

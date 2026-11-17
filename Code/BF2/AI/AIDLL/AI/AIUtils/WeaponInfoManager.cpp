@@ -77,7 +77,7 @@ bool WeaponInfoManager::reset()
     return m_pool->reset();
 }
 
-// [CHOSEN, not recovered] pr/x64-local prototype fix. The AI keeps raw IWeapon pointers in its
+// [FIX] The AI keeps raw IWeapon pointers in its
 // WeaponInfo records; the engine destroys a firearm's WeaponObject whenever the firearm is recycled
 // through the object cache (GenericFireArm::enableCachedObject builds a new one, as retail does),
 // and armaments only re-read their weapons on some events. A stale record then calls into a dead

@@ -790,7 +790,7 @@ bool setLightManagerDepthStencil(IDirect3DSurface9* surface)
     if (!surface)
         surface = dx9rend::rendererDepthStencilSurface();                  // +0x770
     dx9rend::stateManagerSetDepthStencilSurface(surface);
-    // [CHOSEN, not recovered] reversed-Z: shadow maps keep forward depth (their own light matrices)
+    // [RENDER] reversed-Z: shadow maps keep forward depth (their own light matrices)
     dx9rend::stateManagerMarkStandardDepth(shadowDepth);
     return true;
 }

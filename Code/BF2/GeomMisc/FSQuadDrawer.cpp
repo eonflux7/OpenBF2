@@ -345,7 +345,7 @@ public:
     void drawQuad(unsigned short width, unsigned short height, unsigned int grid); // sub_10085990
     void drawViewportQuad(unsigned int grid);                                  // sub_10085CB0
     void resetStencilCuller(int stencilRef, int stencilPass, bool pushState);        // sub_10085D30
-    void drawShadowMask(const float* constants, unsigned int count);           // [CHOSEN, not recovered]
+    void drawShadowMask(const float* constants, unsigned int count);           // [RENDER]
     void drawStencilPasses(dx9rend::EngineTexture* target, bool pushState);           // sub_10085E70
     void drawStencilResolve(dx9rend::EngineTexture* source, bool selectBackBuffer,
                             bool pushState);                                          // sub_10086030
@@ -1273,7 +1273,7 @@ void fsQuadDrawerDrawCurrentEffect(unsigned int grid)
     g_FSQuadDrawer->drawViewportQuad(grid);
 }
 
-// [CHOSEN, not recovered] Depth prepass shadow mask: the effect's "RaShadowMask" technique over
+// [RENDER] Depth prepass shadow mask: the effect's "RaShadowMask" technique over
 // the viewport quad into the current render target, with the camera rows in RASM_CAMERA. Skipped
 // when the effect has no such technique; the previous technique is reselected afterwards.
 void FSQuadDrawer::drawShadowMask(const float* constants, unsigned int count)

@@ -30,7 +30,7 @@ namespace dice { namespace hfe {
 extern IGameLogic* gameLogic;
 namespace hud {
 namespace {
-// [COMPAT] [CHOSEN, not recovered] Mods with a retail-hooking client DLL (Project Reality's
+// [COMPAT] Mods with a retail-hooking client DLL (Project Reality's
 // rhooks.dll) reuse the assist/replenish/teamdamage/conquest game events as a private channel
 // and send subtypes outside the retail range. The retail release build compiles the Debug()
 // below to nothing, so such events are dropped. With BF2_HUD_AUTOVAR=1 (the same rhooks HUD

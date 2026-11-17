@@ -2541,7 +2541,7 @@ bool PythonHost::initialize(bool minimal)
 
     const std::string script =
 #if defined(BF2_PYTHON27)
-        // [CHOSEN, not recovered] The 2.7 runtime (BF2_PYTHON27_SRC) reads Project Reality's stdlib zip.
+        // [COMPAT] The 2.7 runtime (BF2_PYTHON27_SRC) reads Project Reality's stdlib zip.
         std::string("import sys\nsys.path = [ 'pylib-2.7.12.zip', '") + "python" + "' , "
 #else
         std::string("import sys\nsys.path = [ 'pylib-2.3.4.zip', '") + "python" + "' , "

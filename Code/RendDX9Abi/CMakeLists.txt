@@ -1,4 +1,4 @@
-# [CHOSEN, not recovered] RendDX9.dll and TextureAtlasBuilder.dll as Ninja targets: the same images
+# [BUILD] RendDX9.dll and TextureAtlasBuilder.dll as Ninja targets: the same images
 # Code/Build/renddx9.cmd and Code/Build/textureatlasbuilder.cmd build (TU manifest, flags, defines, link
 # inputs and ABI checks), compiled incrementally and in parallel with compiler-reported header
 # dependencies. The scripts remain for the G2w seam flavour (BF2_GFX_SEAM), the editor's own RendDX9

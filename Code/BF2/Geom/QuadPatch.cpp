@@ -2921,7 +2921,7 @@ void QuadPatch::drawShadowBatch(TerrainCullerNode**& it, std::vector<TerrainCull
 
 // pass 0: every visible node of this patch, by its LOD range; the "TerrainLightmap"
 // arm merges contiguous ranges of one LOD, the "TerrainMorphing" arm draws them one by one.
-// [CHOSEN, not recovered] See QuadPatch.h; the range is lodStart/lodCount at a chosen column.
+// [RENDER] See QuadPatch.h; the range is lodStart/lodCount at a chosen column.
 void QuadPatch::beginCasterDraw()
 {
     beginPatchDraw(this);

@@ -634,7 +634,7 @@ IDirect3DSurface9* stateManagerGetRenderTarget(unsigned int index);
 // StateManager +0x04, its DeviceLostResetListener subobject (dword_1023B984 + 4 on x86).
 DeviceLostResetListener* stateManagerDeviceLostListener();
 void stateManagerSetDepthStencilSurface(IDirect3DSurface9* surface);
-IDirect3DSurface9* stateManagerGetDepthStencilSurface();   // [CHOSEN] no AddRef
+IDirect3DSurface9* stateManagerGetDepthStencilSurface();   // [RENDER] no AddRef
 // [RENDER] Reversed depth, see StateManager.cpp.
 bool stateManagerReversedDepthBound();
 void stateManagerMarkStandardDepth(bool standard);
@@ -713,7 +713,7 @@ void rendererDepthPrepassEndWorldPass();
 void rendererDepthPrepassRelease();
 IDirect3DTexture9* rendererLinearDepthTexture();
 
-// [CHOSEN, not recovered] Submission context (RenderQueues.cpp). Geometry submission culls against
+// [RENDER] Submission context (RenderQueues.cpp). Geometry submission culls against
 // rendererSubmitCullFrustum(): the camera's frustum, or the caster volume while a shadow pass
 // captures. During a capture RenderQueue::add diverts every entry bound for an opaque world queue
 // into the caster list and drops all others (transparent, first-person, glow, point-light passes),
@@ -749,7 +749,7 @@ bool rendererShadowCascadeTouches(const ShadowCascadeCull& cull, const float sph
 void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection,
                                    const ShadowCascadeCull& cull);
 
-// [CHOSEN, not recovered] Sun cascaded shadow maps (SunShadows.cpp, BF2_SUN_SHADOWS). Run from the
+// [RENDER] Sun cascaded shadow maps (SunShadows.cpp, BF2_SUN_SHADOWS). Run from the
 // depth prepass, before the mask: submits the casters in the cascades' light volume, renders four
 // cascades into an R32F atlas (light depth; the atlas is bound to the reserved sampler s13), and
 // fills the RaShadowMask constants. Returns false when nothing was rendered (the mask then stays lit).

@@ -1,4 +1,4 @@
-// [CHOSEN, not recovered] Sun cascaded shadow maps (BF2_SUN_SHADOWS). Not part of retail BF2: the
+// [RENDER] Sun cascaded shadow maps (BF2_SUN_SHADOWS). Not part of retail BF2: the
 // prototype renderer replaces BF2's per-object shadow maps with four sun cascades that feed the
 // screen-space sun mask (FSQuadDrawer RaShadowMask). See RendDX9Base.h for the contract.
 //

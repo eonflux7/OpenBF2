@@ -1,4 +1,4 @@
-// SquadManager console query bindings. [CHOSEN, not recovered]
+// SquadManager console query bindings. [COMPAT]
 // Retail BF2.exe carries the SquadManager console object with listSquads and listSquadMembers rows.
 // Mods parse their output through host.rcon_invoke (Project Reality's getSquadName reads the
 // "id:N <name> is public." lines). The binding table itself is not recovered yet: these two rows

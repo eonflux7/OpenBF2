@@ -95,7 +95,7 @@
 #include <map>
 #include <cstring>                          // memcpy - updateInput's sample copy
 #include <cstdio>                           // std::fprintf - the [FRONTIER] stop in startGame's client branch
-#include <sys/stat.h>                       // [CHOSEN] stat - the BF2_DEVCMD_FILE dev hook
+#include <sys/stat.h>                       // [DEV] stat - the BF2_DEVCMD_FILE dev hook
 #include <cstdlib>                          // std::abort   - the same stop
 #if !DEDICATED
 #include "BF2ClientSeams.h"                 // [FRONTIER] client collaborators without recovered classes
@@ -146,7 +146,7 @@ class ISettingsRepostitory { public: static void createSingleton(); };
 
 namespace {
 
-// [CHOSEN, not recovered] Renderer development hooks, inert unless their environment variables are set.
+// [DEV] Renderer development hooks, inert unless their environment variables are set.
 // BF2_FILE_MONITOR=1 turns on GSFileChangeMonitor, the retail development switch that nothing in the
 // shipped game sets. It lets changed loose shaders and textures reload while the game runs.
 bool devFileMonitorRequested()
@@ -938,7 +938,7 @@ bool BF2Engine::init(const std::string& commandLine)
     // BY const reference and returns a const bool&; it is not an out-parameter API. 0x813164B
     // materialises the `false` temporary, 0x8131656 is `call [ecx+50h]`, and 0x813165B does
     // `movzx eax, byte ptr [eax]` on the returned reference.
-    if (devFileMonitorRequested())                          // [CHOSEN, not recovered] dev hook, see above
+    if (devFileMonitorRequested())                          // [DEV] dev hook, see above
         settings->boolSet("GSFileChangeMonitor", true);
     if (settings->boolGet("GSFileChangeMonitor", false))    // vptr+0x50
         io::fileChangeManager->setEnable(true);             // +0x1C
@@ -2545,7 +2545,7 @@ bool BF2Engine::mainLoop()
         io::fileManager->update();                                  //  vcall +0x44, ds:0x8AC8C80
         io::fileChangeManager->update();                            //  vcall +0x2C, ds:0x8AC8C84
     }
-    devCommandFilePoll();                                           // [CHOSEN, not recovered] dev hook
+    devCommandFilePoll();                                           // [DEV] dev hook
 
     // The registry stores this singleton as IBase; cast to its concrete interface before updating counters.
     if (debugCounterManager)

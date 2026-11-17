@@ -13,7 +13,7 @@
 #include "QueueProfiler.h"
 #include "Ra/RaShader.h"
 #include "../RendMisc/IRenderer.h"
-#include "../RendMisc/IRenderView.h"      // [CHOSEN] rendererSubmitCullFrustum
+#include "../RendMisc/IRenderView.h"      // [RENDER] rendererSubmitCullFrustum
 #include "../GeomMisc/DebugMeshCommon.h"   // geom::debugmesh::equalVector, PE 0x10037DC0
 #include "../Platform/X87Compat.h"         // [CHOSEN, not recovered] x87 conversion results
 #include "../Core/StringUtil.h"             // formatString (PE 0x10074AB0), the profiler reports
@@ -1765,7 +1765,7 @@ void renderStatsCountDraw()
 // The push is sub_1003C120 - the inline "room left in the block" fast path, else _Insert_n(1) -
 // on the entry vector at +0x278, i.e. push_back.
 
-bool renderQueueCaptureCaster(RenderQueue* queue, RenderQueueEntry* entry);   // [CHOSEN] below
+bool renderQueueCaptureCaster(RenderQueue* queue, RenderQueueEntry* entry);   // [RENDER] below
 
 // PE 0x1003B170
 void RenderQueue::add(RenderQueueEntry* entry)
@@ -1773,7 +1773,7 @@ void RenderQueue::add(RenderQueueEntry* entry)
     if (!enabled)
         return;
 
-    // [CHOSEN, not recovered] Caster capture (see rendererBeginCasterCapture): while a shadow pass
+    // [RENDER] Caster capture (see rendererBeginCasterCapture): while a shadow pass
     // submits, nothing reaches the frame's queues.
     if (renderQueueCaptureCaster(this, entry))
         return;
@@ -2505,7 +2505,7 @@ void renderQueuesDepthPrepass(unsigned int key)
     }
 }
 
-// [CHOSEN, not recovered] Submission context and caster capture, see RendDX9Base.h.
+// [RENDER] Submission context and caster capture, see RendDX9Base.h.
 namespace {
 struct CasterCapture
 {

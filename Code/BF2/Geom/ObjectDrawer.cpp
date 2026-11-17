@@ -25,7 +25,7 @@
 #include "../Math/Plane3.h"
 #include "../Math/Vec3.h"
 #include "../RendMisc/IRenderView.h"
-#include "../RendDX9/RendDX9Base.h"        // [CHOSEN] caster capture
+#include "../RendDX9/RendDX9Base.h"        // [RENDER] caster capture
 #include "../GeomMisc/Debug.h"
 #include "../GeomMisc/DebugRenderer.h"
 #if defined(__APPLE__)
@@ -794,7 +794,7 @@ void ObjectDrawer::submitObjectTree(world::IObject* object)
         submitObjectTree(child);
 }
 
-// [CHOSEN, not recovered] See ObjectDrawer.h. The geometry chain is walked as the deferred
+// [RENDER] See ObjectDrawer.h. The geometry chain is walked as the deferred
 // geometry pass walks it (+0x18 submit, +0xCC next); +0x40 is the local box and +0x48 the
 // geometry's world transformation.
 void ObjectDrawer::submitShadowCasters(const void* volume, float time)

@@ -219,7 +219,7 @@ struct StateManager
     /* 0x3E98 */ unsigned int     psConstMax;      // ctor: 0
     /* 0x3E9C */ ConstantIssueFn  psConstIssueFn;  // sub_100272B0 - device SetPixelShaderConstantF
 
-    // [CHOSEN, not recovered] Render targets 1..3 (MRT). The shipped object mirrors only RT0 and
+    // [RENDER] Render targets 1..3 (MRT). The shipped object mirrors only RT0 and
     // every shipped caller passes index 0; these sit past the retail fields so its layout holds.
     /* 0x3EA0 */ IDirect3DSurface9* extraRenderTarget[3];   // refcounted, RT1..RT3
     /*        */ unsigned char    extraRenderTargetDirty[3];
@@ -925,7 +925,7 @@ int __stdcall smSetVertexDeclaration(StateManager* self, void* decl)
 // and `this + 0x1E94 + index`; measuring from the named members keeps that aliasing on x64.
 int __stdcall smSetRenderTarget(StateManager* self, unsigned int index, IDirect3DSurface9* surface)
 {
-    // [CHOSEN, not recovered] Indices 1..3 address the MRT slots (the shipped body indexes past
+    // [RENDER] Indices 1..3 address the MRT slots (the shipped body indexes past
     // RT0 into the depth-stencil mirror).
     if (index > 3)
         return static_cast<int>(D3DERR_INVALIDCALL);
@@ -957,7 +957,7 @@ int __stdcall smSetDepthStencilSurface(StateManager* self, IDirect3DSurface9* su
             surface->AddRef();
         self->depthStencilDirty = 1;
     }
-    g_standardDepthBound = false;   // [CHOSEN] reversed-Z: shadow callers re-mark after this
+    g_standardDepthBound = false;   // [RENDER] reversed-Z: shadow callers re-mark after this
     return 0;
 }
 
@@ -1026,7 +1026,7 @@ void flushRenderTargets(StateManager* self)
             self->renderTargetDirty = 0;
         }
     }
-    // [CHOSEN, not recovered] RT1..RT3 (MRT); null unbinds, which D3D allows above target 0.
+    // [RENDER] RT1..RT3 (MRT); null unbinds, which D3D allows above target 0.
     for (unsigned int i = 0; i < 3; ++i)
     {
         if (!self->extraRenderTargetDirty[i])
@@ -1385,7 +1385,7 @@ void stateManagerSetDepthStencilSurface(IDirect3DSurface9* surface)
     smSetDepthStencilSurface(sm(), surface);
 }
 
-// [CHOSEN, not recovered] The desired depth-stencil surface, without an AddRef (depth prepass).
+// [RENDER] The desired depth-stencil surface, without an AddRef (depth prepass).
 IDirect3DSurface9* stateManagerGetDepthStencilSurface()
 {
     return sm()->depthStencil;

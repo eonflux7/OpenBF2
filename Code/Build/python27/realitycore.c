@@ -6,7 +6,7 @@
  * calcDistance*, calcHoriz* (x/z plane, BF2 is Y-up), calcPosFromPosRot (yaw in degrees,
  * x += sin(yaw)*d, z += cos(yaw)*d, y and pitch unused) and isClose (squared compare)
  * follow its disassembly.
- * [CHOSEN, not recovered]: isCloseHoriz mirrors isClose on x/z; the polygon functions use
+ * [COMPAT] isCloseHoriz mirrors isClose on x/z; the polygon functions use
  * pos[0]/pos[2] against the polygon's (a, b) pairs, pnpoly (W. R. Franklin) for inside, and
  * the minimum distance to the polygon's edges, negated when inside.
  * =========================================================================== */

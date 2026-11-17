@@ -39,7 +39,7 @@ public:
     virtual void resetArmament(unsigned int handle) = 0;                        // +0x30
     virtual void saveCurrentPolygon(IAIObject* object) = 0;                     // +0x34
     virtual void updateCurrentPolygon(IAIObject* object) = 0;                   // +0x38
-    // [CHOSEN, not recovered] appended slot: drop every weapon record built on this engine weapon.
+    // [FIX] appended slot: drop every weapon record built on this engine weapon.
     virtual int  weaponDestroyed(IWeapon* weapon) = 0;                          // +0x3C
 };
 

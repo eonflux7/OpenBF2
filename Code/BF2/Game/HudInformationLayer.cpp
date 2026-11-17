@@ -1241,7 +1241,7 @@ void* HudInformationLayer::queryInterface(unsigned int iid) const
     return iid == 1 || iid == 120008 ? const_cast<HudInformationLayer*>(this) : 0;
 }
 
-// [COMPAT] [CHOSEN, not recovered] Mods such as Project Reality reference HUD variables that a
+// [COMPAT] Mods such as Project Reality reference HUD variables that a
 // retail-hooking DLL (PR's rhooks.dll) registers at runtime. With BF2_HUD_AUTOVAR=1 an unknown
 // name is registered on first lookup with a zero/empty dummy so the HUD loads; off by default.
 namespace {

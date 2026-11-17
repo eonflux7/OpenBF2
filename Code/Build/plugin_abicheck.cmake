@@ -1,4 +1,4 @@
-# [CHOSEN, not recovered] The native plugin DLLs' ABI invariants, checked after every link of their CMake
+# [BUILD] The native plugin DLLs' ABI invariants, checked after every link of their CMake
 # targets (Code/RendDX9Abi, Code/SwiffPlayerAbi, Code/BF2AudioAbi). The same checks as STEP 4 of
 # renddx9.cmd, textureatlasbuilder.cmd, swiffplayer.cmd and bf2audio.cmd: a drifted shape loads and then
 # misbehaves instead of failing, so each one stops the build and removes the DLL.

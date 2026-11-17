@@ -484,7 +484,7 @@ public:
     void  setFlag2AC(unsigned char value);                           // +0x2AC
     void  setLowQuality(unsigned char value);                        // +0x35F / +0x35E, then the Low_Terrain reload; VideoOptions' terrain-quality arms call it
     void  drawMain();                                                // sub_100E0940  Hi_/Low_Terrain pass 0 (and pass 7 shadows) into the accumulation target
-    // [CHOSEN, not recovered] Sun shadow casters. gatherShadowCasters collects the drawable culler
+    // [RENDER] Sun shadow casters. gatherShadowCasters collects the drawable culler
     // nodes (the camera walk's units) whose sphere meets `volume`, with the LOD the camera drew them
     // at this frame, or for nodes it did not draw the LOD its walk would pick and no crack fixup.
     // drawShadowCasters draws those touching one cascade with technique RaShadowDepth and the

@@ -446,7 +446,7 @@ LONG CALLBACK vectoredHandler(EXCEPTION_POINTERS* info)
 
 void* s_handle = 0;
 
-// [CHOSEN, not recovered] A pure virtual call (R6025) never raises an SEH exception: the CRT aborts
+// [DEV] A pure virtual call (R6025) never raises an SEH exception: the CRT aborts
 // from _purecall, so the vectored handler sees nothing. Log the caller's stack the same way, then
 // return so the CRT aborts exactly as before.
 void __cdecl purecallReport()

@@ -598,7 +598,7 @@ else()
     )
 endif()
 
-# [CHOSEN, not recovered] Python 2.7 runtime for mods that ship 2.7 bytecode (Project Reality 1.9).
+# [COMPAT] Python 2.7 runtime for mods that ship 2.7 bytecode (Project Reality 1.9).
 # Point BF2_PYTHON27_SRC at a CPython 2.7.12 tree patched by Code/Build/python27/patch_python27.py and
 # BF2_DICE_PY_LIB/BF2_DICE_PY_DLL at build_python27.cmd's output. The engine then compiles against
 # 2.7's own headers (a stock 64-bit 2.7 has 8-byte Py_ssize_t, so 2.3 headers would misplace
@@ -1593,7 +1593,7 @@ endif()
 #
 # All four plugins are built from source first: running the client must never stage a DLL that is
 # older than the sources it was built from.
-# [CHOSEN, not recovered] Each plugin is a Ninja target (Code/RendDX9Abi, Code/SwiffPlayerAbi,
+# [BUILD] Each plugin is a Ninja target (Code/RendDX9Abi, Code/SwiffPlayerAbi,
 # Code/BF2AudioAbi) built from the same TU manifest as its Code/Build/<name>.cmd script, with the same
 # flags, link inputs and native ABI assertions (Code/Build/plugin_abicheck.cmake, on every link).
 # Compiler-reported header dependencies make an incremental build exactly as fresh as the script's
@@ -1613,7 +1613,7 @@ endif()
 # TextureAtlasBuilder.dll, and RendDX9.dll unless BF2_GFX_SEAM.
 add_subdirectory(Code/RendDX9Abi "${CMAKE_BINARY_DIR}/renddx9_build")
 if(BF2_GFX_SEAM)
-    # [CHOSEN, not recovered] G2w: BF2_GFX_SEAM=ON makes renddx9.cmd compile the renderer against the
+    # [BUILD] G2w: BF2_GFX_SEAM=ON makes renddx9.cmd compile the renderer against the
     # subset headers plus the generated forwarding backend (Platform/Gfx/D3D9Forward).
     # The script is named by its full native path: cmd.exe finds a bare script name only by searching
     # the current directory, which is off wherever NoDefaultCurrentDirectoryInExePath is set.

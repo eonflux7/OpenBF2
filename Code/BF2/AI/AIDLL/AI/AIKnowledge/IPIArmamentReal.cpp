@@ -22,7 +22,7 @@ IPIArmamentReal::~IPIArmamentReal()
 }
 
 // Retail: `return m_weapons[index]`, unchecked.
-// [CHOSEN, not recovered] pr/x64-local:
+// [FIX]
 // - index -1 (getActiveWeapon() with nothing in hand) or out of range answers the invalid handle
 //   instead of reading outside the vector (harmless garbage on x86, an AV on x64);
 // - a record released because its engine weapon was destroyed (WeaponInfoManager::releaseWeapon)

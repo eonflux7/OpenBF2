@@ -60,7 +60,7 @@ WeaponObject::WeaponObject(WeaponTemplate* weaponTemplate)
 }
 
 // Retail: the vptr store only - the information handles are not freed.
-// [CHOSEN, not recovered] pr/x64-local: tell the AI this weapon is gone, so no WeaponInfo record
+// [FIX] tell the AI this weapon is gone, so no WeaponInfo record
 // keeps calling into it (see WeaponInfoManager::releaseWeapon). BF2_AI_WEAPON_TRACE=1 logs it.
 WeaponObject::~WeaponObject()
 {

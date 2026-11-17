@@ -1,4 +1,4 @@
-# [CHOSEN, not recovered] SwiffPlayer.dll as a Ninja target: the same image Code/Build/swiffplayer.cmd
+# [BUILD] SwiffPlayer.dll as a Ninja target: the same image Code/Build/swiffplayer.cmd
 # builds (TU manifest Code/Build/swiffplayer_sources.txt, flags, defines, link inputs and ABI checks),
 # compiled incrementally with compiler-reported header dependencies. The script remains for manual and
 # x86 parity builds and reads the same manifest.

@@ -273,7 +273,7 @@ bool unregisterRendererConsoleObjects();
 // RenderQueues.cpp - the mesh sort buckets and the withheld world-infrastructure globals.
 void renderQueueFlush(unsigned int slotByteOffset, int flushArg);
 extern void* g_renderQueues;
-// RenderQueues.cpp - [CHOSEN, not recovered] the depth prepass walk, and the technique-name hash.
+// RenderQueues.cpp - [RENDER] the depth prepass walk, and the technique-name hash.
 void renderQueuesDepthPrepass(unsigned int key);
 unsigned int raHashString(const std::string& s);
 // RenderQueues.cpp - the queue-profiler registry walks behind onlyDrawPlacedObjects.
@@ -1033,7 +1033,7 @@ void releaseRendererPathResources(Renderer* renderer)
 
     dx9rend::rendererHdrReleaseSurface();                         // [RENDER] HDR
     dx9rend::rendererDepthPrepassRelease();                       // [RENDER] depth prepass
-    dx9rend::rendererSunShadowsRelease();                         // [CHOSEN] BF2_SUN_SHADOWS
+    dx9rend::rendererSunShadowsRelease();                         // [RENDER] BF2_SUN_SHADOWS
     renderer->releaseHemiScratchTexture();
     for (unsigned int offset = 0x778; offset <= 0x7C8; offset += 4)
         dx9rend::textureReleaseRef(pathTarget(renderer, offset));
@@ -2533,7 +2533,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
             flushRenderTargetsSeam();
             {
                 IDirect3DDevice9* dev = static_cast<RendDX9Base*>(g_rendererBase)->device;
-                dev->Clear(0, 0, 7, 0, stateManagerClearDepth(1.0f), 0);   // [CHOSEN] reversed-Z aware
+                dev->Clear(0, 0, 7, 0, stateManagerClearDepth(1.0f), 0);   // [RENDER] reversed-Z aware
             }
 
             if (sw(1695) && geom::g_ParticleSystemManager)
@@ -2802,7 +2802,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 // passes.
                 flushRenderTargetsSeam();
                 IDirect3DDevice9* dev = static_cast<RendDX9Base*>(g_rendererBase)->device;
-                dev->Clear(0, 0, 2, 0, stateManagerClearDepth(1.0f), 0);   // [CHOSEN] reversed-Z aware
+                dev->Clear(0, 0, 2, 0, stateManagerClearDepth(1.0f), 0);   // [RENDER] reversed-Z aware
             }
 
             renderQueueFlush(0x0C, m_clearDepthBeforeFirstPerson);              // RSMT1Person
@@ -4056,7 +4056,7 @@ void rendererHdrReleaseSurface()
     g_hdrSceneSurface = 0;
 }
 
-// [CHOSEN, not recovered] Depth prepass, see RendDX9Base.h. The R32F target and its D24S8 depth
+// [RENDER] Depth prepass, see RendDX9Base.h. The R32F target and its D24S8 depth
 // buffer are single-sample, sized like the back buffer, created on first use and released with
 // the other render-path resources (device reset, resolution change).
 namespace {
