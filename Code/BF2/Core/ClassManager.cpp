@@ -9,9 +9,66 @@
 #include <map>                            // ClassInfo / SingletonInfo storage
 #include <algorithm>                      // std::find - unregisterServer
 #include <sstream>                        // std::stringstream - getPrintableSingletonList
+#include <cstdlib>                        // [PERF] getenv - BF2_PERF_CLASSINDEX
+#include <string>
+#include <unordered_map>
 
 namespace dice {
 namespace hfe {
+
+namespace {
+
+// [PERF] The class index. getClassInfo scans m_classInfos from the front, by id or by
+// case-insensitive name, and registerServer runs both scans for every class it adds, so module
+// registration is quadratic in the class count (1.0 s of startup in the last trace); every
+// createInstance by id or name scans too. The index maps each id and each name (lowercased as
+// _stricmp compares, A-Z only) to the first entry that has it, which is the entry the scan
+// returns. m_classInfos only grows at the back (registerServer) or loses entries
+// (unregisterServer): the index extends itself with new entries on the next lookup and is
+// rebuilt after an erase. It lives beside the class, whose layout is shared with the plugins.
+// BF2_PERF_CLASSINDEX=0 keeps the scans.
+bool classIndexEnabled()
+{
+    static int on = -1;
+    if (on < 0) { const char* e = std::getenv("BF2_PERF_CLASSINDEX"); on = (e && *e == '0') ? 0 : 1; }
+    return on == 1;
+}
+
+struct ClassIndex
+{
+    ClassIndex() : indexed(0) {}
+    std::unordered_map<unsigned int, std::size_t> byId;
+    std::unordered_map<std::string, std::size_t>  byName;
+    std::size_t indexed;                 // m_classInfos[0, indexed) are in the maps
+};
+std::unordered_map<const void*, ClassIndex> g_classIndexes;
+
+std::string classKey(const char* name)
+{
+    std::string key;
+    for (; *name; ++name)
+        key += (*name >= 'A' && *name <= 'Z') ? static_cast<char>(*name - 'A' + 'a') : *name;
+    return key;
+}
+
+ClassIndex& classIndexFor(const void* manager, const std::vector<ClassManager::ClassInfo>& infos)
+{
+    ClassIndex& index = g_classIndexes[manager];
+    if (index.indexed > infos.size())
+    {
+        index.byId.clear();
+        index.byName.clear();
+        index.indexed = 0;
+    }
+    for (; index.indexed < infos.size(); ++index.indexed)
+    {
+        index.byId.insert(std::make_pair(infos[index.indexed].classId, index.indexed));   // first wins
+        index.byName.insert(std::make_pair(classKey(infos[index.indexed].name.c_str()), index.indexed));
+    }
+    return index;
+}
+
+} // namespace
 
 // Starts with one reference and leaves singletons uninitialized.
 ClassManager::ClassManager()
@@ -180,6 +237,15 @@ void ClassManager::registerSingleton(const SingletonRegInfo& info)
 // On a match, copies the factory, class ID and name to the output record.
 bool ClassManager::getClassInfo(unsigned int classId, ClassInfo& out)
 {
+    if (classIndexEnabled())   // [PERF] the class index
+    {
+        const ClassIndex& index = classIndexFor(this, m_classInfos);
+        const std::unordered_map<unsigned int, std::size_t>::const_iterator it = index.byId.find(classId);
+        if (it == index.byId.end())
+            return false;
+        out = m_classInfos[it->second];
+        return true;
+    }
     for (std::vector<ClassInfo>::iterator it = m_classInfos.begin(); it != m_classInfos.end(); ++it)
         if (it->classId == classId) { out = *it; return true; }
     return false;
@@ -187,6 +253,16 @@ bool ClassManager::getClassInfo(unsigned int classId, ClassInfo& out)
 
 bool ClassManager::getClassInfo(const std::string& name, ClassInfo& out)
 {
+    if (classIndexEnabled())   // [PERF] the class index
+    {
+        const ClassIndex& index = classIndexFor(this, m_classInfos);
+        const std::unordered_map<std::string, std::size_t>::const_iterator it =
+            index.byName.find(classKey(name.c_str()));
+        if (it == index.byName.end())
+            return false;
+        out = m_classInfos[it->second];
+        return true;
+    }
     for (std::vector<ClassInfo>::iterator it = m_classInfos.begin(); it != m_classInfos.end(); ++it)
         if (equalsIgnoreCase(it->name, name)) { out = *it; return true; }
     return false;
@@ -285,6 +361,7 @@ void ClassManager::unregisterServer(IClassServer* server)
         std::vector<ClassInfo>::iterator it =
             std::find(m_classInfos.begin(), m_classInfos.end(), c->name);
         m_classInfos.erase(it);                  // no end() check - see above
+        g_classIndexes.erase(this);              // [PERF] positions moved: rebuild on next lookup
     }
 
     removeServer(server);
