@@ -99,8 +99,8 @@ Built into the client, not the editor, so that the running game and its scripts 
   optionally with a spawned vehicle). After autohost the client visits each view, waits a fixed
   number of frames, and writes a screenshot and the pass timings, for regression and performance
   comparison between steps.
-- **Debug overlay** (Dear ImGui, after the reference views): pass timings, debug views, live shader
-  constants, and spawning vehicles and kits.
+- **Debug menu and overlay:** lane `ui`, see [ui.md](ui.md). Pass timings, renderer variables;
+  debug views and spawning vehicles and kits come later.
 
 ## Frame
 

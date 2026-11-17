@@ -26,6 +26,7 @@ Every commit belongs to one lane; the commit subject starts with it (`render(csm
 | `perf` | Load times and frame time | [perf.md](perf.md), [frametime.md](frametime.md) |
 | `build` | Toolchain, CMake/Ninja, ABI checks | [building.md](../building.md), below |
 | `dev` | Diagnostics and developer hooks | [flags.md](flags.md) |
+| `ui` | In-game UI on Dear ImGui | [ui.md](ui.md) |
 | `upstream` | Imported code | — |
 
 Commits before 2026-11-17 used `feat:`, `fix:`, `compat:`, `build:` prefixes and

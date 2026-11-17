@@ -11,7 +11,7 @@ upstream; see [Upstreaming](#upstreaming). Read it with `git show kr4uzi/main:AG
 ## What this fork is
 
 An x64 Battlefield 2 client that runs the Project Reality mod (PR) and modernizes its renderer.
-Seven kinds of work happen here. They are called **lanes**, and every change belongs to exactly one.
+Eight kinds of work happen here. They are called **lanes**, and every change belongs to exactly one.
 
 | Lane | What it is | Rule | Destination |
 |---|---|---|---|
@@ -21,6 +21,7 @@ Seven kinds of work happen here. They are called **lanes**, and every change bel
 | `perf` | Load times and frame time: threading, caching, avoiding repeated work, cheaper algorithms | Changes what work costs, never what it produces: the loaded state matches a serial load, and frames draw the same. A step that changes order, threading or caching has a flag forcing the old path while it is developed; it is deleted when the owner accepts the step. A swap that returns the same result (a lookup in place of a scan) needs no flag, only the in-game check | Upstream where it stands alone; otherwise this fork |
 | `build` | Toolchain, CMake/Ninja, build scripts, ABI checks | Never changes runtime behaviour | Mostly upstream |
 | `dev` | Diagnostics and developer hooks (traces, autohost, file monitor) | Off by default; when unset, behaviour and cost are unchanged | Case by case |
+| `ui` | In-game UI the fork owns, on Dear ImGui: debug menu, performance overlay, console frontend | Replaces the retail UI it supersedes; no retail path kept once a step is accepted. Hidden UI costs nothing. Never owns a setting: widgets change console variables. PR-specific content is read from files outside this tree | Private to this fork |
 | `upstream` | Imported code: upstream merges, realitymod's PR #1 game-logic port | Not edited in place. A bug in it is a `fix` | — |
 
 When a change seems to need two lanes, split it into two commits. A `fix` found during `render` work
@@ -55,7 +56,7 @@ When a change seems to need two lanes, split it into two commits. A `fix` found 
   (`Code/Build/<plugin>_sources.txt`) and remain usable; keep both in step.
 - Every compile line that touches `Code/BF2` states its image: `/DDEDICATED=0` for the client and
   its DLLs, `/DDEDICATED=1` for the server, always with `/FI Code/BF2/Core/BuildConfig.h`.
-- **Done means seen in game.** A build or ABI check proves the image links; a `render` or `compat`
+- **Done means seen in game.** A build or ABI check proves the image links; a `render`, `compat` or `ui`
   change is done only when the owner has seen it work in game. Say exactly what was and was not
   exercised: built, ABI-checked, loaded, in game, which map, which flags.
 - x86 is not built on this branch. Do not claim x86 results.
@@ -72,7 +73,7 @@ Co-Authored-By: ...
 
 Examples: `render(csm): blend between cascades`, `perf(effects): compile on worker threads`,
 `fix(ai): guard getIsland(-1) on x64`, `compat(console): SquadManager.listSquads rows`,
-`build(plugins): Ninja targets`, `dev(console): BF2_CONSOLE_TRACE`.
+`build(plugins): Ninja targets`, `dev(console): BF2_CONSOLE_TRACE`, `ui(debug): frame-time graph`.
 
 Changes that belong to no lane (documentation, this file, repository-wide marker renames) use
 `docs:` with no area.
@@ -93,6 +94,7 @@ retail, and state why in the same comment:
 - `[RENDER]` a renderer change; new renderer files say so once in their header instead.
 - `[PERF]` a load-time or throughput change; say what the serial code did.
 - `[DEV]` a diagnostic or developer hook.
+- `[UI]` fork UI hooked into retail code; new UI files say so once in their header instead.
 - `[BUILD]` in build files, where a choice differs from upstream's build.
 
 A marker is a pointer, not a justification: the comment beside it still explains the reason.
@@ -117,6 +119,7 @@ A marker is a pointer, not a justification: the comment beside it still explains
 | Load times: measurements, plan, what is done | `docs/eon64/perf.md` |
 | Frame time: measurements, profile, plan, what is done | `docs/eon64/frametime.md` |
 | Fixes worth upstreaming, with commits | `docs/eon64/upstream-fixes.md` |
+| In-game UI: ImGui layer, debug menu, overlay, console | `docs/eon64/ui.md` |
 | Flags | `docs/eon64/flags.md` |
 
 Update the relevant document in the same commit as the change it describes. Commit messages
