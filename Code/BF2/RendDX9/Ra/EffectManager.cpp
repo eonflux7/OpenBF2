@@ -1752,9 +1752,26 @@ struct RaKeyFile
     std::shared_ptr<const std::string> text;   // deobfuscated, for the effect prefetch
     std::vector<std::string> includes;
     bool                     dynamicInclude;   // an #include whose operand is not a literal name
+    unsigned int             checkedFrame;     // [PERF] the frame its file info was last read in
+    bool                     checked;
 };
 
 std::map<std::string, RaKeyFile> g_raKeyFiles;
+
+// [PERF] The file-info memo. raKeyFile asks the FileManager for the size and write time of every
+// file an effect can include, for every effect it keys: 30,051 lookups of the same few dozen
+// shader headers at the menu switch (2.3 s) and 24,552 in the level's geometry part (1.9 s), at
+// about 75 us each. A file whose info was read in the current frame is taken as unchanged for
+// the rest of that frame. A long load step is one frame, so each header is looked up about once
+// per step; an edit to a shader between frames is still seen. Only the include files the key
+// reads use the memo; the cache files, which compileEffect writes, are looked up every time.
+// BF2_PERF_FXSTAT=0 looks every file up every time.
+bool raStatMemoEnabled()
+{
+    static int on = -1;
+    if (on < 0) { const char* e = ::getenv("BF2_PERF_FXSTAT"); on = (e && *e == '0') ? 0 : 1; }
+    return on == 1;
+}
 
 // The names of a source's #include lines, in order.
 void raScanIncludes(const char* text, std::size_t size, std::vector<std::string>& out, bool& dynamic)
@@ -1794,9 +1811,16 @@ void raScanIncludes(const char* text, std::size_t size, std::vector<std::string>
 
 const RaKeyFile& raKeyFile(const std::string& path, bool obfuscated)
 {
+    RaKeyFile& file = g_raKeyFiles[path];
+    // [PERF] The file-info memo: already read this frame.
+    const bool memo = raStatMemoEnabled() && g_Renderer;
+    const unsigned int frame = memo ? rendererFrameOrdinal() : 0;
+    if (memo && file.checked && file.checkedFrame == frame && file.hash != 0)
+        return file;
     RaFileInfo info;
     const bool present = raGetFileInfo(path, info);
-    RaKeyFile& file = g_raKeyFiles[path];
+    file.checked = memo;
+    file.checkedFrame = frame;
     if (file.present == present && file.hash != 0
         && (!present || (file.size == info.size && file.writeTimeLow == info.writeTimeLow
                          && file.writeTimeHigh == info.writeTimeHigh)))

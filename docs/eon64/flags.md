@@ -21,6 +21,7 @@ Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`
 |---|---|---|---|
 | `BF2_PERF_CLASSINDEX=0` | on | ClassManager finds classes by id and name by scanning its class list again, with no index | The class index is accepted in game |
 | `BF2_PERF_MEMEINDEX=0` | on | The HUD's name registry (BFMeme) walks its child lists for every lookup and insert again, with no name index | The registry index is accepted in game |
+| `BF2_PERF_FXSTAT=0` | on | The Ra effect key looks up the size and write time of every include file for every effect again, instead of once per frame | The file-info memo is accepted in game |
 | `BF2_PERF_FXSRC=0` | on | Effects loaded through `compileEffectFile` (fsquaddrawer, postproduction, skydome, terrainshader, ...) compile from source on every load again, with no bytecode cache | The source-effect cache is accepted in game |
 
 Retired with their steps on 2026-11-17: `BF2_PERF_FXKEY`, `BF2_PERF_FXPREFETCH`.
