@@ -6,7 +6,7 @@ submitted; the human author decides what goes to kr4uzi/OpenBF2 or B2BF/OpenBF2.
 submitting, cherry-pick the commit onto `kr4uzi/main` and follow upstream's AGENTS.md (evidence,
 linked issue).
 
-Status: **open** = reported here, no fix on this branch; **fixed** = commit on `pr/x64-local`.
+Status: **open** = reported here, no fix on this branch; **fixed** = commit on `main` (before 2026-11-17 the branch was `pr/x64-local` of `eonflux7/OpenBF2`).
 
 ## Runtime and packaging (found on release v0.2.0-rc2)
 

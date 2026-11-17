@@ -1,8 +1,8 @@
-# Agent instructions: the `pr/x64-local` fork
+# Agent instructions: openbf2-eon64
 
 This branch is a fork of OpenBF2 (kr4uzi/OpenBF2, itself downstream of B2BF/OpenBF2). It is the
 canonical policy for every coding agent working on this branch; `CLAUDE.md` imports it. If guidance
-conflicts, the user's current request wins, then this file, then `docs/x64/`.
+conflicts, the user's current request wins, then this file, then `docs/eon64/`.
 
 Upstream's own policy (a fidelity-first reconstruction of Battlefield 2 1.50 with IDA/Ghidra evidence
 rules) does **not** govern this branch as a whole. It applies only when preparing a change for
@@ -27,7 +27,7 @@ When a change seems to need two lanes, split it into two commits. A `fix` found 
 
 ## Repositories and what is public
 
-- This repository (`eonflux7/OpenBF2`, branch `pr/x64-local`) is **public**. Only engine code and
+- This repository (`eonflux7/openbf2-eon64`, branch `main`) is **public**. Only engine code and
   engine-side documentation go here.
 - PR's shaders, decompiled PR scripts, PR's private Python shims and anything else derived from PR's
   closed content live in **private** repositories and directories outside this tree. Never copy them
@@ -97,7 +97,7 @@ A marker is a pointer, not a justification: the comment beside it still explains
 
 ## Feature flags
 
-- Every flag this fork adds is listed in `docs/x64/flags.md` with its lane and removal condition.
+- Every flag this fork adds is listed in `docs/eon64/flags.md` with its lane and removal condition.
 - A `render` flag exists only while its step is being developed. When the owner accepts the step
   in game, the flag and the replaced path are deleted in the same change.
 - `dev` flags are permanent, off by default, and inert when unset.
@@ -107,11 +107,11 @@ A marker is a pointer, not a justification: the comment beside it still explains
 
 | What | Where |
 |---|---|
-| Fork overview, lanes, workflow | `docs/x64/README.md` |
-| Renderer architecture, passes, targets, sampler slots, shader contract, roadmap | `docs/x64/renderer.md` |
-| PR compatibility: what PR needs from the engine and what is done | `docs/x64/compat.md` |
-| Fixes worth upstreaming, with commits | `docs/x64/upstream-fixes.md` |
-| Flags | `docs/x64/flags.md` |
+| Fork overview, lanes, workflow | `docs/eon64/README.md` |
+| Renderer architecture, passes, targets, sampler slots, shader contract, roadmap | `docs/eon64/renderer.md` |
+| PR compatibility: what PR needs from the engine and what is done | `docs/eon64/compat.md` |
+| Fixes worth upstreaming, with commits | `docs/eon64/upstream-fixes.md` |
+| Flags | `docs/eon64/flags.md` |
 
 Update the relevant document in the same commit as the change it describes. Commit messages
 record history; the documents record the current state.
@@ -121,7 +121,7 @@ record history; the documents record the current state.
 To prepare a `fix` or `build` change for upstream, cherry-pick it onto `kr4uzi/main` on its own
 branch. From that point upstream's policy applies (`git show kr4uzi/main:AGENTS.md`): its evidence
 vocabulary, binary evidence for recovered behaviour, and the linked-issue requirement for intentional
-changes. Note in `docs/x64/upstream-fixes.md` what was and was not checked against the retail binary.
+changes. Note in `docs/eon64/upstream-fixes.md` what was and was not checked against the retail binary.
 The human author submits; agents do not.
 
 ## Merging upstream

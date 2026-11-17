@@ -1,4 +1,4 @@
-# The `pr/x64-local` fork
+# openbf2-eon64
 
 An x64 Battlefield 2 client, built from OpenBF2, that runs the Project Reality mod (PR) offline
 and replaces its renderer with a modern pipeline. The agent and contributor policy is
@@ -7,7 +7,7 @@ and replaces its renderer with a modern pipeline. The agent and contributor poli
 ## Where it comes from
 
 ```
-B2BF/OpenBF2 main ─► kr4uzi/OpenBF2 main ─► + realitymod/OpenBF2 PR #1 ─► pr/x64-local
+B2BF/OpenBF2 main ─► kr4uzi/OpenBF2 main ─► + realitymod/OpenBF2 PR #1 ─► openbf2-eon64 main
                                               (PR game-logic port)        (this fork)
 ```
 
