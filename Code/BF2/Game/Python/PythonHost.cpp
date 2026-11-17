@@ -3235,6 +3235,8 @@ bool PythonHost::initializeGameMode(const std::string& gameMode)
     deadScript << "game.gamemodes." << modeName << ".init()\n";
 
     std::string moduleName = std::string("game.gamemodes.") + modeName;
+    // [DEV] BF2_LOAD_TRACE: the mod's game-mode import and its init() call.
+    loadtrace::Scope gameModeTrace("py.gamemode", moduleName.c_str());
     // [CHOSEN, not recovered] Import and init failures are reported as Error, not retail's Log. The
     // dedicated server opens no log file, so a Log entry is lost and the operator saw only
     // GameServer's generic "failed to initialize gamemode"; as an Error the Python traceback is the

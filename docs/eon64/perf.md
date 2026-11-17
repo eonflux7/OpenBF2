@@ -24,7 +24,7 @@ on worker threads). Each image (BF2.exe, RendDX9, BF2Audio) writes its own file,
 | `fx.src` | `compileEffectFile` (`RendDX9/Effect.cpp`) | Effects compiled from `.fx` source; inside it `fx.src.cache` (the bytecode cache lookup) and `fx.src.compile` |
 | `fx.dice` | `DiceEffect::compile` | Dice effects; `fx.compile` inside it when its cache missed |
 | `fx.ra` | `EffectManager::compileEffect` | Ra effects; inside it `fx.read` (the source), `fx.stat` (each file-info lookup), `fx.key` (the content key), `fx.keyfile` (the stored key), `fx.setup` (before the source read), `fx.listen`, `fx.event` (the loading-progress event), `fx.cacheload`, `fx.compile` (one per shader profile attempted), `fx.compile.fail`, `fx.create` |
-| `py.init` / `py.admin` / `py.event` | `PythonHost` | Interpreter start, admin module, event handlers of 1 ms or more |
+| `py.init` / `py.admin` / `py.gamemode` / `py.event` | `PythonHost` | Interpreter start, admin module, the game-mode import and init, event handlers of 1 ms or more |
 | `frame` | `BF2Engine::mainLoop` | Frames over 50 ms; after a load, these show work deferred to first use |
 
 `Code/Tools/LoadTrace/loadtrace.py <prefix>` nests the spans and prints, per phase, the self time
