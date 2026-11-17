@@ -18,7 +18,7 @@ kept in a private repository; this document describes only the contract between 
 | 2. Linear lighting + HDR scene | Accepted | `edc83e55`, `5eb26d06`, `2ee49ec7`, `1c2257b8` |
 | 3. Shared lighting model | Accepted (shader-only) | — |
 | 4. Depth prepass + screen-space sun mask | Accepted | `3a00bf99`, `988774bf`, `82e04f61` |
-| 5. Sun cascaded shadow maps + PCF | In progress, behind `BF2_SUN_SHADOWS` | `271c8d45`, `df9a6a40`, `6261ac82` |
+| 5. Sun cascaded shadow maps + PCF | Accepted | `271c8d45`, `df9a6a40`, `6261ac82`, `5ccaf770`, `505ca7ab`, `2860a74a` |
 | 6. Shader audit and cleanup | Started 2026-11-17 | — |
 | 7. MSAA with the single-sample prepass | Not started | — |
 | 8. Atmosphere, sky IBL, water reflections | Not started | — |
@@ -28,12 +28,13 @@ kept in a private repository; this document describes only the contract between 
 Each step is accepted in game against the reference views (see [Tooling](#tooling)) before the next
 one starts.
 
-**5. Sun CSM.** Open: tuning of distance, resolution and bias, measured with the GPU pass timers.
-Caster culling per cascade is done (`505ca7ab`): each cascade draws the casters of its slice swept
-toward the sun (see [Sun shadows](#sun-shadows)). On Muttrah (skirmish, one frame each, different
-camera positions) caster draws went from 188 / 419 / 1059 / 2348 in cascades 0-3 (4014, 3.4 times the
-main prepass) to 152 / 221 / 505 / 1263 (2141, 1.9 times); primitives from 800k to 675k. No missing
-shadows were seen in game.
+**5. Sun CSM.** Accepted on 2026-11-18 with the values it was developed at (400 m, 2048 per
+cascade, 500 m caster reach, normal offset 1.5 and depth bias 1.0 texels); the owner chose not to
+tune further. Caster culling per cascade (`505ca7ab`): each cascade draws the casters of its slice
+swept toward the sun (see [Sun shadows](#sun-shadows)). On Muttrah (skirmish, one frame each,
+different camera positions) caster draws went from 188 / 419 / 1059 / 2348 in cascades 0-3 (4014,
+3.4 times the main prepass) to 152 / 221 / 505 / 1263 (2141, 1.9 times); primitives from 800k to
+675k. GPU time of the four cascades: 1.4 ms on Muttrah (RTX 2060).
 
 **6. Shader audit and cleanup.** An inventory of the shader set: every effect and header, its
 techniques and permutations, which of them a PR session loads, the code each later step replaces,
@@ -160,13 +161,13 @@ four cascade texels for the receivers' filter and normal offset, and in depth fr
 sun-side bound to the slice's farthest corner. Casters carry a world bounding sphere; one without
 bounds draws in every cascade.
 
-- Four cascades over the view depth up to `BF2_CSM_DISTANCE` (400 m), split by a blend of
+- Four cascades over the view depth up to 400 m, split by a blend of
   logarithmic and uniform (lambda 0.75). Each cascade but the last also covers the first 20 % of
   the next slice; there the receiver blends from the finer cascade to the coarser one, so splits
   don't show.
 - Each cascade is a bounding sphere of its view slice, so its size does not change as the camera
   turns, and its centre is snapped to whole texels across the light, so static shadows don't crawl.
-- Casters up to `BF2_CSM_CASTER_REACH` (500 m) toward the sun beyond the sphere still draw.
+- Casters up to 500 m toward the sun beyond the sphere still draw.
 - The atlas stores the light-space depth of the nearest caster (0 = sun-side bound, 1 = far side).
   Receivers compare and filter (3 x 3 tent PCF) and, past 90 % of the last split, blend to the
   baked lightmap sun.

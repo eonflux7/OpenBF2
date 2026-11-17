@@ -5,12 +5,8 @@ harness switches) are not listed. Rules: [AGENTS.md](../../AGENTS.md#feature-fla
 
 ## `render`: exist only while a step is in development
 
-| Flag | Default | Effect | Removed when |
-|---|---|---|---|
-| `BF2_SUN_SHADOWS=1` | off | Sun cascaded shadow maps feed the sun mask | Step 5 is accepted in game; the cascades then always run and legacy shadow maps are deleted |
-| `BF2_CSM_DISTANCE` | 400 | View depth (m) the cascades cover | Step 5 tuning fixes the value |
-| `BF2_CSM_RES` | 2048 | Resolution of each cascade | Step 5 tuning fixes the value |
-| `BF2_CSM_CASTER_REACH` | 500 | How far (m) toward the sun beyond a cascade casters still draw | Step 5 tuning fixes the value |
+None at present. Retired with step 5 on 2026-11-18: `BF2_SUN_SHADOWS`, `BF2_CSM_DISTANCE`,
+`BF2_CSM_RES`, `BF2_CSM_CASTER_REACH`.
 
 Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`,
 `BF2_FRAME_GRADE`, `BF2_DEPTH_PREPASS`. Their behaviour is now unconditional.

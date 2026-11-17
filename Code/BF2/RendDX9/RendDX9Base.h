@@ -754,11 +754,10 @@ bool rendererShadowCascadeTouches(const ShadowCascadeCull& cull, const float sph
 void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection,
                                    const ShadowCascadeCull& cull);
 
-// [RENDER] Sun cascaded shadow maps (SunShadows.cpp, BF2_SUN_SHADOWS). Run from the
+// [RENDER] Sun cascaded shadow maps (SunShadows.cpp). Run from the
 // depth prepass, before the mask: submits the casters in the cascades' light volume, renders four
 // cascades into an R32F atlas (light depth; the atlas is bound to the reserved sampler s13), and
 // fills the RaShadowMask constants. Returns false when nothing was rendered (the mask then stays lit).
-bool rendererSunShadowsEnabled();
 bool rendererSunShadowsRender(float time, float* maskConstants /* kSunShadowMaskVec4s float4s */);
 void rendererSunShadowsRelease();
 const unsigned int kSunShadowMaskVec4s = 22;

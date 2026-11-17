@@ -1,4 +1,4 @@
-// [RENDER] Sun cascaded shadow maps (BF2_SUN_SHADOWS). Not part of retail BF2: the
+// [RENDER] Sun cascaded shadow maps. Not part of retail BF2: the
 // prototype renderer replaces BF2's per-object shadow maps with four sun cascades that feed the
 // screen-space sun mask (FSQuadDrawer RaShadowMask). See RendDX9Base.h for the contract.
 //
@@ -52,34 +52,11 @@ IDirect3DTexture9* g_atlas = 0;          // R32F, 2 x 2 cascades
 IDirect3DSurface9* g_atlasDepth = 0;     // D24S8, standard (not reversed) depth
 unsigned int g_cascadeSize = 0;
 
-float envFloat(const char* name, float fallback)
-{
-    const char* const v = std::getenv(name);
-    if (!v || !*v)
-        return fallback;
-    const float f = static_cast<float>(std::atof(v));
-    return f > 0.0f ? f : fallback;
-}
-
-// The view depth the cascades reach, and the cascade resolution.
-float shadowDistance()
-{
-    static const float d = envFloat("BF2_CSM_DISTANCE", 400.0f);
-    return d;
-}
-
-unsigned int cascadeResolution()
-{
-    static const unsigned int r = static_cast<unsigned int>(envFloat("BF2_CSM_RES", 2048.0f));
-    return r;
-}
-
-// How far toward the sun past a cascade's sphere casters are still drawn (world units).
-float casterReach()
-{
-    static const float d = envFloat("BF2_CSM_CASTER_REACH", 500.0f);
-    return d;
-}
+// The view depth the cascades reach (m), each cascade's resolution, and how far toward the sun
+// past a cascade's sphere casters are still drawn (m).
+const float kShadowDistance = 400.0f;
+const unsigned int kCascadeResolution = 2048;
+const float kCasterReach = 500.0f;
 
 IDirect3DDevice9* device()
 {
@@ -88,7 +65,7 @@ IDirect3DDevice9* device()
 
 bool ensureAtlas()
 {
-    const unsigned int size = cascadeResolution();
+    const unsigned int size = kCascadeResolution;
     if (g_atlas && g_cascadeSize == size)
         return true;
     rendererSunShadowsRelease();
@@ -219,17 +196,6 @@ ShadowCascadeCull cascadeCull(const Cascade& k, const Vec3f& right, const Vec3f&
 
 } // namespace
 
-bool rendererSunShadowsEnabled()
-{
-    static const bool enabled = [] {
-        const char* v = std::getenv("BF2_SUN_SHADOWS");
-        const bool on = v && *v && *v != '0';
-        std::fprintf(stderr, "[SUNSHADOWS] %s\n", on ? "on" : "off");
-        return on;
-    }();
-    return enabled;
-}
-
 void rendererSunShadowsRelease()
 {
     if (g_atlas && g_rendererBase)
@@ -245,7 +211,7 @@ void rendererSunShadowsRelease()
 
 bool rendererSunShadowsRender(float time, float* constants)
 {
-    if (!rendererSunShadowsEnabled() || !geom::g_LightManager)
+    if (!geom::g_LightManager)
         return false;
     world::LightSource* const sky = geom::g_LightManager->getSkyLight();
     if (!sky)
@@ -280,7 +246,7 @@ bool rendererSunShadowsRender(float time, float* constants)
     float nearDist = view->getFrustumPtr()->getNearDist();
     if (!(nearDist > 0.05f))
         nearDist = 0.05f;
-    const float farDist = shadowDistance();
+    const float farDist = kShadowDistance;
 
     // Practical split scheme: a blend of logarithmic and uniform splits. Each cascade but the last
     // also covers the first kCascadeBlend of the next slice, where the mask blends the two.
@@ -316,8 +282,8 @@ bool rendererSunShadowsRender(float time, float* constants)
         k.lightY = std::floor(dot(centre, up) / texel) * texel;
         k.lightZ = dot(centre, forward);
         k.radius = radius;
-        k.nearZ = k.lightZ - radius - casterReach();
-        k.rangeZ = 2.0f * radius + casterReach();
+        k.nearZ = k.lightZ - radius - kCasterReach;
+        k.rangeZ = 2.0f * radius + kCasterReach;
         k.splitNear = splitNear;
         k.splitFar = splitFar;
         k.coverFar = coverFar;

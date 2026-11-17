@@ -1035,7 +1035,7 @@ void releaseRendererPathResources(Renderer* renderer)
 
     dx9rend::rendererHdrReleaseSurface();                         // [RENDER] HDR
     dx9rend::rendererDepthPrepassRelease();                       // [RENDER] depth prepass
-    dx9rend::rendererSunShadowsRelease();                         // [RENDER] BF2_SUN_SHADOWS
+    dx9rend::rendererSunShadowsRelease();                         // [RENDER] sun cascades
     dx9rend::gpuTimersRelease();                                  // [DEV] BF2_GPU_TIMERS
     renderer->releaseHemiScratchTexture();
     for (unsigned int offset = 0x778; offset <= 0x7C8; offset += 4)
