@@ -151,7 +151,8 @@ reused, because meshes cull per material against the camera. Casters draw with e
 Objects come from the object manager's grid query against the light volume without its distance
 cull: that cull measures from the frustum's origin and writes each object's cull fade, so against
 the light volume it dropped small objects depending on view direction. Hierarchies are expanded
-by the drawer, and an object the camera's own distance cull has faded out casts nothing.
+by the drawer, and an object the camera's own distance cull has faded out casts nothing. Seen in game on
+Muttrah (`2860a74a`): a supply crate's shadow no longer depends on view direction.
 
 Each cascade draws only the casters that can shadow a receiver in its own slice
 (`ShadowCascadeCull`): in light space, the 2D convex hull of the slice's eight corners, pushed out by
