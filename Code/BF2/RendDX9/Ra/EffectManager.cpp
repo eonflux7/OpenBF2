@@ -1597,6 +1597,122 @@ long raCreateEffectCompiler(const char* srcData, unsigned int srcDataLen,
 #endif
 
 
+// [CHOSEN, not recovered] The content-keyed effect cache (see compileEffect).
+// raEffectContentKey: FNV-1a over the effect expanded by D3DXPreprocessShader (the same include
+// handler and defines the compile uses, so every included file's text is in the hash), then the
+// define list and the compile flags, as 16 hex digits. Empty when the source does not preprocess;
+// the compile then reports the error and nothing is cached under a key.
+namespace {
+
+unsigned long long raFnv1a(unsigned long long hash, const void* data, std::size_t size)
+{
+    const unsigned char* bytes = static_cast<const unsigned char*>(data);
+    for (std::size_t i = 0; i < size; ++i)
+    {
+        hash ^= bytes[i];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+#if defined(__APPLE__)
+// [PLATFORM] The native D3DX backend has no preprocessor, so there is no content key and the Ra
+// effect cache is not used on macOS: every effect compiles.
+long raPreprocessShader(const char*, unsigned int, const D3DXMACRO*, LPD3DXINCLUDE,
+                        ID3DXBuffer**, ID3DXBuffer**)
+{
+    static bool reported = false;
+    if (!reported)
+    {
+        reported = true;
+        ::fprintf(stderr, "[CHOSEN, not recovered] Ra effect cache disabled: no D3DXPreprocessShader\n");
+        ::fflush(stderr);
+    }
+    return static_cast<long>(0x80004001);                     // E_NOTIMPL
+}
+#else
+typedef HRESULT (WINAPI* RaD3dxPreprocessShaderFn)(LPCSTR, UINT, CONST D3DXMACRO*, LPD3DXINCLUDE,
+                                                   LPD3DXBUFFER*, LPD3DXBUFFER*);
+
+long raPreprocessShader(const char* srcData, unsigned int srcDataLen, const D3DXMACRO* defines,
+                        LPD3DXINCLUDE include, ID3DXBuffer** textOut, ID3DXBuffer** errorsOut)
+{
+    // The compiler's module: D3DXPreprocessShader must expand exactly as its compiler does.
+    static RaD3dxPreprocessShaderFn preprocess = 0;
+    if (!preprocess)
+    {
+        if (!s_raD3dxModule)
+            s_raD3dxModule = ::LoadLibraryA("d3dx9_24.dll");
+        if (s_raD3dxModule)
+            preprocess = reinterpret_cast<RaD3dxPreprocessShaderFn>(
+                ::GetProcAddress(s_raD3dxModule, "D3DXPreprocessShader"));
+        if (!preprocess)
+            return static_cast<long>(0x80004005);             // E_FAIL
+    }
+    return preprocess(srcData, srcDataLen, defines, include, textOut, errorsOut);
+}
+#endif
+
+} // anonymous namespace
+
+std::string raEffectContentKey(const char* source, unsigned int sourceLen, const D3DXMACRO* defines,
+                               LPD3DXINCLUDE include, unsigned long flags)
+{
+    ID3DXBuffer* text = 0;
+    ID3DXBuffer* errors = 0;
+    const long hr = raPreprocessShader(source, sourceLen, defines, include, &text, &errors);
+    if (errors)
+        errors->Release();
+    if (hr != 0 || !text)
+    {
+        if (text)
+            text->Release();
+        return std::string();
+    }
+
+    unsigned long long hash = 14695981039346656037ull;
+    hash = raFnv1a(hash, text->GetBufferPointer(), text->GetBufferSize());
+    text->Release();
+    for (const D3DXMACRO* define = defines; define && define->Name; ++define)
+    {
+        hash = raFnv1a(hash, define->Name, ::strlen(define->Name) + 1);
+        if (define->Definition)
+            hash = raFnv1a(hash, define->Definition, ::strlen(define->Definition) + 1);
+    }
+    const unsigned int flagWord = static_cast<unsigned int>(flags);
+    hash = raFnv1a(hash, &flagWord, sizeof(flagWord));
+
+    char hex[17];
+    ::sprintf_s(hex, "%016llx", hash);
+    return std::string(hex);
+}
+
+// The key a previous compile stored beside its blob; empty when there is none.
+std::string raReadCacheKey(const std::string& path)
+{
+    RaFileInfo info;
+    if (!raGetFileInfo(path, info) || info.size == 0 || info.size > 64)
+        return std::string();
+    renddx9abi::HostStream* const file = raOpen(path, 2, 0);
+    if (!file)
+        return std::string();
+    char buffer[65];
+    const unsigned int read = file->read(buffer, info.size);
+    file->release();
+    return std::string(buffer, read);
+}
+
+bool raWriteCacheKey(const std::string& path, const std::string& key)
+{
+    renddx9abi::HostStream* const file = raOpen(path, 0, 2);
+    if (!file)
+        return false;
+    file->write(key.data(), static_cast<unsigned int>(key.size()));
+    file->release();
+    return true;
+}
+
+
 // StringFromGUID2's output, spelled out. The shipped body calls ole32's StringFromGUID2 into 39
 // wide characters and then narrows them a byte at a time. This implementation formats the same
 // canonical braced upper-case form directly: 38 characters and a NUL, without an ole32 call.
@@ -1898,37 +2014,39 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
     }
     cachePath += ".cfx";
 
-    // The freshness test. this+0x78 is the _Mysize of the string at +0x64 - m_debugDefines - so
-    // the cache is used only when NO debug define is active, which is what makes the cached blob
-    // safe to reuse at all.
-    bool useCache = false;
-    RaFileInfo cacheInfo;
-    cacheInfo.size = 0;
-    cacheInfo.writeTimeLow = 0;
-    cacheInfo.writeTimeHigh = 0;
-
-    if (!m_byte60 && m_debugDefines.size() == 0)
-    {
-        if (raGetFileInfo(cachePath, cacheInfo))
-        {
-            useCache = true;
-            RaFileInfo sourceInfo;
-            if (raGetFileInfo(name, sourceInfo))
-            {
-                // Equal timestamps require recompilation.
-                const bool newer =
-                    (cacheInfo.writeTimeHigh > sourceInfo.writeTimeHigh)
-                    || (cacheInfo.writeTimeHigh == sourceInfo.writeTimeHigh
-                        && cacheInfo.writeTimeLow > sourceInfo.writeTimeLow);
-                useCache = newer;
-            }
-            // Keep using the cache if the source file is absent.
-        }
-    }
+    // The shader profiles the compile tries, in order (see the compile loop below).
+    const unsigned int psVersion = (deviceCapsPixelShaderMajor() << 8) | psMinor();
+    // GSQuickShaderPermutation starts the pixel-model search at ps_2_a instead of ps_1_3.
+    const bool quick = readBoolSetting("GSQuickShaderPermutation", false);
+    // THE TWO skips ARE PER-vendor AND they ARE NOT symmetric.
+    //   ps_2_a (index 2) is skipped on an ATI part that lacks PS20Caps.Caps bit 0
+    //                    (D3DPS20CAPS_ARBITRARYSWIZZLE, sub_10001450 = caps[66] & 1)
+    //   ps_2_b (index 3) is skipped on any nvidia part
+    const bool skipPs2a = isAti() && !ps20ArbitrarySwizzle();
+    const bool skipPs2b = isNvidia();
+    // _FORCE_1_4_SHADERS_. It is NOT the same expression the permutator's own macro builder
+    // uses (sub_1003CA30 omits the debug byte); both are shipped, in different bodies.
+    const unsigned int forceIndex =
+        (psVersion < 0x200u || g_forceOneFour || m_flag40) ? 1u : 0u;
+    const int firstPs = quick ? 3 : 0;
+    const auto psProfileUsable = [&](int psIndex) {
+        return !(skipPs2a && psIndex == 2) && !(skipPs2b && psIndex == 3)
+            && psVersion >= kMinPsVersion[psIndex];
+    };
+    const auto fillProfileDefines = [&](int vsIndex, int psIndex, D3DXMACRO* defines) {
+        defines[0].Name = kVsModel[vsIndex][0];  defines[0].Definition = kVsModel[vsIndex][1];
+        defines[1].Name = kPsModel[psIndex][0];  defines[1].Definition = kPsModel[psIndex][1];
+        defines[2].Name = kForce14[forceIndex][0];
+        defines[2].Definition = kForce14[forceIndex][1];
+        defines[3].Name = "_FORCE_1_3_SHADERS_"; defines[3].Definition = "0";
+        defines[4].Name = "LOWPSMODEL";          defines[4].Definition = "ps_1_4";
+        defines[5].Name = kPsVersion[psIndex][0];
+        defines[5].Definition = kPsVersion[psIndex][1];
+        defines[6].Name = 0;                     defines[6].Definition = 0;
+    };
 
     unsigned char* source = 0;
-    const unsigned int sourceLen =
-        readEffectFile(useCache ? cachePath : name, &source);
+    const unsigned int sourceLen = readEffectFile(name, &source);
     if (sourceLen == 0)
     {
         // shipped defect: this early return leaves suppression set and skips the progress event.
@@ -1936,6 +2054,41 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
         ::renddx9abi::engineFree(source);
         return 0;
     }
+    // GSLoadObfuscated, read per call in the shipped body with its default byte seeded to 1.
+    if (readBoolSetting("GSLoadObfuscated", true))
+        deobfuscateShader(source, sourceLen);
+
+    // [CHOSEN, not recovered] Content-keyed cache. Retail reuses the .cfx while it is newer than
+    // the .fx: an edited include never invalidates it, and a generated permutation (no file on
+    // disk) is never recompiled. Here the key is a hash of the effect as the compiler sees it - the
+    // source expanded through the same include handler with the first profile's defines - plus
+    // the compile flags. It lives in <cache>.key, and the blob is used only when the key matches.
+    // this+0x78 is the _Mysize of the string at +0x64 - m_debugDefines - so the cache is used only
+    // when NO debug define is active, which is what makes the cached blob safe to reuse at all.
+    std::string cacheKey;
+    if (!m_byte60 && m_debugDefines.size() == 0)
+    {
+        int keyPs = firstPs;
+        while (keyPs < 5 && !psProfileUsable(keyPs))
+            ++keyPs;
+        if (keyPs < 5)
+        {
+            D3DXMACRO keyDefines[7];
+            fillProfileDefines(0, keyPs, keyDefines);
+            cacheKey = raEffectContentKey(reinterpret_cast<const char*>(source), sourceLen,
+                                          keyDefines, reinterpret_cast<LPD3DXINCLUDE>(m_sub),
+                                          flags);
+        }
+    }
+    const std::string cacheKeyPath = cachePath + ".key";
+
+    bool useCache = false;
+    RaFileInfo cacheInfo;
+    cacheInfo.size = 0;
+    cacheInfo.writeTimeLow = 0;
+    cacheInfo.writeTimeHigh = 0;
+    if (!cacheKey.empty() && raGetFileInfo(cachePath, cacheInfo))
+        useCache = raReadCacheKey(cacheKeyPath) == cacheKey;
 
     ID3DXEffect* effect    = 0;
     ID3DXBuffer* errors    = 0;
@@ -2008,37 +2161,12 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
     }
     else
     {
-        // GSLoadObfuscated, read per call in the shipped body with its default byte seeded to 1.
-        if (readBoolSetting("GSLoadObfuscated", true))
-            deobfuscateShader(source, sourceLen);
-
-        const unsigned int psVersion = (deviceCapsPixelShaderMajor() << 8) | psMinor();
-
-        // GSQuickShaderPermutation starts the pixel-model search at ps_2_a instead of ps_1_3.
-        const bool quick = readBoolSetting("GSQuickShaderPermutation", false);
-
-        // THE TWO skips ARE PER-vendor AND they ARE NOT symmetric.
-        //   ps_2_a (index 2) is skipped on an ATI part that lacks PS20Caps.Caps bit 0
-        //                    (D3DPS20CAPS_ARBITRARYSWIZZLE, sub_10001450 = caps[66] & 1)
-        //   ps_2_b (index 3) is skipped on any nvidia part
-        const bool skipPs2a = isAti() && !ps20ArbitrarySwizzle();
-        const bool skipPs2b = isNvidia();
-
-        // _FORCE_1_4_SHADERS_. It is NOT the same expression the permutator's own macro builder
-        // uses (sub_1003CA30 omits the debug byte); both are shipped, in different bodies.
-        const unsigned int forceIndex =
-            (psVersion < 0x200u || g_forceOneFour || m_flag40) ? 1u : 0u;
-
-        const int firstPs = quick ? 3 : 0;
-
         for (int vsIndex = 0; vsIndex < 2; )
         {
             int psIndex = firstPs;
             for (; psIndex < 5; ++psIndex)
             {
-                if (skipPs2a && psIndex == 2) continue;
-                if (skipPs2b && psIndex == 3) continue;
-                if (psVersion < kMinPsVersion[psIndex]) continue;
+                if (!psProfileUsable(psIndex)) continue;
 
                 // A device reset restarts both profile indices and immediately compiles index zero.
                 if (g_Renderer && rendererDeviceWasReset())
@@ -2048,15 +2176,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
                 }
 
                 D3DXMACRO defines[7];
-                defines[0].Name = kVsModel[vsIndex][0];  defines[0].Definition = kVsModel[vsIndex][1];
-                defines[1].Name = kPsModel[psIndex][0];  defines[1].Definition = kPsModel[psIndex][1];
-                defines[2].Name = kForce14[forceIndex][0];
-                defines[2].Definition = kForce14[forceIndex][1];
-                defines[3].Name = "_FORCE_1_3_SHADERS_"; defines[3].Definition = "0";
-                defines[4].Name = "LOWPSMODEL";          defines[4].Definition = "ps_1_4";
-                defines[5].Name = kPsVersion[psIndex][0];
-                defines[5].Definition = kPsVersion[psIndex][1];
-                defines[6].Name = 0;                     defines[6].Definition = 0;
+                fillProfileDefines(vsIndex, psIndex, defines);
 
                 raRelease(errors);
 
@@ -2091,7 +2211,8 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
                 if (technique)
                 {
                     g_anyEffectCompiled = 1;                  // byte_1023D950
-                    writeEffectCache(blob, cachePath);
+                    if (writeEffectCache(blob, cachePath))
+                        raWriteCacheKey(cacheKeyPath, cacheKey.empty() ? std::string("-") : cacheKey);
                     blob->Release();
                     goto compiled;
                 }
