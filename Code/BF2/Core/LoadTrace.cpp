@@ -104,11 +104,20 @@ void write(const char* category, const char* name, long long t0, long long t1, l
         open(s);
     if (s.on != 1)
         return;
-    std::fprintf(s.file, "%u\t%lld\t%lld\t%s\t%lld\t", threadId(), t0, t1, category, bytes);
+    // One formatted row, one fwrite: per-character writes take the stream lock each time, which
+    // shows up as self time of the enclosing span when spans are dense (con.cmd).
+    char row[640];
+    int n = std::snprintf(row, sizeof(row) - 2, "%u\t%lld\t%lld\t%s\t%lld\t", threadId(), t0, t1,
+                          category, bytes);
+    if (n < 0)
+        n = 0;
+    if (n > static_cast<int>(sizeof(row)) - 2)
+        n = static_cast<int>(sizeof(row)) - 2;
     // Names are paths; keep each row on one line.
-    for (const char* c = name ? name : ""; *c; ++c)
-        std::fputc((*c == '\t' || *c == '\n' || *c == '\r') ? ' ' : *c, s.file);
-    std::fputc('\n', s.file);
+    for (const char* c = name ? name : ""; *c && n < static_cast<int>(sizeof(row)) - 1; ++c)
+        row[n++] = (*c == '\t' || *c == '\n' || *c == '\r') ? ' ' : *c;
+    row[n++] = '\n';
+    std::fwrite(row, 1, static_cast<std::size_t>(n), s.file);
     if (flush)
         std::fflush(s.file);
 }

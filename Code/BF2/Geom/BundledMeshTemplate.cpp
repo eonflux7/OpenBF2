@@ -26,6 +26,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 
 namespace dice { namespace hfe {
 namespace dx9rend {
@@ -167,6 +168,7 @@ bool BundledMeshTemplate::load()
     bool ok=loadFromStream(static_cast<renddx9abi::HostNonlinearStream*>(stream));
     stream->release(); if(!ok) return false;
     m_loaded=1;
+    ::dice::hfe::loadtrace::Scope instanceTrace("mesh.instances",m_name.c_str()); // [DEV] BF2_LOAD_TRACE
     for(InstanceSet::const_iterator n=m_instances.begin();n!=m_instances.end();++n)
         bundledMeshInitTemplate(*n);
     return true;

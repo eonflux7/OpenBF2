@@ -28,6 +28,7 @@
 #if defined(__APPLE__)
 #include "../Platform/X87Compat.h"
 #endif
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 
 namespace dice {
 namespace hfe {
@@ -809,6 +810,7 @@ bool StaticMeshTemplate::load()
 
     // Walk the live instances and hand each the freshly loaded template. The set is empty until
     // createInstance has run, and the callback belongs to the unrecovered instance class.
+    ::dice::hfe::loadtrace::Scope instanceTrace("mesh.instances", m_name.c_str());   // [DEV] BF2_LOAD_TRACE
     for (InstanceSet::const_iterator node = m_instances.begin(); node != m_instances.end(); ++node)
     {
         StaticMesh* const instance = *node;

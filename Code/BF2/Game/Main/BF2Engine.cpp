@@ -881,10 +881,13 @@ bool BF2Engine::init(const std::string& commandLine)
     }
 #endif
 
-    if (!bf2EngineSetup->initModules())                 // /0x8131457 - an instance call on
-    {                                                   // the field at +0x0C: `mov eax,[edi+0Ch];
-        bf2EngineSetup->shutdownModules();              // mov [esp],eax; call ...initModules`
-        return false;
+    {   // [DEV] BF2_LOAD_TRACE
+        loadtrace::Scope stepTrace("init", "modules");
+        if (!bf2EngineSetup->initModules())                 // /0x8131457 - an instance call on
+        {                                                   // the field at +0x0C: `mov eax,[edi+0Ch];
+            bf2EngineSetup->shutdownModules();              // mov [esp],eax; call ...initModules`
+            return false;
+        }
     }
 
     initSettingsRepostitory();
@@ -1934,8 +1937,11 @@ bool BF2Engine::initEngine()
 
     io::mainConsole->setUseRelativePaths(true);  // OldConsole vptr+0x78, 0x8138BC6
 
-    if (!bf2EngineSetup->initFileSystem())      // /0x8138BCF, instance call on +0x0C
-        return false;
+    {   // [DEV] BF2_LOAD_TRACE
+        loadtrace::Scope stepTrace("init", "filesystem");
+        if (!bf2EngineSetup->initFileSystem())      // /0x8138BCF, instance call on +0x0C
+            return false;
+    }
 
     // Add base-game assets first for non-base mods so the mod's files take precedence
     // while base assets remain available as fallback.
@@ -1951,19 +1957,28 @@ bool BF2Engine::initEngine()
         return false;
 
     // Archive mounting is only permitted for the duration of this one script.
-    io::fileManager->permitMountArchives(true);         // FileManager vptr+0x78
-    io::mainConsole->runFullAccess("ServerArchives.con", "", "", "", "", "", "", "", "",
-                                   io::Console::ignoredString_);   // +0x2C
-    if (!isDedicated())                                 // BF2.exe 0x408EF0: the client archives, same access
-        io::mainConsole->runFullAccess("ClientArchives.con", "", "", "", "", "", "", "", "",
-                                       io::Console::ignoredString_);
+    {   // [DEV] BF2_LOAD_TRACE
+        loadtrace::Scope stepTrace("init", "archives");
+        io::fileManager->permitMountArchives(true);         // FileManager vptr+0x78
+        io::mainConsole->runFullAccess("ServerArchives.con", "", "", "", "", "", "", "", "",
+                                       io::Console::ignoredString_);   // +0x2C
+        if (!isDedicated())                                 // BF2.exe 0x408EF0: the client archives, same access
+            io::mainConsole->runFullAccess("ClientArchives.con", "", "", "", "", "", "", "", "",
+                                           io::Console::ignoredString_);
 
-    io::fileManager->permitMountArchives(false);
+        io::fileManager->permitMountArchives(false);
+    }
 
-    if (!initLocalization())
-        return false;
+    {   // [DEV] BF2_LOAD_TRACE
+        loadtrace::Scope stepTrace("init", "localization");
+        if (!initLocalization())
+            return false;
+    }
 
-    io::settingsManager->load("Settings/Usersettings.con");
+    {   // [DEV] BF2_LOAD_TRACE
+        loadtrace::Scope stepTrace("init", "usersettings");
+        io::settingsManager->load("Settings/Usersettings.con");
+    }
 
     if (!statusMonitor)
     {
@@ -1984,11 +1999,18 @@ bool BF2Engine::initEngine()
         static_cast<ILocalProfileManager*>(classManager->getSingleton("LocalProfileManager"))->init(); // PE409364: result discarded, unguarded
 #endif
 
-    IModInfo* modInfo = (IModInfo*)classManager->getSingleton("ModInfo");
-    modInfo->init();                            // ModInfo vptr+0x10 = _ZN4dice3hfe7ModInfo4initEv
+    {   // [DEV] BF2_LOAD_TRACE
+        loadtrace::Scope stepTrace("init", "modinfo");
+        IModInfo* modInfo = (IModInfo*)classManager->getSingleton("ModInfo");
+        modInfo->init();                            // ModInfo vptr+0x10 = _ZN4dice3hfe7ModInfo4initEv
+    }
                                                 // A failed renderer initialization skips console/client setup and proceeds to
                                                 // network initialization. Preserve this behavior for renderer-free dedicated startup.
-    if (bf2EngineSetup->initRenderer())
+    const long long rendererT0 = loadtrace::enabled() ? loadtrace::now() : 0;   // [DEV] BF2_LOAD_TRACE
+    const bool rendererUp = bf2EngineSetup->initRenderer();
+    if (loadtrace::enabled())
+        loadtrace::span("init", "renderer", rendererT0, loadtrace::now());
+    if (rendererUp)
     {
         if (!isDedicated())
         {
@@ -1999,6 +2021,7 @@ bool BF2Engine::initEngine()
             static_cast<LocalProfileManager*>(static_cast<ILocalProfileManager*>(
                 classManager->getSingleton("LocalProfileManager")))->applyFirstStartVideoDefaults();
 #endif
+            loadtrace::Scope inputTrace("init", "input");   // [DEV] BF2_LOAD_TRACE
             if (!static_cast<io::IInputManager*>(io::inputManager)->init(1087))   // vslot +0x10, device mask 1087
                 return false;
             io::mainConsole->run("Settings/Controls.con", "", "", "", "", "", "", "", "", io::Console::ignoredString_);
@@ -2014,8 +2037,11 @@ bool BF2Engine::initEngine()
         // is identified; repeated registration uses the same file-scope variable addresses.
         if (!world::explosionEffectManager)
             world::explosionEffectManager = new world::CPersistentExplosionEffectManager();
-        if (hudManager && !hudManager->init())         // vslot +0x0C; "BF2HudManager init fails" is its own message
-            return false;
+        {
+            loadtrace::Scope hudTrace("init", "hud");   // [DEV] BF2_LOAD_TRACE
+            if (hudManager && !hudManager->init())     // vslot +0x0C; "BF2HudManager init fails" is its own message
+                return false;
+        }
 #endif
     }
 #if !DEDICATED
@@ -2036,12 +2062,16 @@ bool BF2Engine::initEngine()
     frameEventManager->registerEvent(static_cast<EventCategory>(10), 12, "ECMenuMenuEvent_EnableEscapeKeyMapping");
     if (!isDedicated())
     {
+        loadtrace::Scope swiffTrace("init", "swiff");   // [DEV] BF2_LOAD_TRACE
         if (IBase* host = classManager->getSingleton("SwiffHost"))
             static_cast<ui::ISwiffHost*>(host)->init(); // +0x10
     }
 #endif
-    if (!bf2EngineSetup->initNetwork())
-        return false;
+    {
+        loadtrace::Scope networkTrace("init", "network");   // [DEV] BF2_LOAD_TRACE
+        if (!bf2EngineSetup->initNetwork())
+            return false;
+    }
     SingletonServer::init();                            // genuinely static - 0x813907E pushes nothing
 #if !DEDICATED
     musicPlayer = new MusicPlayer();                    // operator new(8), 0x7E1B40 - client only; shutdown deletes it

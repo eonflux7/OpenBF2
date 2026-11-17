@@ -38,7 +38,7 @@ Retired with their steps on 2026-11-17: `BF2_PERF_FXKEY`, `BF2_PERF_FXPREFETCH`.
 | `BF2_FILE_MONITOR=1` | Turns on retail's GSFileChangeMonitor: changed loose shaders and textures reload while the game runs |
 | `BF2_DEVCMD_FILE=<path>` | When the file changes, each line except `rem` runs on the console; output goes to stderr as `[DEVCMD]` |
 | `BF2_CONSOLE_TRACE=1` | Logs console script runs and every `if`/`elseIf` result |
-| `BF2_LOAD_TRACE=<prefix>` | Writes timed spans of load work (phases, file opens, scripts, textures, meshes, effect compiles, Python, frames over 50 ms) to `<prefix>-bf2.tsv` and `<prefix>-renddx9.tsv`; `=1` uses the prefix `loadtrace`. Summarize with `Code/Tools/LoadTrace/loadtrace.py <prefix>`. See [perf.md](perf.md) |
+| `BF2_LOAD_TRACE=<prefix>` | Writes timed spans of load work (phases, file opens, scripts, textures, meshes, effect compiles, Python, frames over 50 ms) to `<prefix>-bf2.tsv`, `<prefix>-renddx9.tsv` and `<prefix>-bf2audio.tsv`; `=1` uses the prefix `loadtrace`. Summarize with `Code/Tools/LoadTrace/loadtrace.py <prefix>`. See [perf.md](perf.md) |
 | `BF2_AI_WEAPON_TRACE` | Logs each AI weapon record released when its `WeaponObject` is destroyed |
 
 ## Build options (CMake)

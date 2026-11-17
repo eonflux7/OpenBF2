@@ -758,7 +758,12 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
                 // Publish the executing console before invoking the binding.
                 g_executingConsole = this;
 
-                result = binding->execute(args, argc);             // vtbl +0x58, returns by value
+                {
+                    // [DEV] BF2_LOAD_TRACE: one span per invoked binding, named Object.method; the
+                    // con span's self time is then the parsing and dispatch around them.
+                    loadtrace::Scope commandTrace("con.cmd", token.c_str());
+                    result = binding->execute(args, argc);         // vtbl +0x58, returns by value
+                }
 
                 // Status 0 exposes the binding's result to output or redirection; status 1 would suppress it.
                 // An empty result remains silent through output().
@@ -1700,7 +1705,11 @@ bool OldConsole::run(const std::string& filePath,
         // +2, because the buffer gets a newline and a NUL appended below.
         char* text = new char[fileSize + 2];
 
-        const unsigned int bytesRead = file.read(text, fileSize);
+        unsigned int bytesRead;
+        {
+            loadtrace::Scope readTrace("con.read", fileName.c_str());   // [DEV] BF2_LOAD_TRACE
+            bytesRead = file.read(text, fileSize);
+        }
         if (bytesRead != static_cast<unsigned int>(fileSize))
         {
             result = "Could not read file: " + fileName + "!";

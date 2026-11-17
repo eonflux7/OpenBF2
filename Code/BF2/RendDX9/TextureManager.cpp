@@ -837,6 +837,10 @@ EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, Engi
                                                    bool skipChangeWatch, bool useFallback)
 {
     ::dice::hfe::loadtrace::Scope loadTrace("tex", name.c_str());   // [DEV] BF2_LOAD_TRACE
+    // [DEV] BF2_LOAD_TRACE: tex.find (path lookup), tex.open (open and header), tex.create (the
+    // D3D texture), tex.read (each mip read into the locked level, inflate included).
+    const bool traced = ::dice::hfe::loadtrace::enabled();
+    const long long findT0 = traced ? ::dice::hfe::loadtrace::now() : 0;
     std::string path;
     findTexturePath(path, name);
 
@@ -876,8 +880,12 @@ EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, Engi
             ->addListener(reinterpret_cast<io::IFileChangeListener*>(this), path, 8);
     }
 
+    if (traced)   // [DEV] BF2_LOAD_TRACE
+        ::dice::hfe::loadtrace::span("tex.find", name.c_str(), findT0, ::dice::hfe::loadtrace::now());
+
     m_loadingFileName = prefixedName;
 
+    const long long openT0 = traced ? ::dice::hfe::loadtrace::now() : 0;   // [DEV] BF2_LOAD_TRACE
     ::renddx9abi::EngineStream stream;
     stream.open(path, 2, 0, 0);   // shipped: no null check on the returned stream
 
@@ -916,6 +924,8 @@ EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, Engi
             mipSkip = m_mipClasses[cls].value;
     }
     seekPastHeaderAndSkippedMips(stream, info, mipSkip);   // return value ignored, as shipped
+    if (traced)   // [DEV] BF2_LOAD_TRACE
+        ::dice::hfe::loadtrace::span("tex.open", name.c_str(), openT0, ::dice::hfe::loadtrace::now());
 
     int savedManaged = 0;
     if (tex)
@@ -929,7 +939,10 @@ EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, Engi
     if (info.ResourceType == D3DRTYPE_TEXTURE)
     {
         const unsigned int fmt = info.Format;
-        result = create2DOrVolumeTexture(info.Width, info.Height, 1, fmt, info.MipLevels, 0, tex);
+        {
+            ::dice::hfe::loadtrace::Scope createTrace("tex.create", name.c_str());   // [DEV]
+            result = create2DOrVolumeTexture(info.Width, info.Height, 1, fmt, info.MipLevels, 0, tex);
+        }
         const int bpp = bitsPerPixel(fmt);
         for (unsigned int mip = 0; mip < info.MipLevels; ++mip)
         {
@@ -938,7 +951,8 @@ EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, Engi
             if (w >= m_smallestMipSide && h >= m_smallestMipSide)
             {
                 TextureLockRecord* rec = textureLock(result, mip, 0x7FFFFFFF);
-                stream.read(rec->pBits, static_cast<unsigned int>(bpp * w * h / 8));
+                { ::dice::hfe::loadtrace::Scope readTrace("tex.read", name.c_str());   // [DEV]
+                  stream.read(rec->pBits, static_cast<unsigned int>(bpp * w * h / 8)); }
                 textureUnlock(result, rec);
             }
         }
@@ -946,8 +960,11 @@ EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, Engi
     else if (info.ResourceType == D3DRTYPE_VOLUMETEXTURE)
     {
         const unsigned int fmt = info.Format;
-        result = create2DOrVolumeTexture(info.Width, info.Height, info.Depth, fmt,
-                                         info.MipLevels, 0, tex);
+        {
+            ::dice::hfe::loadtrace::Scope createTrace("tex.create", name.c_str());   // [DEV]
+            result = create2DOrVolumeTexture(info.Width, info.Height, info.Depth, fmt,
+                                             info.MipLevels, 0, tex);
+        }
         const int bpp = bitsPerPixel(fmt);
         for (unsigned int mip = 0; mip < info.MipLevels; ++mip)
         {
@@ -955,7 +972,8 @@ EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, Engi
             int h = static_cast<int>(info.Height >> mip); if (h < 1) h = 1;
             int d = static_cast<int>(info.Depth >> mip);  if (d < 1) d = 1;
             TextureLockRecord* rec = textureLock(result, mip, 0x7FFFFFFF);
-            stream.read(rec->pBits, static_cast<unsigned int>(bpp * w * h * d / 8));
+            { ::dice::hfe::loadtrace::Scope readTrace("tex.read", name.c_str());   // [DEV]
+              stream.read(rec->pBits, static_cast<unsigned int>(bpp * w * h * d / 8)); }
             textureUnlock(result, rec);
         }
     }
@@ -965,7 +983,10 @@ EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, Engi
         if (deviceCapsPixelShaderMajor() < 2)              // sub_100010D0 on dword_1023B980
             info.MipLevels = 1;
         const unsigned int fmt = info.Format;
-        result = createCubeTexture(info.Width, fmt, info.MipLevels, 0, tex);
+        {
+            ::dice::hfe::loadtrace::Scope createTrace("tex.create", name.c_str());   // [DEV]
+            result = createCubeTexture(info.Width, fmt, info.MipLevels, 0, tex);
+        }
         const int bpp = bitsPerPixel(fmt);
         for (int face = 0; face < 6; ++face)
         {
@@ -978,7 +999,8 @@ EngineTexture* TextureManager::loadTextureFromFile(const std::string& name, Engi
                 if (mip < info.MipLevels)
                 {
                     TextureLockRecord* rec = textureLock(result, mip, static_cast<unsigned int>(face));
-                    stream.read(rec->pBits, static_cast<unsigned int>(bytes));
+                    { ::dice::hfe::loadtrace::Scope readTrace("tex.read", name.c_str());   // [DEV]
+                      stream.read(rec->pBits, static_cast<unsigned int>(bytes)); }
                     textureUnlock(result, rec);
                 }
                 else

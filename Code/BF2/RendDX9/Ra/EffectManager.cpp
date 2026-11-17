@@ -1092,6 +1092,7 @@ bool raGetFileInfo(const std::string& path, RaFileInfo& out)
 
     const renddx9abi::HostString hostPath = renddx9abi::makeHostString(path);
 
+    ::dice::hfe::loadtrace::Scope statTrace("fx.stat", path.c_str());   // [DEV] BF2_LOAD_TRACE
     ::dice::hfe::io::FileInfo info;
     if (!::dice::hfe::fileManager->getFileInfo(hostPath, info))
         return false;
@@ -1234,6 +1235,7 @@ bool EffectManager::generateMissingShader(const std::string& name)
 
 unsigned int EffectManager::readEffectFile(const std::string& name, unsigned char** bufferOut)
 {
+    ::dice::hfe::loadtrace::Scope readTrace("fx.read", name.c_str());   // [DEV] BF2_LOAD_TRACE
     std::string path(name);
     if (g_Renderer)
         applyModPrefix(path);
@@ -2173,6 +2175,7 @@ ID3DXBuffer* raTakePrefetched(const std::string& name, const std::string& key, E
 // The key a previous compile stored beside its blob; empty when there is none.
 std::string raReadCacheKey(const std::string& path)
 {
+    ::dice::hfe::loadtrace::Scope keyFileTrace("fx.keyfile", path.c_str());   // [DEV] BF2_LOAD_TRACE
     RaFileInfo info;
     if (!raGetFileInfo(path, info) || info.size == 0 || info.size > 64)
         return std::string();
@@ -2733,11 +2736,15 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
                 bytes[i] = static_cast<char>(bytes[i] ^ static_cast<char>(i));
 
             const unsigned long createFlags = flags | (m_byte62 ? 0x800u : 0u);
+            const long long createT0 = ::dice::hfe::loadtrace::now();   // [DEV] BF2_LOAD_TRACE
             const long hr = D3DXCreateEffect(
                 m_device,
                 buffer->GetBufferPointer(),
                 buffer->GetBufferSize(),
                 0, 0, createFlags, static_cast<LPD3DXEFFECTPOOL>(m_effectPool), &effect, &errors);
+            if (::dice::hfe::loadtrace::enabled())
+                ::dice::hfe::loadtrace::span("fx.create", name.c_str(), createT0,
+                                             ::dice::hfe::loadtrace::now());
             if (hr != 0)
                 ::renddx9abi::logf("EffectManager.cpp:1016 Failed to create effect: hr=0x%08X (%s)",
                                    static_cast<unsigned>(hr), cachePath.c_str());

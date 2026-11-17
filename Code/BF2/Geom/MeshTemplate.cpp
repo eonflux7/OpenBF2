@@ -467,14 +467,27 @@ bool MeshTemplate::loadFromStream(renddx9abi::HostNonlinearStream* stream)
     if (!readHeader(stream))
         return false;
 
-    readGeometry(stream);
-    readTrailer(stream);
-    readLods(stream);
-    readMaterials(stream);
-    mergeMaterials();
-    buildVertexBuffers();
-    buildIndexBuffer();
-    finalizeMaterials();
+    // [DEV] BF2_LOAD_TRACE: reading and parsing, merging, the GPU buffers, material setup.
+    {
+        ::dice::hfe::loadtrace::Scope readTrace("mesh.read", m_name.c_str());
+        readGeometry(stream);
+        readTrailer(stream);
+        readLods(stream);
+        readMaterials(stream);
+    }
+    {
+        ::dice::hfe::loadtrace::Scope mergeTrace("mesh.merge", m_name.c_str());
+        mergeMaterials();
+    }
+    {
+        ::dice::hfe::loadtrace::Scope bufferTrace("mesh.buffers", m_name.c_str());
+        buildVertexBuffers();
+        buildIndexBuffer();
+    }
+    {
+        ::dice::hfe::loadtrace::Scope finalTrace("mesh.finalize", m_name.c_str());
+        finalizeMaterials();
+    }
     return true;
 }
 

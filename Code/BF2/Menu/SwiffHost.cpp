@@ -64,6 +64,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE: the autohost mark
 
 namespace dice { namespace hfe {
 
@@ -342,6 +343,7 @@ static void autoHostFromEnvironment(SwiffHost* host)
             size = std::atoi(rest.c_str() + c2 + 1);
     }
     std::fprintf(stderr, "[AUTOHOST] hosting %s %s %d\n", level.c_str(), gameMode.c_str(), size);
+    ::dice::hfe::loadtrace::mark("menu.host");   // [DEV] BF2_LOAD_TRACE: where a player's click would be
     host->setGameMode(gameMode);
     host->clearServerEntries();
     host->addServerEntry(level, gameMode, size);

@@ -24,6 +24,7 @@
 #include <map>
 #include <sstream>
 #include <vector>
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 
 namespace dice {
 namespace hfe {
@@ -825,6 +826,7 @@ bool SkinnedMeshTemplate::load()
 
     // Re-point every live instance at the data that just arrived. The set is empty until
     // createInstance has run.
+    ::dice::hfe::loadtrace::Scope instanceTrace("mesh.instances", m_name.c_str());   // [DEV] BF2_LOAD_TRACE
     for (std::set<SkinnedMesh*>::iterator node = m_instances.begin(); node != m_instances.end();
          ++node)
     {

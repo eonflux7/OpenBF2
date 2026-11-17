@@ -7,6 +7,8 @@
 # Frontier.cpp is compiled by each build description with BF2Audio's log defines.
 # The shared RendDX9Abi kit's BfMemory, NOT its DllMain: Win32System.cpp IS this image's DllMain.
 RendDX9Abi/BfMemory.cpp
+# [DEV] BF2_LOAD_TRACE writer; this image writes <prefix>-bf2audio.tsv.
+BF2/Core/LoadTrace.cpp
 # The null Sound / SoundTemplate pair getSoundEngine creates.
 BF2/Sound/NullSound.cpp
 # The fifteen SoundEngine TUs (ten attested by __FILE__, five placed by link order).

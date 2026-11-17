@@ -10,6 +10,7 @@
 #include "OpenALSample.h"
 #include "BfSoundEngine.h"
 #include "SoundTrace.h"
+#include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 
 #include "../../../RendDX9Abi/BfMemory.h"
 
@@ -154,12 +155,16 @@ bool SoundFile::load(int sampleRate, int bits)
     int loopStart = 0;
     int loopEnd   = 0;
     bool ok;
-    if (extensionIs("wav"))
-        ok = loadWav(&loopStart, &loopEnd);
-    else if (extensionIs("ogg"))
-        ok = loadOgg(&loopStart, &loopEnd);
-    else
-        ok = false;
+    {
+        // [DEV] BF2_LOAD_TRACE: reading and decoding; snd.upload below is the OpenAL upload.
+        ::dice::hfe::loadtrace::Scope decodeTrace("snd.decode", m_name.c_str());
+        if (extensionIs("wav"))
+            ok = loadWav(&loopStart, &loopEnd);
+        else if (extensionIs("ogg"))
+            ok = loadOgg(&loopStart, &loopEnd);
+        else
+            ok = false;
+    }
     if (!ok)
     {
         if (!m_failCount)
@@ -192,7 +197,10 @@ bool SoundFile::load(int sampleRate, int bits)
         return false;
     }
     ++g_loadedFileCount;
-    ok = upload();
+    {
+        ::dice::hfe::loadtrace::Scope uploadTrace("snd.upload", m_name.c_str());   // [DEV] BF2_LOAD_TRACE
+        ok = upload();
+    }
     if (ok)
         m_loaded = true;
     m_failCount = 0;
