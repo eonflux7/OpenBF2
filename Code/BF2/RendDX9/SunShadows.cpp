@@ -14,6 +14,7 @@
 #include "../../RendDX9Abi/ModuleCommon.h"
 #include "../../RendDX9Abi/D3dx9Sdk.h"
 #include "RendDX9Base.h"
+#include "DrawStats.h"
 #include "../RendMisc/IRenderView.h"
 #include "../Math/Frustum.h"
 #include "../Math/Mat4.h"
@@ -272,6 +273,15 @@ bool rendererSunShadowsRender(float time, float* constants)
     if (g_OverGrowth)
         static_cast<geom::OverGrowth*>(g_OverGrowth)->submitShadowCasters(view, volume);
     rendererEndCasterCapture();
+    if (drawStatsOn())   // [DEV] BF2_DRAW_STATS: captured casters, and those without bounds
+    {
+        const std::vector<ShadowCaster>& casters = rendererShadowCasters();
+        unsigned int unbounded = 0;
+        for (size_t i = 0; i < casters.size(); ++i)
+            unbounded += casters[i].sphere[3] < 0.0f ? 1u : 0u;
+        drawStatsCount("sun casters", static_cast<unsigned int>(casters.size()));
+        drawStatsCount("sun casters unbounded", unbounded);
+    }
     geom::Terrain* const terrain = static_cast<geom::Terrain*>(geom::g_Terrain);
     if (terrain)
         terrain->gatherShadowCasters(volume);
@@ -324,9 +334,12 @@ bool rendererSunShadowsRender(float time, float* constants)
         cull.centre[0] = k.centre.x; cull.centre[1] = k.centre.y; cull.centre[2] = k.centre.z;
         cull.radius = r;
 
+        static const char* const kScopes[kCascades] = { "c0", "c1", "c2", "c3" };
+        drawStatsSetScope(kScopes[i]);   // [DEV] BF2_DRAW_STATS: caster draws per cascade
         if (terrain)
             terrain->drawShadowCasters(viewProjection, cull);
         renderQueuesDrawShadowCasters(key, viewProjection, cull);
+        drawStatsSetScope(0);
 
         // The mask's rows: world position to atlas texel coordinates (texel n at n, the D3D9
         // pixel-centre convention) and light depth. Rows 4 + 3i .. 6 + 3i.

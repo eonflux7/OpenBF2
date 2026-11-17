@@ -39,7 +39,7 @@ now unconditional.
 | `BF2_DEVCMD_FILE=<path>` | When the file changes, each line except `rem` runs on the console; output goes to stderr as `[DEVCMD]` |
 | `BF2_CONSOLE_TRACE=1` | Logs console script runs and every `if`/`elseIf` result |
 | `BF2_LOAD_TRACE=<prefix>` | Writes timed spans of load work (phases, file opens, scripts, textures, meshes, effect compiles, Python, frames over 50 ms) to `<prefix>-bf2.tsv`, `<prefix>-renddx9.tsv` and `<prefix>-bf2audio.tsv`; `=1` uses the prefix `loadtrace`. Summarize with `Code/Tools/LoadTrace/loadtrace.py <prefix>`. See [perf.md](perf.md) |
-| `BF2_DRAW_STATS=<path>` | Counts draws per effect, technique and pass; once a second rewrites `<path>` (TSV) with session totals and the last presented frame. Shows which effects actually draw. See [renderer.md](renderer.md) step 6 |
+| `BF2_DRAW_STATS=<path>` | Counts draws per effect, technique and pass; once a second rewrites `<path>` (TSV) with session totals and the last presented frame. Shows which effects actually draw. Sun caster draws are split per cascade (technique `RaShadowDepth@c0`..`@c3`), and counter rows (`(count)`) give the captured and unbounded casters per frame. See [renderer.md](renderer.md) step 6 |
 | `BF2_AI_WEAPON_TRACE` | Logs each AI weapon record released when its `WeaponObject` is destroyed |
 
 ## Build options (CMake)

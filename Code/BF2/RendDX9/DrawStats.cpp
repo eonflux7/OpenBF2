@@ -4,7 +4,8 @@
 // or Ra shader pass that begins becomes the current entry; the renderer's draw wrappers and
 // RaShader::draw add to it. Draws outside any pass count against "(none)". Once a second the table
 // is rewritten to <path>: the session totals (does it draw on this map at all) and the last
-// presented frame (what this view draws).
+// presented frame (what this view draws). A scope (drawStatsSetScope) splits a technique's rows by
+// what the renderer is drawing it for; counter rows (effect "(count)") record events, not draws.
 #ifdef BF2_IMAGE_RENDDX9
 
 #include "DrawStats.h"
@@ -55,6 +56,17 @@ std::vector<Entry*>* g_touched = 0;   // entries drawn in the frame being drawn
 std::vector<Entry*>* g_last = 0;      // entries drawn in the last presented frame
 unsigned int g_frames = 0;
 std::clock_t g_lastWrite = 0;
+const char* g_scope = 0;
+
+void add(Entry* e, unsigned int draws, unsigned int primitives)
+{
+    if (!e->frameDraws)
+        g_touched->push_back(e);
+    e->draws += draws;
+    e->primitives += primitives;
+    e->frameDraws += draws;
+    e->framePrimitives += primitives;
+}
 
 Entry* lookup(const std::string& effect, const std::string& technique, unsigned int pass)
 {
@@ -116,7 +128,20 @@ void drawStatsBeginPass(const std::string& effect, const std::string& technique,
 {
     if (!g_drawStatsOn)
         return;
-    g_current = lookup(effect, technique, pass);
+    g_current = g_scope ? lookup(effect, technique + "@" + g_scope, pass)
+                        : lookup(effect, technique, pass);
+}
+
+void drawStatsSetScope(const char* scope)
+{
+    g_scope = scope;
+}
+
+void drawStatsCount(const char* name, unsigned int n)
+{
+    if (!g_drawStatsOn || !n)
+        return;
+    add(lookup("(count)", name, 0), n, 0);
 }
 
 void drawStatsEndPass()
@@ -128,13 +153,7 @@ void drawStatsDraw(unsigned int primitives)
 {
     if (!g_drawStatsOn)
         return;
-    Entry* const e = g_current ? g_current : g_none;
-    if (!e->frameDraws)
-        g_touched->push_back(e);
-    ++e->draws;
-    e->primitives += primitives;
-    ++e->frameDraws;
-    e->framePrimitives += primitives;
+    add(g_current ? g_current : g_none, 1, primitives);
 }
 
 void drawStatsFrame()

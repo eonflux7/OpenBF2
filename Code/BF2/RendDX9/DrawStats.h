@@ -18,6 +18,11 @@ void drawStatsBeginPass(const std::string& effect, const std::string& technique,
 void drawStatsEndPass();
 void drawStatsDraw(unsigned int primitives);
 void drawStatsFrame();   // after a successful Present
+// Until reset with 0, passes that begin are recorded with "@scope" appended to the technique (the
+// sun cascade being drawn, for example).
+void drawStatsSetScope(const char* scope);
+// Adds `n` to the counter row ("(count)", name): an event count per frame rather than draws.
+void drawStatsCount(const char* name, unsigned int n);
 
 } // namespace dx9rend
 } // namespace hfe
