@@ -95,6 +95,8 @@ void applyScale(float displayHeight)
     style = ImGuiStyle();
     ImGui::StyleColorsDark(&style);
     style.ScaleAllSizes(scale);
+    // ScaleAllSizes truncates the cursor scale to a whole number: 0 below 1080p, so no cursor.
+    style.MouseCursorScale = scale > 1.0f ? scale : 1.0f;
     style.FontSizeBase = 16.0f;
     style.FontScaleMain = scale;
 }
