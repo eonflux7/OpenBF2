@@ -5,6 +5,7 @@
 #include "GameLogic.h"
 #include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../../IO/File/ArchivePrefetch.h"   // [PERF] archive prefetch
+#include "../../IO/File/LooseProbeCache.h"   // [PERF] existence probes from directory listings
 #include "../Main/Game.h"        // isDedicated - loadCallback's client/server split
 #if !DEDICATED
 #include "../VoipClient/BF2VoipClient.h"   // bf2VoipClient (ds:0x9A4DA0)
@@ -563,6 +564,9 @@ bool GameLogic::load(const std::string& levelPath)
         }
         io::archivePrefetchBegin("@HOME@/" + mod + "/cache/fileorder_" + name + ".lst");
     }
+    // [PERF] Loose-file existence probes answered from directory listings until endLoadStats
+    // (IO/File/LooseProbeCache.h). Serially, each probe asked the disk.
+    io::looseProbeCacheBegin();
 
     loadtrace::mark("load:setup");                             // [DEV] BF2_LOAD_TRACE
     // stats, sun, and the first scripted phase (0x80CEC4A-0x80CEE12)
@@ -2472,6 +2476,7 @@ void GameLogic::endLoadStats()
 {
     loadtrace::mark("load:resources");   // [DEV] BF2_LOAD_TRACE: the loading bar's end
     io::archivePrefetchEnd();   // [PERF] archive prefetch: the load is over; write its list
+    io::looseProbeCacheEnd();   // [PERF] existence probes ask the disk again
 
     loadStat->unregisterLoadCallback();
     eventManager->postEvent(ECHud, 8, 0, 0.0f);                         // +0x14

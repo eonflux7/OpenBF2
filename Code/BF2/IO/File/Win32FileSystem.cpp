@@ -2,6 +2,7 @@
 
 // Preserve internal linkage for the header-defined ID table. FileChangeManager.cpp owns the
 // external io:: file-change IDs; seeing its extern declarations first would emit a second copy.
+#include "LooseProbeCache.h"   // [PERF] existence probes from directory listings
 #include "../../Core/Ids.h"
 #include "Win32FileSystem.h"
 #include "../../Core/Debug.h"
@@ -14,6 +15,10 @@
 #include <windows.h>
 #include <shlobj.h>      // SHGetFolderPathW(CSIDL_PERSONAL), crash-directory setup
 #include <shellapi.h>   // SHFileOperationW directory deletion
+#include <cstdlib>       // [PERF] getenv
+#include <mutex>         // [PERF] LooseProbeCache.h
+#include <unordered_map>
+#include <unordered_set>
 
 namespace dice {
 namespace hfe {
@@ -494,6 +499,7 @@ bool IFileSystem::isLastFileOpenedFromArchive() const
 // filename prefix; ordinary files use DeleteFileW. ELF UnixFileSystem deliberately uses unlink.
 bool Win32FileSystem::deleteFile(const std::string& name)
 {
+    probeCacheDrop();   // [PERF] LooseProbeCache.h
     FileInfo info;
     if (!getFileInfo(name, info)) return false;
     const std::string normalized = normalizeFileName(name);
@@ -513,6 +519,7 @@ bool Win32FileSystem::deleteFile(const std::string& name)
 // PE 0x6765E0 / 0x6766E0 normalize the destination before the source.
 bool Win32FileSystem::moveFile(const std::string& from, const std::string& to)
 {
+    probeCacheDrop();   // [PERF] LooseProbeCache.h
     const std::wstring destination = widenFileName(normalizeFileName(to), true);
     const std::wstring source = widenFileName(normalizeFileName(from), true);
     return MoveFileW(source.c_str(), destination.c_str()) != 0;
@@ -520,6 +527,7 @@ bool Win32FileSystem::moveFile(const std::string& from, const std::string& to)
 
 bool Win32FileSystem::copyFile(const std::string& from, const std::string& to, bool failIfExists)
 {
+    probeCacheDrop();   // [PERF] LooseProbeCache.h
     const std::wstring destination = widenFileName(normalizeFileName(to), true);
     const std::wstring source = widenFileName(normalizeFileName(from), true);
     return CopyFileW(source.c_str(), destination.c_str(), failIfExists) != 0;
@@ -585,6 +593,7 @@ bool Win32FileSystem::readFile(const std::string& name, void* buffer, unsigned i
 bool Win32FileSystem::writeFile(const std::string& name, const void* buffer,
                               unsigned int size, bool overwrite)
 {
+    probeCacheDrop();   // [PERF] LooseProbeCache.h
     const std::wstring wide = widenFileName(normalizeFileName(name), true);
     createPathDirectories(normalizeWideDirectory(extractWideDirectory(wide)));
     HANDLE handle = CreateFileW(wide.c_str(), GENERIC_WRITE, FILE_SHARE_READ, 0,
@@ -657,6 +666,8 @@ IStream* Win32FileSystem::open(const std::string& name, FileMode mode, FileAcces
                              unsigned int flags)
 {
     // PE 0x677750 widens before normalizing. Buffered wrapper helper 0x677EC0 is SmartItf.
+    if (mode != FILEMODE_READ || access == 2 || access == 1)
+        probeCacheDrop();   // [PERF] LooseProbeCache.h: a write may create files
     const std::wstring wide = widenFileName(name, true);
     const bool text = (access == 2 || access == 1) ? isTextFile(wide) : false;
     Win32FileStream* stream = new Win32FileStream(this, text);
@@ -690,6 +701,85 @@ IStream* Win32FileSystem::open(const std::string& name, FileMode mode, FileAcces
 // Returns file information in shared static storage, or null for a missing or dot-prefixed entry.
 // The next call overwrites the record; this helper is not thread-safe.
 namespace {
+
+// [PERF] LooseProbeCache.h: lowercased directory -> its lowercased entry names, while a load runs.
+struct ProbeCache
+{
+    std::mutex mutex;
+    bool       active;
+    std::unordered_map<std::wstring, std::unordered_set<std::wstring> > listings;
+    ProbeCache() : active(false) {}
+};
+
+ProbeCache& probeCache()
+{
+    static ProbeCache cache;
+    return cache;
+}
+
+void probeCacheDrop()
+{
+    ProbeCache& cache = probeCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    cache.listings.clear();
+}
+
+wchar_t lowerAscii(wchar_t c)
+{
+    return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+}
+
+// 1 exists, 0 missing, -1 not answerable from a listing (ask the disk).
+int probeCacheLookup(const std::wstring& wide)
+{
+    ProbeCache& cache = probeCache();
+    if (!cache.active || wide.empty())
+        return -1;
+    for (std::size_t i = 0; i < wide.size(); ++i)
+    {
+        const wchar_t c = wide[i];
+        if (c == L'*' || c == L'?' || c == L'~' || c == L':' || c == L'/' || c > 0x7F)
+            return -1;
+    }
+    const wchar_t last = wide[wide.size() - 1];
+    if (wide[0] == L'\\' || last == L'\\' || last == L'.' || last == L' ')
+        return -1;
+    const std::size_t slash = wide.rfind(L'\\');
+    const std::wstring directory = slash == std::wstring::npos ? std::wstring() : wide.substr(0, slash);
+    std::wstring name = slash == std::wstring::npos ? wide : wide.substr(slash + 1);
+    if (name == L"..")
+        return -1;
+    std::wstring key(directory);
+    for (std::size_t i = 0; i < key.size(); ++i)
+        key[i] = lowerAscii(key[i]);
+    for (std::size_t i = 0; i < name.size(); ++i)
+        name[i] = lowerAscii(name[i]);
+
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    std::unordered_map<std::wstring, std::unordered_set<std::wstring> >::iterator listing =
+        cache.listings.find(key);
+    if (listing == cache.listings.end())
+    {
+        std::unordered_set<std::wstring> names;
+        WIN32_FIND_DATAW findData;
+        const std::wstring pattern = directory.empty() ? std::wstring(L"*") : directory + L"\\*";
+        HANDLE handle = FindFirstFileW(pattern.c_str(), &findData);
+        if (handle != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                std::wstring entry(findData.cFileName);
+                for (std::size_t i = 0; i < entry.size(); ++i)
+                    entry[i] = lowerAscii(entry[i]);
+                names.insert(entry);
+            } while (FindNextFileW(handle, &findData));
+            FindClose(handle);
+        }
+        listing = cache.listings.insert(std::make_pair(key, names)).first;
+    }
+    // findOneEntry's dot rule: an entry whose name starts with '.' is reported missing.
+    return (listing->second.count(name) && name[0] != L'.') ? 1 : 0;
+}
 
 const FileInfo* findOneEntry(const std::string& name)
 {
@@ -732,6 +822,13 @@ const FileInfo* findOneEntry(const std::string& name)
 // Returns whether the named entry exists. Empty names and dot-prefixed entries return false on Windows.
 bool Win32FileSystem::fileExists(const std::string& name)
 {
+    // [PERF] LooseProbeCache.h: answered from the directory's listing while a load runs.
+    if (!name.empty())
+    {
+        const int cached = probeCacheLookup(widenUtf8(normalizeFileName(name)));
+        if (cached >= 0)
+            return cached == 1;
+    }
     // Uses the shared lookup rules for empty and dot-prefixed names.
     return findOneEntry(name) != 0;
 }
@@ -922,5 +1019,36 @@ const wchar_t* getCrashDumpDirectory()
     return directory.c_str();
 }
 
+} // namespace hfe
+} // namespace dice
+
+namespace dice {
+namespace hfe {
+namespace io {
+
+// [PERF] LooseProbeCache.h
+void looseProbeCacheBegin()
+{
+    static int on = -1;
+    if (on < 0)
+    {
+        const char* e = std::getenv("BF2_PERF_PROBECACHE");
+        on = (e && *e == '0') ? 0 : 1;
+    }
+    ProbeCache& cache = probeCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    cache.listings.clear();
+    cache.active = on == 1;
+}
+
+void looseProbeCacheEnd()
+{
+    ProbeCache& cache = probeCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    cache.listings.clear();
+    cache.active = false;
+}
+
+} // namespace io
 } // namespace hfe
 } // namespace dice
