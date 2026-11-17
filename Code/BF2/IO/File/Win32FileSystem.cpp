@@ -25,6 +25,8 @@ namespace hfe {
 namespace io {
 
 namespace {
+
+void probeCacheDrop();   // [PERF] LooseProbeCache.h, defined beside findOneEntry
 // UTF-8/UTF-16 conversion helpers. Conversion failures are not checked. [INFERRED] Helper names.
 std::wstring widenUtf8(const std::string& text)
 {
