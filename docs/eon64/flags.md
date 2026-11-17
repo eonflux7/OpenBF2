@@ -17,10 +17,7 @@ Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`
 
 ## `perf`: select the old serial path while a step is in development
 
-| Flag | Default | Effect | Removed when |
-|---|---|---|---|
-| `BF2_PERF_FXKEY=preprocess` | off | The Ra effect cache key comes from the preprocessor again, not from the source and its includes | The source key is accepted in game |
-| `BF2_PERF_FXPREFETCH=0` | on | Ra effects compile one by one on the main thread when first asked for, instead of ahead on worker threads | The prefetch is accepted in game |
+None at present. Retired with their steps on 2026-11-17: `BF2_PERF_FXKEY`, `BF2_PERF_FXPREFETCH`.
 
 ## `compat`: gate behaviour retail BF2 must not see
 

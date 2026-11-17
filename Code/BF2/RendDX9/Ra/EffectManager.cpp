@@ -1736,7 +1736,7 @@ std::string raEffectContentKey(const char* source, unsigned int sourceLen, const
 // to anything the preprocessor could read changes the key. Files resolve as raIncludeOpen
 // resolves them. A file's hash and its include list are kept per path and reused while its size
 // and write time are unchanged. Empty (the caller then uses raEffectContentKey) when an #include
-// does not name a file literally. BF2_PERF_FXKEY=preprocess always uses raEffectContentKey.
+// does not name a file literally.
 // Main thread only, as compileEffect is.
 namespace {
 
@@ -1828,17 +1828,6 @@ const RaKeyFile& raKeyFile(const std::string& path, bool obfuscated)
     return file;
 }
 
-bool raPreprocessorKeyForced()
-{
-    static int forced = -1;
-    if (forced < 0)
-    {
-        const char* const v = ::getenv("BF2_PERF_FXKEY");
-        forced = (v && ::_stricmp(v, "preprocess") == 0) ? 1 : 0;
-    }
-    return forced == 1;
-}
-
 // One file the effect can include, by the name its #include line gives.
 struct RaIncludeText
 {
@@ -1855,9 +1844,6 @@ std::string raEffectSourceKey(const char* source, unsigned int sourceLen, const 
                               unsigned long flags, const std::string& raDefines, bool obfuscated,
                               RaIncludeMap* includesOut = 0)
 {
-    if (raPreprocessorKeyForced())
-        return std::string();
-
     unsigned long long hash = raFnv1a(14695981039346656037ull, source, sourceLen);
     bool dynamic = false;
     std::vector<std::string> pending;
@@ -1923,8 +1909,7 @@ std::string raEffectSourceKey(const char* source, unsigned int sourceLen, const 
 // the key compileEffect computes, so its source, includes, defines and flags are the ones the
 // serial compile would see. The include watches the serial include handler registers are
 // registered from the list of files the worker opened. A job whose compile failed, or that asked
-// for a file it was not given, is dropped and the serial compile runs. BF2_PERF_FXPREFETCH=0 turns
-// the prefetch off. Windows only (the compiler entry is resolved from d3dx9_24.dll).
+// for a file it was not given, is dropped and the serial compile runs. Windows only (the compiler entry is resolved from d3dx9_24.dll).
 namespace {
 
 // PE 0x100376C8: insert before registering, and ignore the returned resolved path.
@@ -2084,17 +2069,6 @@ void raPrefetchWorker(RaPrefetchPool* pool, RaD3dxCreateEffectCompilerFn create)
         }
         pool->finished.notify_all();
     }
-}
-
-bool raPrefetchEnabled()
-{
-    static int enabled = -1;
-    if (enabled < 0)
-    {
-        const char* const v = ::getenv("BF2_PERF_FXPREFETCH");
-        enabled = (v && v[0] == '0' && v[1] == 0) ? 0 : 1;
-    }
-    return enabled == 1;
 }
 
 void raPrefetchQueue(RaPrefetchJob* job)
@@ -2605,7 +2579,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
 #if defined(_WIN32) && !defined(__APPLE__)
     // [PERF] The effect prefetch (see raTakePrefetched): list this name, and at the first compile of
     // the session queue every listed effect whose cache is stale.
-    if (keyPs < 5 && !cacheKey.empty() && raPrefetchEnabled())
+    if (keyPs < 5 && !cacheKey.empty())
     {
         const std::string manifestPath = cacheDirectory + "effects.lst";
         std::vector<std::string> listed;
