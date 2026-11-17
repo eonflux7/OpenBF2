@@ -20,6 +20,7 @@
 #include "../Core/EventManager.h"
 #include "../Core/SettingsRepostitory.h"
 #include "../Core/StringUtil.h"
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../../RendDX9Abi/PluginEntry.h"
 #include "../../RendDX9Abi/EngineFile.h"
 #include "../RendDX9/RendDX9Base.h"
@@ -469,6 +470,159 @@ std::string& modDirectory()
     return s_dir;
 }
 
+// [PERF] The menu image cache. D3DXCreateTextureFromFileInMemory with its defaults rounds an image
+// up to powers of two, refilters and recompresses it and builds every mip level on the CPU: the
+// four 1600x900 DXT1 loading backgrounds of a PR level took about 150 ms each, every level load,
+// on the main thread. The texture D3DX made is kept, level by level, under
+// @HOME@/<mod>/cache/swiffimg/, keyed by a hash of the source bytes and the device's texture
+// caps; later loads create a texture with the same size, format, levels, usage and pool and copy
+// the bytes back. Formats other than DXT and plain RGB/luminance ones are not cached.
+// BF2_PERF_SWIFFIMG=0 creates every image with D3DX again.
+namespace swiffimg {
+
+bool enabled()
+{
+    static int on = -1;
+    if (on < 0)
+    {
+        const char* e = ::getenv("BF2_PERF_SWIFFIMG");
+        on = (e && *e == '0') ? 0 : 1;
+    }
+    return on == 1;
+}
+
+unsigned long long fnv(unsigned long long hash, const void* data, size_t size)
+{
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    for (size_t i = 0; i < size; ++i)
+        hash = (hash ^ p[i]) * 1099511628211ull;
+    return hash;
+}
+
+// Bytes per row and rows of a level, by blocks for DXT; false for formats not cached.
+bool levelLayout(D3DFORMAT format, UINT width, UINT height, UINT& rowBytes, UINT& rows)
+{
+    switch (format)
+    {
+    case D3DFMT_DXT1:
+        rowBytes = ((width + 3) / 4) * 8;  rows = (height + 3) / 4;  return true;
+    case D3DFMT_DXT2: case D3DFMT_DXT3: case D3DFMT_DXT4: case D3DFMT_DXT5:
+        rowBytes = ((width + 3) / 4) * 16; rows = (height + 3) / 4;  return true;
+    case D3DFMT_A8R8G8B8: case D3DFMT_X8R8G8B8: case D3DFMT_A8B8G8R8: case D3DFMT_X8B8G8R8:
+        rowBytes = width * 4; rows = height; return true;
+    case D3DFMT_R5G6B5: case D3DFMT_X1R5G5B5: case D3DFMT_A1R5G5B5: case D3DFMT_A4R4G4B4:
+    case D3DFMT_X4R4G4B4: case D3DFMT_A8L8:
+        rowBytes = width * 2; rows = height; return true;
+    case D3DFMT_L8: case D3DFMT_A8:
+        rowBytes = width; rows = height; return true;
+    default:
+        return false;
+    }
+}
+
+const char kMagic[8] = { 'B', 'F', '2', 'S', 'W', 'I', '1', 0 };
+
+std::string cachePath(const std::string& path, unsigned long long hash)
+{
+    std::string mod(modDirectory());
+    while (!mod.empty() && (mod[mod.size() - 1] == '/' || mod[mod.size() - 1] == '\\'))
+        mod.erase(mod.size() - 1);
+    if (mod.empty() || mod == "No Current Mod")
+        return std::string();
+    std::string stem(path);
+    for (size_t i = 0; i < stem.size(); ++i)
+    {
+        const char c = stem[i];
+        stem[i] = (c == '/' || c == '\\' || c == ':' || c == '@') ? '_'
+                : ((c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c);
+    }
+    char suffix[32];
+    ::sprintf(suffix, ".%016llx.tex", hash);
+    return "@HOME@/" + mod + "/cache/swiffimg/" + stem + suffix;
+}
+
+IDirect3DTexture9* load(IDirect3DDevice9* device, const std::string& cachePath)
+{
+    auto* const in = ::dice::hfe::fileManager->open(cachePath, static_cast<renddx9abi::HostFileMode>(2),
+                                                    static_cast<renddx9abi::HostFileAccess>(0), 0);
+    if (!in)
+        return 0;
+    IDirect3DTexture9* texture = 0;
+    char magic[8];
+    unsigned int head[6];   // format, width, height, levels, usage, pool
+    bool ok = in->read(magic, 8) == 8 && ::memcmp(magic, kMagic, 8) == 0
+              && in->read(head, sizeof head) == sizeof head && head[3] > 0 && head[3] <= 16
+              && device->CreateTexture(head[1], head[2], head[3], head[4],
+                                       static_cast<D3DFORMAT>(head[0]),
+                                       static_cast<D3DPOOL>(head[5]), &texture, 0) == 0;
+    for (unsigned int level = 0; ok && level < head[3]; ++level)
+    {
+        D3DSURFACE_DESC desc;
+        UINT rowBytes = 0, rows = 0;
+        unsigned int stored = 0;
+        ok = texture->GetLevelDesc(level, &desc) == 0
+             && levelLayout(desc.Format, desc.Width, desc.Height, rowBytes, rows)
+             && in->read(&stored, 4) == 4 && stored == rowBytes * rows;
+        D3DLOCKED_RECT locked;
+        if (!ok || texture->LockRect(level, &locked, 0, 0) != 0)
+        {
+            ok = false;
+            break;
+        }
+        unsigned char* dest = static_cast<unsigned char*>(locked.pBits);
+        for (UINT r = 0; ok && r < rows; ++r)
+            ok = in->read(dest + r * locked.Pitch, rowBytes) == rowBytes;
+        texture->UnlockRect(level);
+    }
+    in->release();
+    if (!ok && texture)
+    {
+        texture->Release();
+        texture = 0;
+    }
+    return texture;
+}
+
+void save(IDirect3DTexture9* texture, const std::string& cachePath)
+{
+    const DWORD levels = texture->GetLevelCount();
+    D3DSURFACE_DESC top;
+    if (levels == 0 || levels > 16 || texture->GetLevelDesc(0, &top) != 0)
+        return;
+    std::vector<unsigned char> data;
+    for (DWORD level = 0; level < levels; ++level)
+    {
+        D3DSURFACE_DESC desc;
+        UINT rowBytes = 0, rows = 0;
+        if (texture->GetLevelDesc(level, &desc) != 0 || desc.Format != top.Format
+            || !levelLayout(desc.Format, desc.Width, desc.Height, rowBytes, rows))
+            return;
+        D3DLOCKED_RECT locked;
+        if (texture->LockRect(level, &locked, 0, D3DLOCK_READONLY) != 0)
+            return;
+        const unsigned int stored = rowBytes * rows;
+        const unsigned char* sizeBytes = reinterpret_cast<const unsigned char*>(&stored);
+        data.insert(data.end(), sizeBytes, sizeBytes + 4);
+        const unsigned char* src = static_cast<const unsigned char*>(locked.pBits);
+        for (UINT r = 0; r < rows; ++r)
+            data.insert(data.end(), src + r * locked.Pitch, src + r * locked.Pitch + rowBytes);
+        texture->UnlockRect(level);
+    }
+    auto* const out = ::dice::hfe::fileManager->open(cachePath, static_cast<renddx9abi::HostFileMode>(0),
+                                                     static_cast<renddx9abi::HostFileAccess>(2), 0);
+    if (!out)
+        return;
+    const unsigned int head[6] = { static_cast<unsigned int>(top.Format), top.Width, top.Height,
+                                   static_cast<unsigned int>(levels), top.Usage,
+                                   static_cast<unsigned int>(top.Pool) };
+    out->write(kMagic, 8);
+    out->write(head, sizeof head);
+    out->write(&data[0], static_cast<unsigned int>(data.size()));
+    out->release();
+}
+
+} // namespace swiffimg
+
 // PE 0x101B9C30. Resolve menu paths, load through the mounted filesystem, and cache the record.
 int registryGetOrLoad(SwiffTextureRegistry& reg, const std::string& name,
                       unsigned int* outW, unsigned int* outH, int skipCache)
@@ -596,8 +750,35 @@ int registryGetOrLoad(SwiffTextureRegistry& reg, const std::string& name,
     stream.close();
     D3DXIMAGE_INFO info;
     D3DXGetImageInfoFromFileInMemory(bytes, read, &info);
-    const HRESULT hr = D3DXCreateTextureFromFileInMemory(static_cast<IDirect3DDevice9*>(device),
-                                                         bytes, read, &texture);
+    // [PERF] The menu image cache (swiffimg above): the texture D3DX made from these bytes before.
+    std::string imageCache;
+    if (swiffimg::enabled() && device && bytes && read > 0)
+    {
+        D3DCAPS9 caps;
+        ::memset(&caps, 0, sizeof caps);
+        static_cast<IDirect3DDevice9*>(device)->GetDeviceCaps(&caps);
+        unsigned long long hash = 14695981039346656037ull;
+        hash = swiffimg::fnv(hash, &caps.TextureCaps, sizeof caps.TextureCaps);
+        hash = swiffimg::fnv(hash, &caps.MaxTextureWidth, sizeof caps.MaxTextureWidth);
+        hash = swiffimg::fnv(hash, &caps.MaxTextureHeight, sizeof caps.MaxTextureHeight);
+        hash = swiffimg::fnv(hash, bytes, read);
+        imageCache = swiffimg::cachePath(path, hash);
+        if (!imageCache.empty())
+        {
+            ::dice::hfe::loadtrace::Scope trace("swiffimg.load", path.c_str());   // [DEV] BF2_LOAD_TRACE
+            texture = swiffimg::load(static_cast<IDirect3DDevice9*>(device), imageCache);
+        }
+    }
+    const bool fromImageCache = texture != 0;
+    HRESULT hr = 0;
+    if (!fromImageCache)
+    {
+        ::dice::hfe::loadtrace::Scope trace("swiffimg.create", path.c_str());   // [DEV] BF2_LOAD_TRACE
+        hr = D3DXCreateTextureFromFileInMemory(static_cast<IDirect3DDevice9*>(device),
+                                               bytes, read, &texture);
+        if (hr == 0 && !imageCache.empty())
+            swiffimg::save(texture, imageCache);
+    }
     if (hr != 0)
     {
         if (bytes) ::renddx9abi::engineFree(bytes);
