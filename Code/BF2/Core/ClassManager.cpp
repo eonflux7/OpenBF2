@@ -5,6 +5,7 @@
 #include "Ids.h"                          // [INFERRED] header name; the constants are attested
 #include "Debug.h"                        // Debug() - used at lines 46 and 53
 #include "StringUtil.h"                   // formatString() - used at line 108
+#include "LoadTrace.h"                    // [DEV] BF2_LOAD_TRACE - registerServer stages
 #include "Ids.h"                          // IID_IBase / IID_IClassManager - queryInterface
 #include <map>                            // ClassInfo / SingletonInfo storage
 #include <algorithm>                      // std::find - unregisterServer
@@ -96,7 +97,10 @@ void ClassManager::registerServer(IClassServer* server)
 
     // 1. absorb the class list
     std::vector<ClassRegInfo> classes;
+    loadtrace::Scope* stageTrace = new loadtrace::Scope("init.register", "getClassList");   // [DEV] BF2_LOAD_TRACE
     server->getClassList(classes);               // IClassServer vtable +0x10
+    delete stageTrace;
+    stageTrace = new loadtrace::Scope("init.register", "classes");   // [DEV] BF2_LOAD_TRACE
 
     for (std::vector<ClassRegInfo>::iterator c = classes.begin(); c != classes.end(); ++c)
     {
@@ -125,12 +129,17 @@ void ClassManager::registerServer(IClassServer* server)
         m_classInfos.push_back(info);
     }
 
+    delete stageTrace;   // [DEV] BF2_LOAD_TRACE
+
     // 2. absorb the singleton list
     std::vector<SingletonRegInfo> singletons;
     server->getSingletonList(singletons);        // IClassServer vtable +0x14
 
     for (std::vector<SingletonRegInfo>::iterator s = singletons.begin(); s != singletons.end(); ++s)
+    {
+        loadtrace::Scope singletonTrace("init.register", s->name.c_str());   // [DEV] BF2_LOAD_TRACE
         registerSingleton(*s);                   // virtual, own vtable +0x44
+    }
 }
 
 // initSingletons -

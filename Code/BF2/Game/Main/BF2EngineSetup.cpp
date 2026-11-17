@@ -150,7 +150,10 @@ bool BF2EngineSetup::initModules()
     {
         loadtrace::Scope registerTrace("init", "modules.register");   // [DEV] BF2_LOAD_TRACE
         for (size_t i = 0; i < s_modules.size(); ++i)
+        {
+            loadtrace::Scope serverTrace("init.register", typeid(*s_modules[i]).name());   // [DEV] BF2_LOAD_TRACE
             classManager->registerServer(s_modules[i]);
+        }
     }
 
     classManager->setDefaultClass(IID_IMemoryPool, CID_MemoryPool);
