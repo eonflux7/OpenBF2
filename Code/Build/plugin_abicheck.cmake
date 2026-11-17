@@ -42,11 +42,11 @@ macro(_forbid text needle msg)
         _fail("${msg}")
     endif()
 endmacro()
-# An export is a dumpbin line "<ordinal> <hint> <rva> <name>": match the whole name, so deinitDll
-# cannot satisfy initDll. With ORDINAL, the ordinal column must match too.
+# An export is a dumpbin line "<ordinal> <hint> <rva> <name>", optionally followed by " = <internal
+# name>": match the whole name, so deinitDll cannot satisfy initDll. Returns the ordinal column.
 function(_export_line out name)
     string(REGEX REPLACE "([][.*+?^$()|\\\\])" "\\\\\\1" _escaped "${name}")
-    string(REGEX MATCH "(^|\n)[ \t]*([0-9]+)[ \t]+[0-9A-Fa-f]+[ \t]+[0-9A-Fa-f]+[ \t]+${_escaped}[ \t]*(\r?\n|$)" _line "${_exports}")
+    string(REGEX MATCH "(^|\n)[ \t]*([0-9]+)[ \t]+[0-9A-Fa-f]+[ \t]+[0-9A-Fa-f]+[ \t]+${_escaped}([ \t]+=[ \t][^\r\n]*)?[ \t]*(\r?\n|$)" _line "${_exports}")
     if(_line)
         set(${out} "${CMAKE_MATCH_2}" PARENT_SCOPE)
     else()

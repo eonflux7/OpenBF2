@@ -135,15 +135,14 @@ target_compile_definitions(bf2_textureatlas_native PRIVATE
     _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 target_include_directories(bf2_textureatlas_native PRIVATE ${_d3dx_includes})
 # No d3d9.lib: the device arrives through create(). d3dx9_25.dll is delay-loaded, as in RendDX9.
-target_link_libraries(bf2_textureatlas_native PRIVATE
-    legacy_stdio_float_rounding.obj "${_d3dx_lib}" kernel32.lib delayimp.lib)
+target_link_libraries(bf2_textureatlas_native PRIVATE "${_d3dx_lib}" kernel32.lib delayimp.lib)
 if(_dxsdk)
     # DxErr9.lib is a VC7.1 object: its DXTrace needs __vsnprintf and MessageBox, which /OPT:REF drops.
     target_link_libraries(bf2_textureatlas_native PRIVATE
         "${_dxsdk}/Lib/${_machine}/DxErr9.lib" legacy_stdio_definitions.lib user32.lib)
 endif()
 target_link_options(bf2_textureatlas_native PRIVATE
-    /OPT:REF /OPT:ICF /DELAYLOAD:d3dx9_25.dll)
+    /OPT:REF /OPT:ICF /DELAYLOAD:d3dx9_25.dll legacy_stdio_float_rounding.obj)
 if(NOT BF2_BUILD_X64)
     # x86: the shipped base, and the .def that pins the twelve exports to the shipped ordinals. x64 exports
     # the same twelve names through the dllexport classes in ITextureAtlas.h.
