@@ -2626,8 +2626,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
                 ++queued;
             }
             ::fprintf(stderr, "[EFFECTPREFETCH] %u listed: %u queued on worker threads, %u cached, "
-                              "%u unreadable now
-", static_cast<unsigned>(listed.size()), queued,
+                              "%u unreadable now\n", static_cast<unsigned>(listed.size()), queued,
                       current, unreadable);
             ::fflush(stderr);
         }
