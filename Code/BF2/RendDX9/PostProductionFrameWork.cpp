@@ -1799,6 +1799,7 @@ void postProductionFinish()
         stateManagerSetRenderStatePersistent(D3DRS_MULTISAMPLEANTIALIAS, 0);
         rendererPostResolveScene();
     }
+    rendererHdrEndScene();          // [CHOSEN] BF2_HDR: from here the null target is the back buffer
     if (drawPostProduction(o))
         geom::fsQuadDrawerBlitToBackBuffer(rendererPostSceneTexture());
     if (rendererPostMultisampleActive())

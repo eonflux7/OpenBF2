@@ -7069,7 +7069,7 @@ bool lightManagerSelectRenderTarget(dx9rend::RendDX9Base* base, unsigned int ind
     {
         surface = base->tempBackBuffer;                                     // +0x0F4
         if (!surface)
-            surface = dx9rend::rendererBackBufferSurface();                 // +0x76C
+            surface = dx9rend::rendererSceneColorSurface();                 // +0x76C; [CHOSEN] BF2_HDR
         if (surface)
             surface->AddRef();
     }

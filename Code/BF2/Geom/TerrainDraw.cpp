@@ -1027,7 +1027,7 @@ void Terrain::drawMain()
     {
         IDirect3DSurface9* const surface = dx9rend::textureGetLevelSurface(
             dx9rend::rendererGetHemiScratchTexture(), 0, 0x7FFFFFFFu);
-        IDirect3DSurface9* const backBuffer = dx9rend::rendererBackBufferSurface();   // Renderer +0x76C
+        IDirect3DSurface9* const backBuffer = dx9rend::rendererSceneColorSurface();   // Renderer +0x76C; [CHOSEN] BF2_HDR
         dx9rend::Ra::raRendererDevice()->StretchRect(backBuffer, 0, surface, 0, D3DTEXF_NONE);   // device +0x88
         surface->Release();
         dx9rend::stateManagerClear(1u, 0u, 0.0f, 0u);

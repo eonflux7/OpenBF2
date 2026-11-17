@@ -688,6 +688,14 @@ unsigned int       rendererRaPath();                    // +0x6CC, the RAPATH sh
 void*              rendererFrameTimer();                // +0x5DC, the 48-byte QPC frame timer
 double             rendererPostTime();                  // PE 0x100286E0, the frame timer's seconds
 IDirect3DSurface9* rendererBackBufferSurface();         // +0x76C, the device back buffer reference
+// [CHOSEN, not recovered] HDR scene colour (BF2_HDR=1). The surface the scene draws into where
+// retail draws into the back buffer: the multisampled float scene surface between
+// rendererHdrBeginScene and rendererHdrEndScene, else the back buffer.
+bool rendererHdrEnabled();
+IDirect3DSurface9* rendererSceneColorSurface();
+void rendererHdrBeginScene();
+void rendererHdrEndScene();
+void rendererHdrReleaseSurface();
 IDirect3DSurface9* rendererDepthStencilSurface();       // +0x770, the depth-stencil reference
 // The render-path target texture at retail `retailOffset` (+0x778..+0x7D4).
 EngineTexture*     rendererPathTarget(unsigned int retailOffset);
