@@ -3,6 +3,7 @@
 #include "Console.h"
 #include "ConsoleCompiler.h"                 // [INFERRED] path
 #include "../../Core/LoadTrace.h"            // [DEV] BF2_LOAD_TRACE
+#include "ConsoleLineReader.h"                // [PERF] tokenizing without string streams
 #include "../Input/GameInput.h"
 #include "../File/FileManager.h"             // [INFERRED] path; IO/File/FileManager.cpp attested
 #include "../File/File.h"                    // io::File - the raii handle run() loads a script with
@@ -280,7 +281,7 @@ bool OldConsole::calcBooleanExpr(const std::string& lhs, const std::string& op,
 }
 
 // Tokenizes console arguments. Quoting and variable expansion begin at expandFrom; earlier arguments stay literal.
-int OldConsole::getArgs(std::istringstream& in, std::string* out, std::string* raw,
+int OldConsole::getArgs(ConsoleLineReader& in, std::string* out, std::string* raw,
                         int maxArgs, std::string& error, int expandFrom)
 {
     int count = 0;
@@ -290,7 +291,7 @@ int OldConsole::getArgs(std::istringstream& in, std::string* out, std::string* r
         bool inQuotes = false;
         std::string token;
 
-        in >> std::ws;                                  // skip leading whitespace
+        in.skipWs();                                    // skip leading whitespace (>> std::ws)
         if (in.eof())
             break;
 
@@ -377,13 +378,15 @@ void OldConsole::executeLine(const std::string& command, std::string& out,
                              bool addToHistory, bool suppressEcho, bool fullAccess)
 {
     ConStageClock stageClock(CsSplit);                  // [DEV] BF2_LOAD_TRACE: see ConStageClock
-    std::istringstream stream(command);
+    // [PERF] ConsoleLineSplitter: getline(buf, 1023, '\n') on an istringstream of command, without
+    // the stream (see ConsoleLineReader.h).
+    ConsoleLineSplitter stream(command);
     char buf[1024];
 
     for (;;)
     {
         stageClock.to(CsSplit);                         // the getline belongs to the split stage
-        if (!stream.getline(buf, 1023, '\n'))
+        if (!stream.next(buf))
             break;
         if (conProfileOn())
             ++g_conLines;
@@ -414,10 +417,9 @@ void OldConsole::executeLine(const std::string& command, std::string& out,
         if (m_consoleCompiler)
             m_consoleCompiler->addLine(line);           // compiled-.con capture
 
+        // [PERF] The first token is read only where it is used, the status-2 report below; the
+        // serial code read it for every line.
         stageClock.to(CsFirstToken);
-        std::istringstream ls(line);
-        std::string firstToken;
-        ls >> firstToken;
 
         AccessType access;
         if (fullAccess)                 access = static_cast<AccessType>(7);
@@ -448,9 +450,14 @@ void OldConsole::executeLine(const std::string& command, std::string& out,
             break;
 
         case 2:                                          // error, unless the command was `run`
+        {
+            std::string firstToken;
+            ConsoleLineReader firstReader(line);
+            firstReader.readToken(firstToken);
             if (firstToken != "run" && outputError)
                 output("Error: " + result);
             break;
+        }
 
         case 3:                                          // echo - the `echo` keyword's own status
             // Echo output is enabled either by the console echo setting or the error-output flag.
@@ -589,9 +596,9 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
         int& remDepth    = s_remDepth[levelIdx];
         int& noExecDepth = s_noExecDepth[levelIdx];
 
-        std::istringstream kin(line);
+        ConsoleLineReader kin(line);                     // [PERF] was an istringstream
         std::string kw;
-        kin >> kw;
+        kin.readToken(kw);
 
         // An active block comment swallows everything except its own nesting tokens
         if (remDepth > 0)
@@ -635,7 +642,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
                 return 1;
             }
             std::string lhs, op, rhs, value;
-            kin >> lhs; kin >> op; kin >> rhs;
+            kin.readToken(lhs); kin.readToken(op); kin.readToken(rhs);
             if (exchangeVariable(lhs, value) || exchangeConstant(lhs, value)) lhs = value;
             if (exchangeVariable(rhs, value) || exchangeConstant(rhs, value)) rhs = value;
             stripConditionQuotes(lhs);
@@ -657,7 +664,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             if (stack.empty()) { result = "Can not have an \"elseIf\" without an \"if\"!"; return 2; }
             if (stack.back().branchTaken) { stack.back().executing = false; return 1; }
             std::string lhs, op, rhs, value;
-            kin >> lhs; kin >> op; kin >> rhs;
+            kin.readToken(lhs); kin.readToken(op); kin.readToken(rhs);
             if (exchangeVariable(lhs, value) || exchangeConstant(lhs, value)) lhs = value;
             if (exchangeVariable(rhs, value) || exchangeConstant(rhs, value)) rhs = value;
             stripConditionQuotes(lhs);
@@ -774,10 +781,10 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
     // Looks up the console binding and invokes it with the parsed arguments.
     stageClock.to(CsLookup);
     {
-        std::istringstream in(line);
+        ConsoleLineReader in(line);                      // [PERF] was an istringstream
         std::string token;
 
-        if ((in >> token) && !token.empty())
+        if (in.readToken(token) && !token.empty())
         {
             const std::string::size_type dot = token.find('.');
             if (dot != std::string::npos && dot > 0 && dot + 1 < token.size())

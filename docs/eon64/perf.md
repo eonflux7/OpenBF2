@@ -99,6 +99,7 @@ These come from reading the code. The baseline trace will confirm or rule out ea
 | Ra cache key under Wine (`fix`) | Done: seen in game, muttrah_city_2, 186 s to 37 s with a filled cache |
 | Ra cache key from source and includes, no preprocessor | Done: accepted in game; keys 16.6 s to 2.2 s per load |
 | Ra effect prefetch: stale effects listed in `effects.lst` compile on worker threads | Done: accepted in game; a full recompile loads in 31 s instead of 186 s |
+| Console lines split and tokenized without `std::istringstream`, reproducing its token, `std::ws`, `get` and `getline` behaviour and state bits (`BF2_PERF_CONPARSE`) | In development: the interpreter's own time was 7.3 s of part:Objects over 2.6 million lines; the four streams per line were about 4.5 s of it |
 | Id and name index for ClassManager's class list (`BF2_PERF_CLASSINDEX`) | In development: module registration took 1.0 s of startup (two scans per class registered) |
 | Name index for the HUD's BFMeme registry, beside each container's child list (`BF2_PERF_MEMEINDEX`) | In development: HUD setup took 5.3 s of startup, each hudBuilder command slower than the last (9 us in the first tenth, about 300 us in the last) |
 | Loading-screen repaints from effect loads at most thirty per second, as the load callback's (`BF2_PERF_FXEVENT`) | In development: 1,116 repaints in the geometry part, 1.15 s |

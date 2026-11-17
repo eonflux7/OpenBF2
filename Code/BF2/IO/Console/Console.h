@@ -23,6 +23,8 @@ enum AccessType : int;              // [UNRESOLVED] enumerators; observed values
 
 namespace io {
 
+class ConsoleLineReader;   // [PERF] ConsoleLineReader.h - getArgs reads its tokens through it
+
 class ConsoleCompiler;
 class GameInput;
 
@@ -184,7 +186,7 @@ public:
 
     // non-virtual
     int  handleCommand(const std::string& cmd, std::string& result, AccessType access);
-    int  getArgs(std::istringstream& in, std::string* out, std::string* raw,
+    int  getArgs(ConsoleLineReader& in, std::string* out, std::string* raw,   // [PERF] was istringstream
                  int maxArgs, std::string& error, int expandFrom);
     bool exchangeVarsAndConsts(const std::string& token, std::string& out,
                                std::string& error);

@@ -19,6 +19,7 @@ Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`
 
 | Flag | Default | Effect | Removed when |
 |---|---|---|---|
+| `BF2_PERF_CONPARSE=0` | on | The console splits scripts into lines and lines into tokens with `std::istringstream` again (three or four streams per line) | Console parsing without string streams is accepted in game |
 | `BF2_PERF_CLASSINDEX=0` | on | ClassManager finds classes by id and name by scanning its class list again, with no index | The class index is accepted in game |
 | `BF2_PERF_MEMEINDEX=0` | on | The HUD's name registry (BFMeme) walks its child lists for every lookup and insert again, with no name index | The registry index is accepted in game |
 | `BF2_PERF_FXEVENT=0` | on | Every effect load posts a loading-screen repaint again, instead of at most thirty per second | The repaint throttle is accepted in game |
