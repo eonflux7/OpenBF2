@@ -14,6 +14,7 @@ namespace ai {
 // The recovered pooled type is defined in WeaponInfo.h. The manager stores only WeaponInfo pointers
 // so the forward declaration remains sufficient here.
 class WeaponInfo;
+class IWeapon;
 
 // sizeof == 4, from `operator new(4u)`.
 class WeaponInfoManager
@@ -32,6 +33,8 @@ public:
     bool        changeInformation(Handle handle, WeaponInfo* info);
     bool        swapInformation(Handle a, Handle b);
     bool        reset();
+    // [CHOSEN, not recovered] Invalidates every record built on the given engine weapon.
+    int         releaseWeapon(const IWeapon* weapon);
 
     static WeaponInfoManager* m_instance;
 

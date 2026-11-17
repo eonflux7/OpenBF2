@@ -137,6 +137,12 @@ void BFInformationCourier::freeWeaponInfo(unsigned int handle)
         delete weaponInfo;
 }
 
+// [CHOSEN, not recovered] see WeaponInfoManager::releaseWeapon.
+int BFInformationCourier::weaponDestroyed(IWeapon* weapon)
+{
+    return WeaponInfoManager::m_instance ? WeaponInfoManager::m_instance->releaseWeapon(weapon) : 0;
+}
+
 void BFInformationCourier::setWeaponInfo(unsigned int handle, WeaponInfo* weaponInfo)
 {
     WeaponInfo* const previous = WeaponInfoManager::m_instance->getInformation(handle);

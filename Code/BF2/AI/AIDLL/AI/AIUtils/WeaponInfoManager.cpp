@@ -3,6 +3,7 @@
 #include "WeaponInfoManager.h"
 
 #include "checkPointer.h"
+#include "../AIKnowledge/WeaponInfo.h"
 
 namespace dice {
 namespace hfe {
@@ -74,6 +75,28 @@ bool WeaponInfoManager::swapInformation(Handle a, Handle b)
 bool WeaponInfoManager::reset()
 {
     return m_pool->reset();
+}
+
+// [CHOSEN, not recovered] pr/x64-local prototype fix. The AI keeps raw IWeapon pointers in its
+// WeaponInfo records; the engine destroys a firearm's WeaponObject whenever the firearm is recycled
+// through the object cache (GenericFireArm::enableCachedObject builds a new one, as retail does),
+// and armaments only re-read their weapons on some events. A stale record then calls into a dead
+// object (R6025 pure virtual call, or an access violation). The weapon's destructor now releases
+// every record built on it: holders see a stale handle and getInformation answers null, which the
+// AI already treats as "no weapon". The WeaponInfo objects themselves are deliberately leaked,
+// because a caller may still hold the raw pointer for the rest of its tick.
+namespace {
+struct UsesWeapon
+{
+    const IWeapon* weapon;
+    bool operator()(WeaponInfo* info) const { return info->getWeapon() == weapon; }
+};
+}
+
+int WeaponInfoManager::releaseWeapon(const IWeapon* weapon)
+{
+    UsesWeapon pred = { weapon };
+    return m_pool->releaseIf(pred);
 }
 
 } // namespace ai
