@@ -25,9 +25,33 @@ seen as a whole.
 
 ## Baseline
 
-Muttrah City 2, `gpm_skirmish` 16, standing in the city, 4x MSAA, sun cascades on, 2026-11-18
-(engine `074b3d39`). **RendDX9, SwiffPlayer and BF2Audio were compiled without optimisation** (the
-plugin targets followed the `.cmd` scripts' flags); this baseline is superseded once `/O2` is measured:
+Muttrah City 2, `gpm_skirmish` 16, the same spot in the city, 4x MSAA, sun cascades on,
+2026-11-18, engine `fd85ae94` (plugins with `/O2`):
+
+- **6.6 ms a frame (153 fps)**, `game.lockFps` 200. The main thread is still at 100 %, DXVK's
+  submission thread at 23 %: still CPU-bound.
+- GPU: about 3.5 ms of pass work (sun cascades 1.4, depth prepass 0.8, world opaque 0.9, sun mask
+  0.1).
+
+Main thread by image, 10 s of samples:
+
+| Share | Image |
+|---|---|
+| 46 % | RendDX9.dll |
+| 18 % | BF2.exe: object manager culling and cull fade, game logic |
+| 15 % | d3dx9_25.dll: the D3DX effect framework, called per draw (parameters, passes, commits) |
+| 13 % | d3d9.dll (DXVK) |
+| 6 % | C runtime |
+| < 1 % each | BF2Audio, Python, SwiffPlayer |
+
+Main thread by subsystem (RendDX9 and BF2.exe): object culling 17 %, mesh draws and parameter apply
+14 %, sun caster pass 7 %, state manager 5 %, render queues 3 %, `tailField` 0.8 %.
+
+### Unoptimised plugins (superseded)
+
+
+Engine `074b3d39`, before `/O2`: RendDX9, SwiffPlayer and BF2Audio were compiled without
+optimisation (the plugin targets followed the `.cmd` scripts' flags).
 
 - **13.3 ms a frame (76 fps)**, `game.lockFps` 200. The main thread is at 100 % of one core, DXVK's
   submission thread at 12 %: the frame is CPU-bound.
@@ -49,12 +73,11 @@ Main thread, 10 s of samples:
 
 ## Plan
 
-1. `Renderer::tailField` answers by offset from a table built once, instead of scanning (`perf`).
-2. The sun casters are sorted by a key computed once per caster, instead of following pointers in
-   every comparison (`render`).
-3. Measure what the sun cascades cost the CPU in total (a run with them off) before redesigning
+1. Measure what the sun cascades cost the CPU in total (a run with them off) before redesigning
    the caster submission, which repeats the culling over the cascades' light volume.
-4. Then the larger costs: per-draw parameter apply and culling.
+2. Object culling (17 %): the object manager's grid and cull fade, the object drawer's box tests.
+3. Per-draw cost: D3DX effect calls (15 %) and Ra parameter apply. Replacing D3DX's per-draw
+   parameter and pass handling with the renderer's own constant uploads is `render` work.
 
 ## State
 
@@ -64,4 +87,5 @@ Main thread, 10 s of samples:
 - The sun casters carry their sort keys (shader, material), copied at capture (plan 2). No gain in
   the unoptimised build: the sort's cost was the unoptimised insertion sort (every move a call and
   a `rep movsb`), not the pointer chasing.
-- The plugin DLLs compile with `/O2` (`BF2_PLUGIN_OPTIMIZE`). Built; not yet measured.
+- The plugin DLLs compile with `/O2` (`BF2_PLUGIN_OPTIMIZE`): 12.2 ms to 6.6 ms a frame on Muttrah.
+  Seen in game.
