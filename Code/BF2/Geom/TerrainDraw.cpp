@@ -31,6 +31,7 @@
 #include "../RendMisc/IRenderView.h"
 #include "../RendMisc/IRenderer.h"      // getRenderStats (+0x6C)
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <new>
@@ -1045,6 +1046,135 @@ void Terrain::drawMain()
 // [CHOSEN, not recovered] Depth prepass (BF2_DEPTH_PREPASS): the visible patches through the
 // effect's RaDepthPrepass technique into the renderer's linear depth target. It uses the patch
 // draw of drawMain's pass 0, so positions and LOD morphing match the passes that follow.
+// [CHOSEN, not recovered] Sun shadow casters, see Terrain.h.
+namespace {
+struct TerrainCaster
+{
+    TerrainCullerNode* node;
+    int                lod;
+    int                crackMask;
+    float              sphere[4];
+};
+std::vector<TerrainCaster> g_terrainCasters;
+
+// The camera walk's LOD rule (walkMode3) for a node it did not reach this frame.
+int terrainCasterLod(const TerrainCuller& culler, const Terrain& terrain, const TerrainAabb& box)
+{
+    const float* const cam = culler.cameraPosition;
+    double dx = 0.0;
+    if (cam[0] < box.min.x)
+        dx = static_cast<double>(box.min.x) - cam[0];
+    else if (cam[0] > box.max.x)
+        dx = static_cast<double>(cam[0]) - box.max.x;
+    double dz = 0.0;
+    if (cam[2] < box.min.z)
+        dz = static_cast<double>(box.min.z) - cam[2];
+    else if (cam[2] > box.max.z)
+        dz = static_cast<double>(cam[2]) - box.max.z;
+    const double distance = std::sqrt(dz * dz + dx * dx) + terrain.m_cameraHeightAboveTerrain;
+    const double lodDist = static_cast<double>(culler.lodDistance);
+    if (distance > lodDist)
+        return distance > lodDist * culler.lodFactor30 ? 2 : 1;
+    return 0;
+}
+
+void gatherTerrainCasterNode(const Terrain& terrain, const TerrainCuller& culler,
+                             TerrainCullerNode* node, const Frustum& volume,
+                             const std::vector<TerrainCullerNode*>& drawn)
+{
+    TerrainAabb& box = node->bounds;
+    if (box.dirty)
+        box.refresh();
+    if (!rendmath::frustumInside(volume, box.centre, box.radius))
+        return;
+    if (!node->fileByteEE)
+    {
+        if (node->child[0])
+            for (int c = 0; c < 4; ++c)
+                gatherTerrainCasterNode(terrain, culler, node->child[c], volume, drawn);
+        return;
+    }
+    if (!node->patch)
+        return;
+    TerrainCaster caster;
+    caster.node = node;
+    if (std::binary_search(drawn.begin(), drawn.end(), node))
+    {
+        caster.lod = node->lod;
+        caster.crackMask = node->crackMask;
+    }
+    else
+    {
+        caster.lod = terrainCasterLod(culler, terrain, box);
+        caster.crackMask = 0;
+    }
+    caster.sphere[0] = box.centre.x;
+    caster.sphere[1] = box.centre.y;
+    caster.sphere[2] = box.centre.z;
+    caster.sphere[3] = box.radius;
+    g_terrainCasters.push_back(caster);
+}
+}
+
+void Terrain::gatherShadowCasters(const Frustum& volume)
+{
+    g_terrainCasters.clear();
+    if (!m_drawMain || m_lowQuality || !m_culler || !m_culler->nodes || !m_culler->cameraPosition)
+        return;
+    static std::vector<TerrainCullerNode*> drawn;
+    drawn.assign(m_culler->visiblePatches()->begin(), m_culler->visiblePatches()->end());
+    std::sort(drawn.begin(), drawn.end());
+    gatherTerrainCasterNode(*this, *m_culler, m_culler->nodes, volume, drawn);
+}
+
+void Terrain::drawShadowCasters(const float* viewProjection, const dx9rend::ShadowCascadeCull& cull)
+{
+    static const std::string technique("RaShadowDepth");
+    if (g_terrainCasters.empty() || !m_effect || !dx9rend::effectHasTechnique(m_effect, technique))
+        return;
+    static dx9rend::Effect* parameterEffect = 0;
+    static dx9rend::ShaderParameter* viewProjectionParameter = 0;
+    if (parameterEffect != m_effect)
+    {
+        parameterEffect = m_effect;
+        viewProjectionParameter =
+            dx9rend::effectGetShaderParameterTyped(m_effect, std::string("RaShadowViewProj"));
+    }
+    if (!viewProjectionParameter)
+        return;
+
+    dx9rend::stateManagerPush();
+    if (m_compactVertices)
+        dx9rend::vertexBufferBindStream(m_baseGridVertexBuffer, 0);
+    dx9rend::vertexDeclarationBind(m_vertexDeclaration);
+    const std::string savedTechnique = dx9rend::effectCurrentTechniqueName(m_effect);
+    dx9rend::effectSetTechniqueByName(m_effect, technique);
+    dx9rend::effectBegin(m_effect);
+    viewProjectionParameter->setValue(viewProjection, 0);
+    dx9rend::indexBufferBind(m_lodIndexBuffer);
+    m_currentLod = -1;                     // the morph constants belong to this pass now
+    dx9rend::effectBeginPass(m_effect, 0u);
+    QuadPatch* bound = 0;
+    for (size_t i = 0; i < g_terrainCasters.size(); ++i)
+    {
+        const TerrainCaster& caster = g_terrainCasters[i];
+        if (!dx9rend::rendererShadowCascadeTouches(cull, caster.sphere))
+            continue;
+        QuadPatch* const patch = caster.node->patch;
+        if (patch != bound)
+        {
+            patch->beginCasterDraw();
+            bound = patch;
+        }
+        patch->drawCasterNode(caster.node, caster.lod, caster.crackMask);
+    }
+    dx9rend::effectEnd(m_effect);
+    m_currentLod = -1;
+    if (!savedTechnique.empty())
+        dx9rend::effectSetTechniqueByName(m_effect, savedTechnique);
+    dx9rend::stateManagerPop();
+}
+
 void Terrain::drawDepthPrepass()
 {
     static const std::string technique("RaDepthPrepass");

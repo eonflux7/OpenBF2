@@ -22,6 +22,7 @@ namespace dice {
 namespace hfe {
 class IVideoOptions;
 struct Mat4;
+class Frustum;
 
 namespace dx9rend {
 
@@ -704,11 +705,57 @@ void rendererHdrReleaseSurface();
 // (A8R8G8B8, .r = sun visibility) is bound to s14 until rendererDepthPrepassEndWorldPass, which binds
 // a 1x1 white texture so the first-person passes and every other view read "lit". Samplers s14 and
 // s15 are reserved for these renderer frame resources: no effect may use them for anything else.
+// s13 is reserved likewise for the sun shadow atlas (rendererSunShadowsRender).
 bool rendererDepthPrepassEnabled();
-void rendererDepthPrepass(bool drawTerrain);
+void rendererDepthPrepass(bool drawTerrain, float time);
 void rendererDepthPrepassEndWorldPass();
 void rendererDepthPrepassRelease();
 IDirect3DTexture9* rendererLinearDepthTexture();
+
+// [CHOSEN, not recovered] Submission context (RenderQueues.cpp). Geometry submission culls against
+// rendererSubmitCullFrustum(): the camera's frustum, or the caster volume while a shadow pass
+// captures. During a capture RenderQueue::add diverts every entry bound for an opaque world queue
+// into the caster list and drops all others (transparent, first-person, glow, point-light passes),
+// so the meshes' own draw() submits their casters with the LOD, dynamic parts and skinning the
+// camera sees. Entries keep pointing at their object's parameters, which are per frame.
+struct RenderQueueEntry;
+struct ShadowCaster
+{
+    RenderQueueEntry* entry;
+    float             sphere[4];   // world centre, radius; radius < 0 = unbounded
+};
+void rendererBeginCasterCapture(const Frustum* volume);
+void rendererEndCasterCapture();
+const Frustum* rendererSubmitCullFrustum();
+std::vector<ShadowCaster>& rendererShadowCasters();
+// Gives every caster captured from index `first` on the world sphere (centre, radius).
+void rendererSetCasterBounds(size_t first, const float sphere[4]);
+// One cascade's light-space box for caster culling: the basis rows, the box centre, and the half
+// extent across the light (the box reaches `radius` past the centre away from the sun and without
+// bound toward it).
+struct ShadowCascadeCull
+{
+    float right[3];
+    float up[3];
+    float forward[3];
+    float centre[3];
+    float radius;
+};
+// Whether a world sphere (centre, radius; radius < 0 = unbounded) can reach the cascade box.
+bool rendererShadowCascadeTouches(const ShadowCascadeCull& cull, const float sphere[4]);
+// Draws the captured casters whose effect has technique `key` (RaShadowDepth) into the bound
+// target, with the effect parameter RaShadowViewProj (semantic) set to `viewProjection`.
+void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection,
+                                   const ShadowCascadeCull& cull);
+
+// [CHOSEN, not recovered] Sun cascaded shadow maps (SunShadows.cpp, BF2_SUN_SHADOWS). Run from the
+// depth prepass, before the mask: submits the casters in the cascades' light volume, renders four
+// cascades into an R32F atlas (light depth; the atlas is bound to the reserved sampler s13), and
+// fills the RaShadowMask constants. Returns false when nothing was rendered (the mask then stays lit).
+bool rendererSunShadowsEnabled();
+bool rendererSunShadowsRender(float time, float* maskConstants /* kSunShadowMaskVec4s float4s */);
+void rendererSunShadowsRelease();
+const unsigned int kSunShadowMaskVec4s = 20;
 IDirect3DSurface9* rendererDepthStencilSurface();       // +0x770, the depth-stencil reference
 // The render-path target texture at retail `retailOffset` (+0x778..+0x7D4).
 EngineTexture*     rendererPathTarget(unsigned int retailOffset);

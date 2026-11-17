@@ -13,6 +13,7 @@
 #include "QueueProfiler.h"
 #include "Ra/RaShader.h"
 #include "../RendMisc/IRenderer.h"
+#include "../RendMisc/IRenderView.h"      // [CHOSEN] rendererSubmitCullFrustum
 #include "../GeomMisc/DebugMeshCommon.h"   // geom::debugmesh::equalVector, PE 0x10037DC0
 #include "../Platform/X87Compat.h"         // [CHOSEN, not recovered] x87 conversion results
 #include "../Core/StringUtil.h"             // formatString (PE 0x10074AB0), the profiler reports
@@ -1764,10 +1765,17 @@ void renderStatsCountDraw()
 // The push is sub_1003C120 - the inline "room left in the block" fast path, else _Insert_n(1) -
 // on the entry vector at +0x278, i.e. push_back.
 
+bool renderQueueCaptureCaster(RenderQueue* queue, RenderQueueEntry* entry);   // [CHOSEN] below
+
 // PE 0x1003B170
 void RenderQueue::add(RenderQueueEntry* entry)
 {
     if (!enabled)
+        return;
+
+    // [CHOSEN, not recovered] Caster capture (see rendererBeginCasterCapture): while a shadow pass
+    // submits, nothing reaches the frame's queues.
+    if (renderQueueCaptureCaster(this, entry))
         return;
 
     if (!entry->shader)
@@ -2475,6 +2483,183 @@ void renderQueuesDepthPrepass(unsigned int key)
                 rejected = shader;
                 continue;
             }
+            shader->beginPass(0);
+            active = shader;
+            lastMaterial = 0;
+        }
+        if (e->material != lastMaterial)
+        {
+            lastMaterial = e->material;
+            streamsBound = materialApplyStreams(e->material, shader);
+        }
+        if (!streamsBound)
+            continue;
+        shader->applyTemplateParameters(e);
+        shader->applyInstanceParameters(e);
+        shader->draw(e);
+    }
+    if (active)
+    {
+        active->endPass();
+        active->end();
+    }
+}
+
+// [CHOSEN, not recovered] Submission context and caster capture, see RendDX9Base.h.
+namespace {
+struct CasterCapture
+{
+    bool active;
+    const Frustum* volume;
+    std::vector<ShadowCaster> casters;
+};
+CasterCapture g_casterCapture = { false, 0, std::vector<ShadowCaster>() };
+
+bool isWorldQueue(const RenderQueue* queue)
+{
+    const RenderQueueTable* const table = static_cast<const RenderQueueTable*>(g_renderQueues);
+    return table && std::find(table->worldQueues.begin(), table->worldQueues.end(),
+                              static_cast<const void*>(queue)) != table->worldQueues.end();
+}
+
+// RaShadowViewProj's handle per ID3DXEffect (null when the effect has no such parameter).
+D3DXHANDLE shadowViewProjectionHandle(ID3DXEffect* effect)
+{
+    static std::vector<std::pair<ID3DXEffect*, D3DXHANDLE> > cache;
+    for (size_t i = 0; i < cache.size(); ++i)
+        if (cache[i].first == effect)
+            return cache[i].second;
+    const D3DXHANDLE handle = effect->GetParameterBySemantic(0, "RaShadowViewProj");
+    cache.push_back(std::make_pair(effect, handle));
+    return handle;
+}
+
+bool casterInCascade(const ShadowCaster& caster, const ShadowCascadeCull& cull)
+{
+    return rendererShadowCascadeTouches(cull, caster.sphere);
+}
+}
+
+bool rendererShadowCascadeTouches(const ShadowCascadeCull& cull, const float sphere[4])
+{
+    if (sphere[3] < 0.0f)
+        return true;
+    const float d[3] = { sphere[0] - cull.centre[0], sphere[1] - cull.centre[1],
+                         sphere[2] - cull.centre[2] };
+    const float reach = cull.radius + sphere[3];
+    const float x = d[0] * cull.right[0] + d[1] * cull.right[1] + d[2] * cull.right[2];
+    const float y = d[0] * cull.up[0] + d[1] * cull.up[1] + d[2] * cull.up[2];
+    const float z = d[0] * cull.forward[0] + d[1] * cull.forward[1] + d[2] * cull.forward[2];
+    return std::fabs(x) <= reach && std::fabs(y) <= reach && z <= reach;
+}
+
+bool renderQueueCaptureCaster(RenderQueue* queue, RenderQueueEntry* entry)
+{
+    if (!g_casterCapture.active)
+        return false;
+    if (entry->shader && isWorldQueue(queue))
+    {
+        ShadowCaster caster = { entry, { 0.0f, 0.0f, 0.0f, -1.0f } };
+        g_casterCapture.casters.push_back(caster);
+    }
+    return true;
+}
+
+void rendererBeginCasterCapture(const Frustum* volume)
+{
+    g_casterCapture.casters.clear();
+    g_casterCapture.volume = volume;
+    g_casterCapture.active = true;
+}
+
+// Groups the casters by effect and material, so each cascade switches each once.
+struct CasterDrawOrder
+{
+    bool operator()(const ShadowCaster& a, const ShadowCaster& b) const
+    {
+        if (a.entry->shader != b.entry->shader)
+            return a.entry->shader < b.entry->shader;
+        return a.entry->material < b.entry->material;
+    }
+};
+
+void rendererEndCasterCapture()
+{
+    g_casterCapture.active = false;
+    g_casterCapture.volume = 0;
+    std::stable_sort(g_casterCapture.casters.begin(), g_casterCapture.casters.end(),
+                     CasterDrawOrder());
+}
+
+const Frustum* rendererSubmitCullFrustum()
+{
+    if (g_casterCapture.active && g_casterCapture.volume)
+        return g_casterCapture.volume;
+    return rendererGetRenderViewDup()->getFrustumPtr();
+}
+
+std::vector<ShadowCaster>& rendererShadowCasters()
+{
+    return g_casterCapture.casters;
+}
+
+void rendererSetCasterBounds(size_t first, const float sphere[4])
+{
+    std::vector<ShadowCaster>& casters = g_casterCapture.casters;
+    for (size_t i = first; i < casters.size(); ++i)
+        std::memcpy(casters[i].sphere, sphere, sizeof(casters[i].sphere));
+}
+
+// Mirrors renderQueuesDepthPrepass over the captured casters: technique `key`, the cascade's
+// view-projection on each effect, the entry's own template and instance parameters.
+void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection,
+                                   const ShadowCascadeCull& cull)
+{
+    std::vector<ShadowCaster>& casters = g_casterCapture.casters;
+    Ra::RaShader* active = 0;
+    Ra::RaShader* rejected = 0;
+    void* lastMaterial = 0;
+    bool streamsBound = false;
+    for (size_t i = 0; i < casters.size(); ++i)
+    {
+        if (!casterInCascade(casters[i], cull))
+            continue;
+        RenderQueueEntry* const e = casters[i].entry;
+        Ra::RaShader* const shader = e->shader;
+        if (!shader || shader == rejected)
+            continue;
+        if (shader != active)
+        {
+            if (active)
+            {
+                active->endPass();
+                active->end();
+                active = 0;
+            }
+            if ((!shader->m_built && !shader->slot04()) || !shader->m_effect
+                || !shader->selectTechnique(key))
+            {
+                rejected = shader;
+                continue;
+            }
+            ID3DXEffect* const effect = static_cast<ID3DXEffect*>(shader->m_effect);
+            const D3DXHANDLE handle = shadowViewProjectionHandle(effect);
+            if (!handle)
+            {
+                rejected = shader;
+                continue;
+            }
+            const unsigned int savedKey = e->techniqueKey;
+            e->techniqueKey = key;
+            const unsigned int passes = shader->begin(e);
+            e->techniqueKey = savedKey;
+            if (!passes)
+            {
+                shader->end();
+                rejected = shader;
+                continue;
+            }
+            effect->SetMatrix(handle, reinterpret_cast<const D3DXMATRIX*>(viewProjection));
             shader->beginPass(0);
             active = shader;
             lastMaterial = 0;

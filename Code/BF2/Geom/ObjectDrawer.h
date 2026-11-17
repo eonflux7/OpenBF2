@@ -91,6 +91,12 @@ public:
     // each with the cell's bounds. It refreshes the box's derived data in place (the bounds are
     // not const).
     bool  isBoundsOccluded(LocalBoundingBox* bounds);
+    // [CHOSEN, not recovered] Shadow casters: queries both object grids with `volume` (a Frustum),
+    // brings objects the camera did not see up to date as the camera pass does (visual update,
+    // geometry update), then submits every geometry under the renderer's caster capture and tags
+    // its captured entries with the geometry's world bounding sphere. Requires an active capture
+    // (dx9rend::rendererBeginCasterCapture) and a completed camera updateVisible/draw.
+    void  submitShadowCasters(const void* volume, float time);
 
     // Offset comments identify retail x86 positions; native builds access named members.
     void* const*           m_vptr;                  // +0x00  ObjectDrawer's primary table
@@ -133,6 +139,9 @@ public:
 
 // RefFactory_geom_ObjectDrawer, 0x100B0ADE.  registered in ModuleGeom - see the header note.
 IBase* __fastcall createObjectDrawer(unsigned int iid, IBase* outer);
+
+// [CHOSEN, not recovered] The published ObjectDrawer's submitShadowCasters; no-op without one.
+void objectDrawerSubmitShadowCasters(const void* volume, float time);
 
 } // namespace geom
 } // namespace hfe

@@ -146,6 +146,12 @@ public:
     virtual void reload();                                         // +2C 100CDDC0
     virtual void clear();
     virtual void render(IRenderView* view, float time);
+    // [CHOSEN, not recovered] Sun shadow casters: after render, submits every instance the camera
+    // pass would draw (same cells and draw distance) whose sphere touches `volume` through the
+    // renderer's caster capture, at full opacity with the full-detail geometry. Uses pool geometry
+    // past this frame's camera draws, so the camera's entries are untouched. Non-virtual: the
+    // table keeps its shipped slots.
+    void submitShadowCasters(IRenderView* view, const Frustum& volume);
     // +38 the LightManager's directional records (+0x79C), the pulled-back light Frustum it culls
     // patches with, the caster Frustum whose near plane it grows, and the geometry vector it fills
     // (LightManager +0x970).

@@ -2921,6 +2921,27 @@ void QuadPatch::drawShadowBatch(TerrainCullerNode**& it, std::vector<TerrainCull
 
 // pass 0: every visible node of this patch, by its LOD range; the "TerrainLightmap"
 // arm merges contiguous ranges of one LOD, the "TerrainMorphing" arm draws them one by one.
+// [CHOSEN, not recovered] See QuadPatch.h; the range is lodStart/lodCount at a chosen column.
+void QuadPatch::beginCasterDraw()
+{
+    beginPatchDraw(this);
+}
+
+void QuadPatch::drawCasterNode(const TerrainCullerNode* node, int lod, int crackMask)
+{
+    static unsigned int s_vertexCount = 0;
+    Terrain* const t = terrain;
+    if (!s_vertexCount)
+        s_vertexCount = static_cast<unsigned int>((t->m_patchSize + 1) * (t->m_patchSize + 1));
+    const unsigned int* const table = reinterpret_cast<const unsigned int*>(node->lodTable);
+    const unsigned int start = table[crackMask + 16 * lod];
+    const unsigned int count = table[crackMask + 16 * (lod + 3)];
+    if (t->m_currentLod != lod)
+        t->setMorphConstants(lod);
+    if (count >= 3)
+        drawPatchRange(t, count / 3, s_vertexCount, start);
+}
+
 void QuadPatch::draw(TerrainCullerNode**& it)
 {
     static unsigned int s_once = 0;                                               // dword_10262164

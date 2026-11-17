@@ -109,6 +109,10 @@ public:
 
     // the per-frame bodies. Each takes the visible-list iterator by reference and
     //      consumes every entry that belongs to this patch.
+    // [CHOSEN, not recovered] Sun shadow casters: the patch constants and stream, then one node's
+    // index range at (lod, crackMask) with the matching morph constants, under the caller's pass.
+    void beginCasterDraw();
+    void drawCasterNode(const TerrainCullerNode* node, int lod, int crackMask);
     void draw(TerrainCullerNode**& it);                              // 0x1018BE20  the Hi_/Low_Terrain pass-0 draw (accumulation target)
     void drawFinal(TerrainCullerNode**& it);                         // 0x1018C910  the diffuse detail passes (LOD 0 per layer, then the lower LODs)
     void drawShadow();                                               // 0x1018DD00  pass 7: this patch's gathered shadow ranges

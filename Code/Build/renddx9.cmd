@@ -179,6 +179,7 @@ set SOURCES=^
  "%BF2%\RendDX9\RendDX9Draw.cpp" ^
  "%BF2%\RendDX9\MovieRenderer.cpp" ^
  "%BF2%\RendDX9\RenderQueues.cpp" ^
+ "%BF2%\RendDX9\SunShadows.cpp" ^
  "%BF2%\RendDX9\Ra\EffectManager.cpp" ^
  "%BF2%\RendDX9\Ra\RaShaderPermutator.cpp" ^
  "%BF2%\RendDX9\Ra\RaShader.cpp" ^

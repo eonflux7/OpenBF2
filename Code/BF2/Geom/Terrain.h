@@ -21,7 +21,7 @@ namespace hfe {
 
 class Frustum;                                                        // Math/Frustum.h
 namespace world { class IHeightmap; class IHeightmapCluster; class LightSource; }   // Physics/, Game/Objects/Visual/
-namespace dx9rend { struct EngineTexture; namespace Ra { class RaShader; class RaStreamDataEditable; } }   // RendDX9/Texture.h, RendDX9/Ra/
+namespace dx9rend { struct EngineTexture; struct ShadowCascadeCull; namespace Ra { class RaShader; class RaStreamDataEditable; } }   // RendDX9/Texture.h, RendDX9/Ra/
 
 namespace geom {
 
@@ -484,6 +484,13 @@ public:
     void  setFlag2AC(unsigned char value);                           // +0x2AC
     void  setLowQuality(unsigned char value);                        // +0x35F / +0x35E, then the Low_Terrain reload; VideoOptions' terrain-quality arms call it
     void  drawMain();                                                // sub_100E0940  Hi_/Low_Terrain pass 0 (and pass 7 shadows) into the accumulation target
+    // [CHOSEN, not recovered] Sun shadow casters. gatherShadowCasters collects the drawable culler
+    // nodes (the camera walk's units) whose sphere meets `volume`, with the LOD the camera drew them
+    // at this frame, or for nodes it did not draw the LOD its walk would pick and no crack fixup.
+    // drawShadowCasters draws those touching one cascade with technique RaShadowDepth and the
+    // effect parameter RaShadowViewProj (semantic) = `viewProjection`, into the bound target.
+    void  gatherShadowCasters(const Frustum& volume);
+    void  drawShadowCasters(const float* viewProjection, const dx9rend::ShadowCascadeCull& cull);
     void  drawDepthPrepass();                                        // [CHOSEN, not recovered] BF2_DEPTH_PREPASS, technique RaDepthPrepass
     void  drawDetailPass();                                          // sub_100DF990  the ShaderVersion-1 detail/light pass [read - stops, see the body]
     void  drawMaskLights();                                          // sub_100DE5B0  the point-light pass over getVisibleLightsByMask(2313) - LightManager +0x18, the frame's visible lights

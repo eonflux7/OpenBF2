@@ -1034,6 +1034,7 @@ void releaseRendererPathResources(Renderer* renderer)
 
     dx9rend::rendererHdrReleaseSurface();                         // [CHOSEN] BF2_HDR
     dx9rend::rendererDepthPrepassRelease();                       // [CHOSEN] BF2_DEPTH_PREPASS
+    dx9rend::rendererSunShadowsRelease();                         // [CHOSEN] BF2_SUN_SHADOWS
     renderer->releaseHemiScratchTexture();
     for (unsigned int offset = 0x778; offset <= 0x7C8; offset += 4)
         dx9rend::textureReleaseRef(pathTarget(renderer, offset));
@@ -2673,7 +2674,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
 
                 // [CHOSEN, not recovered] BF2_DEPTH_PREPASS: the queues are complete here (the
                 // overgrowth enqueues above), and nothing has consumed them yet.
-                rendererDepthPrepass(sw(1701) && geom::g_Terrain);
+                rendererDepthPrepass(sw(1701) && geom::g_Terrain, timeF);
 
                 renderQueuesFlushWorldPass();
 
@@ -4167,11 +4168,17 @@ IDirect3DTexture9* rendererLinearDepthTexture()
     return g_linearDepthTexture;
 }
 
-void rendererDepthPrepass(bool drawTerrain)
+void rendererDepthPrepass(bool drawTerrain, float time)
 {
     bindWhiteShadowMask();
     if (!rendererDepthPrepassEnabled() || !ensureLinearDepthTargets())
         return;
+
+    // The mask constants (RaShadowMask's RASM): zero means no cascade covers anything, so every
+    // receiver keeps its baked sunlight.
+    float maskConstants[kSunShadowMaskVec4s * 4] = {};
+    rendererSunShadowsRender(time, maskConstants);
+
     IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
     device->SetTexture(kLinearDepthSampler, 0);       // never sampled while it is the target
 
@@ -4216,7 +4223,8 @@ void rendererDepthPrepass(bool drawTerrain)
             c[8], c[9], c[10], 0.0f,
             c[0] * sx, c[1] * sx, c[2] * sx, 0.0f,
             c[4] * sy, c[5] * sy, c[6] * sy, 0.0f };
-        geom::fsQuadDrawerShadowMaskPass(camera);
+        std::memcpy(maskConstants, camera, sizeof(camera));
+        geom::fsQuadDrawerShadowMaskPass(maskConstants, kSunShadowMaskVec4s);
     }
     if (mask)
         mask->Release();

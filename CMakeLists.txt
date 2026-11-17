@@ -1832,7 +1832,7 @@ if(BF2_BUILD_MACOS)
             RendDX9/ResourceManager.cpp RendDX9/ResourceTracer.cpp RendDX9/VideoOptions.cpp
             RendDX9/Effect.cpp RendDX9/DiceEffect.cpp
             RendDX9/FXParameter.cpp RendDX9/ShaderManager.cpp RendDX9/StateManager.cpp
-            RendDX9/RendDX9Draw.cpp RendDX9/RenderQueues.cpp RendDX9/Ra/EffectManager.cpp
+            RendDX9/RendDX9Draw.cpp RendDX9/RenderQueues.cpp RendDX9/SunShadows.cpp RendDX9/Ra/EffectManager.cpp
             RendDX9/MovieRenderer.cpp
             RendDX9/Ra/RaShaderPermutator.cpp RendDX9/Ra/RaShader.cpp RendDX9/Ra/RaVertexStreams.cpp
             RendDX9/Ra/RaStreamDataEditable.cpp RendMisc/RendModule.cpp RendMisc/RenderView.cpp

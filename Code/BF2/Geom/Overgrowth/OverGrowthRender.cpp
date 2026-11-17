@@ -621,6 +621,72 @@ void OverGrowth::render(IRenderView* view, float time)
 }
 
 
+// [CHOSEN, not recovered] See OverGrowth.h. The camera selection is render's, without its
+// state: the LOD crossfade picks the geometry that dominates at this distance (full when its
+// distance fade is at least one half), and nothing advances the instances' fade timers.
+void OverGrowth::submitShadowCasters(IRenderView* view, const Frustum& volume)
+{
+    if (m_path.empty() || !m_enabled || !m_patches || !m_drawNear)
+        return;
+
+    for (int row = 0; row < m_gridSize; ++row)
+    {
+        for (int column = 0; column < m_gridSize; ++column)
+        {
+            const OverGrowthCell* const cell = m_cells[column + row * m_gridSize];
+            const int x = m_patchCountX / 2 + cell->cellX;
+            const int z = m_patchCountZ / 2 + cell->cellZ;
+            if (x < 0 || z < 0 || x >= m_patchCountX || z >= m_patchCountZ)
+                continue;
+            OverGrowthPatch* const patch = m_patches + (x + z * m_patchCountX);
+            const float reach = (m_closeDistFade + 1.0f) * m_closeDistance;
+            if (!reinterpret_cast<const LocalBoundingBox&>(patch->bounds).intersectSphere(
+                    m_cameraPosition, reach))
+                continue;
+
+            for (unsigned int index = 0; index < patch->instances.size(); ++index)
+            {
+                OverGrowthInstance* const instance = &patch->instances[index];
+                OverGrowthGeometryPair* const type = m_geometries.data() + instance->geometryIndex;
+                if (!g_overGrowthDrawObjectInstances && instance->generated)
+                    continue;
+                const float drawRadius =
+                    objectTemplateCullRadiusScale(type->full.objectTemplate) * instance->cullRadius
+                    + m_viewDistanceScale * m_closeDistance * type->full.distanceScale;
+                const float ratio = distanceSquared(translationOf(instance->transform), m_cameraPosition)
+                                  / (drawRadius * drawRadius);
+                if (!(ratio < 1.0f))
+                    continue;
+
+                const float fade = clampFloat((1.0f - std::sqrt(ratio)) / m_closeDistFade
+                                              * std::sqrt(type->full.distanceScale), 0.0f, 1.0f);
+                OverGrowthGeometryRecord* const record =
+                    (type->lod.geometry && fade < 0.5f) ? &type->lod : &type->full;
+                void* const geometry = acquireGeometry(record, instance);
+                // The radius call finalises the lod box, so its centre is current below.
+                const float radius = geometryBoundingRadius(geometry);
+                const Vec3& local = geometryLocalBounds(geometry).m_centre;
+                const float* const w = geometryTransformation(geometry)->m;
+                const Vec3 centre = { local.x * w[0] + local.y * w[4] + local.z * w[8] + w[12],
+                                      local.x * w[1] + local.y * w[5] + local.z * w[9] + w[13],
+                                      local.x * w[2] + local.y * w[6] + local.z * w[10] + w[14] };
+                bool fullyInside = false;
+                if (!frustumContainsSphere(volume, centre, radius, fullyInside))
+                {
+                    --record->poolUsed;                 // hand the unused instance back
+                    continue;
+                }
+                geometrySetDistanceFade(geometry, 1.0f);
+                geometrySetShadowValue(geometry, instance);
+                const size_t first = dx9rend::rendererShadowCasters().size();
+                geometryDraw(geometry, view);
+                const float sphere[4] = { centre.x, centre.y, centre.z, radius };
+                dx9rend::rendererSetCasterBounds(first, sphere);
+            }
+        }
+    }
+}
+
 // PE 0x100CB460.
 // Appends vegetation intersecting the directional shadow volumes and expands caster bounds.
 // Uses LOD geometry when available. Pool cursors are shared with drawing and reset only by
