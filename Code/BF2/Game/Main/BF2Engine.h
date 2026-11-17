@@ -229,6 +229,10 @@ struct SingleInstanceGuard
 #if !DEDICATED
 // Active client menu, created by activateMenu and released by deactivateMenu.
 extern IMenuLogic* menuLogic;
+#if !DEDICATED
+// [UI] True while the fork's UI (RendDX9, docs/eon64/ui.md) has the mouse and keyboard.
+bool uiCapturesInput();
+#endif
 #endif
 
 } // namespace hfe

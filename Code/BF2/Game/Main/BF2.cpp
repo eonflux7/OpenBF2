@@ -245,6 +245,8 @@ void BF2::handleInGameWinMessages()
 #  if !DEDICATED
     if (menuLogic)
         deviceMask = static_cast<unsigned int>(-2);                          // every device but bit 0 while a menu is up
+    if (uiCapturesInput())                                                   // [UI] so is the fork's menu (docs/eon64/ui.md)
+        deviceMask = static_cast<unsigned int>(-2);
     // [TEMP] [CHOSEN, not recovered] One BF2_INPUT_SCRIPT tick per pump; nothing without the variable.
     if (inputscript::winInputScriptActive() && m_engine && m_engine->getWindow())
         inputscript::winInputScriptPump(m_engine->getWindow()->getHwnd(), menuLogic != 0);

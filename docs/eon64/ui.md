@@ -43,8 +43,9 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 - **Input, game side:** `BF2.exe` asks the renderer singleton for `IRendererUi` through
   `IBase::queryInterface(IID_IRendererUi)`; no export changes, so the plugin ABI check is
   untouched. While `uiCapturesInput()` is true, `filterGameInput` and `filterPlayerInput` deliver
-  nothing (as with the console), and the DirectInput mouse is released (as the main menu does), so
-  Windows delivers the cursor. It is re-acquired when the menu closes, unless the main menu is up.
+  nothing (as with the console) and the DirectInput mouse is released, so Windows delivers the
+  cursor. The message pump (`BF2.cpp`) re-activates the input devices every frame; meanwhile it
+  leaves the mouse out, as it does for the main menu, and takes it back once the menu closes.
 - **Cursor:** ImGui draws its own; the game keeps the system cursor hidden.
 - **Font:** ImGui's embedded scalable font, 16 px at 1080p, scaled with the back-buffer height
   along with the style's sizes.

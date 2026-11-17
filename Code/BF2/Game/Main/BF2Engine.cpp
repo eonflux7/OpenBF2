@@ -2790,9 +2790,9 @@ void BF2Engine::stopRecording()
 namespace {
 
 // [UI] The fork's UI (RendDX9, docs/eon64/ui.md). While its menu is open it has the mouse and the
-// keyboard: the DirectInput mouse is released, so Windows delivers the cursor and its messages, and
-// the game gets no input, as with the console. Checked every frame, so the mouse is released again
-// when something else re-acquired it (the main menu closing while the UI is open).
+// keyboard: the game gets no input, as with the console, and the DirectInput mouse is released so
+// Windows delivers the cursor and its messages. The message pump (BF2.cpp) leaves the mouse out of
+// its per-frame activation meanwhile, as for the main menu, and re-acquires it when the menu closes.
 dx9rend::IRendererUi* rendererUi()
 {
     static dx9rend::IRendererUi* ui = 0;
@@ -2805,32 +2805,25 @@ dx9rend::IRendererUi* rendererUi()
     return ui;
 }
 
-bool s_uiReleasedMouse = false;
-
-bool uiTakesInput(bool mainMenuUp)
+// Releases the mouse while the UI has the input; a no-op once it is released.
+bool uiTakesInput()
 {
-    dx9rend::IRendererUi* const ui = rendererUi();
-    const bool takes = ui && ui->uiCapturesInput();
-    if (!takes && !s_uiReleasedMouse)
+    if (!uiCapturesInput())
         return false;
     io::IInputDevice* mouse =
         static_cast<io::IInputDeviceManager*>(io::inputDeviceManager)->getInputDevice(io::IDFMouse);
-    if (takes)
-    {
-        if (mouse)
-            mouse->deActivate();                            // a no-op once released
-        s_uiReleasedMouse = true;
-    }
-    else
-    {
-        if (mouse && !mainMenuUp)                           // the main menu keeps it released
-            mouse->activate();
-        s_uiReleasedMouse = false;
-    }
-    return takes;
+    if (mouse)
+        mouse->deActivate();
+    return true;
 }
 
 } // namespace
+
+bool uiCapturesInput()
+{
+    dx9rend::IRendererUi* const ui = rendererUi();
+    return ui && ui->uiCapturesInput();
+}
 #endif
 
 // Zeroes 64 input words while the console is open; otherwise leaves input intact.
@@ -2840,7 +2833,7 @@ bool BF2Engine::filterPlayerInput(io::PlayerInput& input)
 #if !DEDICATED
     if (menuLogic)                                          // BF2.exe 0x403C00: the menu swallows everything
         return false;
-    if (rendererUi() && rendererUi()->uiCapturesInput())    // [UI] as with the console, below
+    if (uiCapturesInput())                                  // [UI] as with the console, below
     {
         unsigned int* raw = reinterpret_cast<unsigned int*>(&input);
         for (unsigned int i = 0; i <= 0x3F; ++i)
@@ -2869,7 +2862,7 @@ bool BF2Engine::filterGameInput(io::GameInput& input)
     const unsigned int  maskB = masks[0x12C / 4];
 
 #if !DEDICATED
-    if (uiTakesInput(menuLogic != 0))                       // [UI] the fork's menu has the input
+    if (uiTakesInput())                                     // [UI] the fork's menu has the input
         return false;
     if (menuLogic)                                          // : the menu takes the input
     {
