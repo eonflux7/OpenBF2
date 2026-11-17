@@ -917,7 +917,11 @@ void Terrain::drawMain()
     QuadPatch* previous = 0;
     m_shadowRanges.clear();                                               // sub_100E2430(0, ...)
 
-    if (terrainShadowRecordCount() != 0u                                  // the LightManager's +0x79C records
+    // [CHOSEN, not recovered] BF2_DEPTH_PREPASS: the sun shadow comes from the renderer's screen-space
+    // mask in the final passes; the per-caster shadow pass (7) and its range gathering are not drawn.
+    const bool legacySunShadows = !dx9rend::rendererDepthPrepassEnabled();
+    if (legacySunShadows
+        && terrainShadowRecordCount() != 0u                               // the LightManager's +0x79C records
         && g_LightManager->getShadowUpdatesEnabled()                      // +0x128
         && m_shadowGatherThreshold > 0.1f
         && m_indexBufferCount > 1000u)
@@ -994,7 +998,7 @@ void Terrain::drawMain()
     dx9rend::effectSetTechniqueByName(m_effect, std::string(technique));
     dx9rend::effectBegin(m_effect);
 
-    if (g_LightManager->getDynamicShadowsEnabled())                       // +0xF0
+    if (legacySunShadows && g_LightManager->getDynamicShadowsEnabled())   // +0xF0
     {
         const unsigned int count = static_cast<unsigned int>(m_shadowRanges.size());
         if (count)

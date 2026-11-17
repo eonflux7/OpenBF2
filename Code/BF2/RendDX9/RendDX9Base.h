@@ -700,9 +700,13 @@ void rendererHdrReleaseSurface();
 // [CHOSEN, not recovered] Depth prepass (BF2_DEPTH_PREPASS=1): before the world queues are
 // drawn, terrain and every opaque Ra entry whose effect has the technique "RaDepthPrepass" draw
 // their linear view depth into a single-sample R32F target (0 where nothing was drawn). The
-// texture stays bound to sampler s15 for the rest of the frame.
+// texture stays bound to sampler s15 for the rest of the frame. The sun shadow mask built from it
+// (A8R8G8B8, .r = sun visibility) is bound to s14 until rendererDepthPrepassEndWorldPass, which binds
+// a 1x1 white texture so the first-person passes and every other view read "lit". Samplers s14 and
+// s15 are reserved for these renderer frame resources: no effect may use them for anything else.
 bool rendererDepthPrepassEnabled();
 void rendererDepthPrepass(bool drawTerrain);
+void rendererDepthPrepassEndWorldPass();
 void rendererDepthPrepassRelease();
 IDirect3DTexture9* rendererLinearDepthTexture();
 IDirect3DSurface9* rendererDepthStencilSurface();       // +0x770, the depth-stencil reference

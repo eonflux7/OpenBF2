@@ -36,6 +36,10 @@ void fsQuadDrawerDrawHemiMap(dx9rend::EngineTexture* source,
 // The published drawer's drawViewportQuad(grid): the viewport-sized quad (grid 0: one quad,
 // 1: 10x10), drawn inside the effect pass the caller began.
 void fsQuadDrawerDrawCurrentEffect(unsigned int grid = 0);
+// [CHOSEN, not recovered] Depth prepass shadow mask (BF2_DEPTH_PREPASS): the "RaShadowMask"
+// technique over the viewport into the current render target. `camera` is four float4 rows:
+// camera position, forward, right / projection[0][0], up / projection[1][1].
+void fsQuadDrawerShadowMaskPass(const float* camera);
 // The published drawer's source pass with (0, source, true, true, 0, 0): pass 0 into the selected
 // back buffer, state pushed.
 void fsQuadDrawerBlitToBackBuffer(dx9rend::EngineTexture* source);
