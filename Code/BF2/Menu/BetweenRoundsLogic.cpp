@@ -1,4 +1,5 @@
 // Handles input and presentation for the between-rounds menu.
+#include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
 #include "../Core/BuildConfig.h"
 #if !DEDICATED
 #if defined(_WIN32)
@@ -108,7 +109,10 @@ unsigned int BetweenRoundsLogic::getClassId() const { return CID_BetweenRoundsLo
 // Early failures leave the active flag set and require normal teardown of partial state.
 bool BetweenRoundsLogic::init()
 {
-    bf2Engine->bf2EngineSetup->initSwiff();                                   // 0x446CB0, result dropped
+    {
+        loadtrace::Scope trace("loadscreen", "initSwiff");                   // [DEV] BF2_LOAD_TRACE
+        bf2Engine->bf2EngineSetup->initSwiff();                               // 0x446CB0, result dropped
+    }
     eventManager->postEvent(static_cast<EventCategory>(10), 1, 0, 0.0f);      // ECMenuMenuEvent_Enable
     m_swiffActive = true;
     m_player = static_cast<ui::ISwiffPlayer*>(classManager->getSingleton(std::string("SwiffPlayer")));
@@ -127,14 +131,26 @@ bool BetweenRoundsLogic::init()
         return false;
     m_host->setFlagEA8(false);                                                // +0x2AC
     IBase* teams = classManager->getSingleton(std::string("MenuTeamManager"));
-    static_cast<IMenuTeamManager*>(teams)->init();                            // unguarded in the binary
+    {
+        loadtrace::Scope trace("loadscreen", "MenuTeamManager.init");        // [DEV] BF2_LOAD_TRACE
+        static_cast<IMenuTeamManager*>(teams)->init();                        // unguarded in the binary
+    }
     io::IControlMapManager* maps = static_cast<io::IControlMapManager*>(io::controlMapManager);
     if (maps->getActive())                                                    // +0x34, asked twice as shipped
         m_activeControlMapName = maps->getActive()->getName();                // +0x14
-    static_cast<IControlSettings*>(g_controlSettings)->apply();               // +0x78
-    m_render->init();                                                         // +0x10
+    {
+        loadtrace::Scope trace("loadscreen", "controlSettings.apply");       // [DEV] BF2_LOAD_TRACE
+        static_cast<IControlSettings*>(g_controlSettings)->apply();           // +0x78
+    }
+    {
+        loadtrace::Scope trace("loadscreen", "SwiffRender.init");            // [DEV] BF2_LOAD_TRACE
+        m_render->init();                                                     // +0x10
+    }
     m_player->setRender(m_render);                                            // +0x24
-    m_player->loadMovie("endOfRound.swf");                                    // +0x14, result dropped
+    {
+        loadtrace::Scope trace("loadscreen", "loadMovie");                   // [DEV] BF2_LOAD_TRACE
+        m_player->loadMovie("endOfRound.swf");                                // +0x14, result dropped
+    }
     unsigned int width = 800;
     unsigned int height = 600;
     m_host->getViewportSize(&width, &height);                                 // +0x1DC
