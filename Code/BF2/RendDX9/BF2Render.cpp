@@ -4035,9 +4035,16 @@ void rendererHdrBeginScene()
     g_hdrSceneActive = true;
 }
 
+// Ends the scene and, when the float surface was the current target, selects the back buffer:
+// FSQuadDrawer restores the target that was current before its blit, and the HUD draws into
+// whatever is current after the composite, so the float surface must not be current by then.
 void rendererHdrEndScene()
 {
+    if (!g_hdrSceneActive)
+        return;
     g_hdrSceneActive = false;
+    if (stateManagerGetRenderTarget(0) == g_hdrSceneSurface)
+        geom::lightManagerSetRenderTargetTexture(0, 0);       // null: the back buffer
 }
 
 void rendererHdrReleaseSurface()
