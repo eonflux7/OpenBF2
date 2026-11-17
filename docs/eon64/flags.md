@@ -15,6 +15,12 @@ harness switches) are not listed. Rules: [AGENTS.md](../../AGENTS.md#feature-fla
 Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`,
 `BF2_FRAME_GRADE`, `BF2_DEPTH_PREPASS`. Their behaviour is now unconditional.
 
+## `perf`: select the old serial path while a step is in development
+
+| Flag | Default | Effect | Removed when |
+|---|---|---|---|
+| `BF2_PERF_FXKEY=preprocess` | off | The Ra effect cache key comes from the preprocessor again, not from the source and its includes | The source key is accepted in game |
+
 ## `compat`: gate behaviour retail BF2 must not see
 
 | Flag | Effect |

@@ -81,3 +81,4 @@ These come from reading the code. The baseline trace will confirm or rule out ea
 |---|---|
 | Load trace (`dev`) | Done; baseline above |
 | Ra cache key under Wine (`fix`) | Done: seen in game, muttrah_city_2, 186 s to 37 s with a filled cache |
+| Ra cache key from source and includes, no preprocessor (`BF2_PERF_FXKEY`) | Built; not yet seen in game |

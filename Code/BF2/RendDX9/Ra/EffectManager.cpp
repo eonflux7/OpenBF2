@@ -1715,6 +1715,166 @@ std::string raEffectContentKey(const char* source, unsigned int sourceLen, const
     return std::string(hex);
 }
 
+// [PERF] raEffectSourceKey: the content key without the preprocessor. raEffectContentKey expands
+// the whole effect for every key, about 10 ms each under Wine, and its include handler re-reads
+// every header on every #include. This key hashes the source and each file reachable through its
+// #include lines instead, each once, whether or not a conditional skips the include: any change
+// to anything the preprocessor could read changes the key. Files resolve as raIncludeOpen
+// resolves them. A file's hash and its include list are kept per path and reused while its size
+// and write time are unchanged. Empty (the caller then uses raEffectContentKey) when an #include
+// does not name a file literally. BF2_PERF_FXKEY=preprocess always uses raEffectContentKey.
+// Main thread only, as compileEffect is.
+namespace {
+
+struct RaKeyFile
+{
+    bool                     present;
+    unsigned int             size;
+    unsigned int             writeTimeLow;
+    unsigned int             writeTimeHigh;
+    unsigned long long       hash;
+    std::vector<std::string> includes;
+    bool                     dynamicInclude;   // an #include whose operand is not a literal name
+};
+
+std::map<std::string, RaKeyFile> g_raKeyFiles;
+
+// The names of a source's #include lines, in order.
+void raScanIncludes(const char* text, std::size_t size, std::vector<std::string>& out, bool& dynamic)
+{
+    std::size_t line = 0;
+    while (line < size)
+    {
+        std::size_t lineEnd = line;
+        while (lineEnd < size && text[lineEnd] != '\n')
+            ++lineEnd;
+        const char* p = text + line;
+        const char* const end = text + lineEnd;
+        while (p < end && (*p == ' ' || *p == '\t'))
+            ++p;
+        if (p < end && *p == '#')
+        {
+            ++p;
+            while (p < end && (*p == ' ' || *p == '\t'))
+                ++p;
+            if (end - p >= 7 && ::strncmp(p, "include", 7) == 0)
+            {
+                p += 7;
+                while (p < end && (*p == ' ' || *p == '\t'))
+                    ++p;
+                const char close = (p < end && *p == '"') ? '"' : (p < end && *p == '<') ? '>' : 0;
+                const char* const nameEnd =
+                    close ? static_cast<const char*>(::memchr(p + 1, close, end - p - 1)) : 0;
+                if (nameEnd)
+                    out.push_back(std::string(p + 1, nameEnd));
+                else
+                    dynamic = true;
+            }
+        }
+        line = lineEnd + 1;
+    }
+}
+
+const RaKeyFile& raKeyFile(const std::string& path, bool obfuscated)
+{
+    RaFileInfo info;
+    const bool present = raGetFileInfo(path, info);
+    RaKeyFile& file = g_raKeyFiles[path];
+    if (file.present == present && file.hash != 0
+        && (!present || (file.size == info.size && file.writeTimeLow == info.writeTimeLow
+                         && file.writeTimeHigh == info.writeTimeHigh)))
+        return file;
+
+    file.present = false;
+    file.size = info.size;
+    file.writeTimeLow = info.writeTimeLow;
+    file.writeTimeHigh = info.writeTimeHigh;
+    file.includes.clear();
+    file.dynamicInclude = false;
+    file.hash = raFnv1a(14695981039346656037ull, "missing", 7);
+
+    renddx9abi::HostStream* const stream = present ? raOpen(path, 2, 0) : 0;
+    if (!stream)
+        return file;
+    std::vector<unsigned char> text(info.size + 1, 0);
+    const unsigned int read = info.size ? stream->read(&text[0], info.size) : 0;
+    stream->release();
+    if (read != info.size)
+        return file;
+    if (obfuscated && info.size)
+        deobfuscateShader(&text[0], info.size);
+
+    file.present = true;
+    file.hash = raFnv1a(14695981039346656037ull, &text[0], info.size);
+    raScanIncludes(reinterpret_cast<const char*>(&text[0]), info.size, file.includes,
+                   file.dynamicInclude);
+    return file;
+}
+
+bool raPreprocessorKeyForced()
+{
+    static int forced = -1;
+    if (forced < 0)
+    {
+        const char* const v = ::getenv("BF2_PERF_FXKEY");
+        forced = (v && ::_stricmp(v, "preprocess") == 0) ? 1 : 0;
+    }
+    return forced == 1;
+}
+
+} // anonymous namespace
+
+std::string raEffectSourceKey(const char* source, unsigned int sourceLen, const D3DXMACRO* defines,
+                              unsigned long flags, const std::string& raDefines, bool obfuscated)
+{
+    if (raPreprocessorKeyForced())
+        return std::string();
+
+    unsigned long long hash = raFnv1a(14695981039346656037ull, source, sourceLen);
+    bool dynamic = false;
+    std::vector<std::string> pending;
+    raScanIncludes(source, sourceLen, pending, dynamic);
+
+    std::set<std::string> seen;
+    for (std::size_t i = 0; i < pending.size() && !dynamic; ++i)
+    {
+        const std::string name = pending[i];   // a copy: pending grows below
+        hash = raFnv1a(hash, name.c_str(), name.size() + 1);
+        if (::_stricmp(name.c_str(), "shaders/RaDefines.fx") == 0
+            || ::_stricmp(name.c_str(), "mods/xpack/shaders/RaDefines.fx") == 0)
+        {
+            hash = raFnv1a(hash, raDefines.data(), raDefines.size());
+            continue;
+        }
+        std::string path(name);
+        if (g_Renderer)
+            applyModPrefix(path);
+        if (!seen.insert(path).second)
+            continue;
+        const RaKeyFile& file = raKeyFile(path, obfuscated);
+        hash = raFnv1a(hash, &file.hash, sizeof(file.hash));
+        dynamic = file.dynamicInclude;
+        pending.insert(pending.end(), file.includes.begin(), file.includes.end());
+    }
+    if (dynamic)
+        return std::string();
+
+    for (const D3DXMACRO* define = defines; define && define->Name; ++define)
+    {
+        hash = raFnv1a(hash, define->Name, ::strlen(define->Name) + 1);
+        if (define->Definition)
+            hash = raFnv1a(hash, define->Definition, ::strlen(define->Definition) + 1);
+    }
+    const unsigned int flagWord = static_cast<unsigned int>(flags);
+    hash = raFnv1a(hash, &flagWord, sizeof(flagWord));
+    const unsigned char obfuscatedByte = obfuscated ? 1 : 0;
+    hash = raFnv1a(hash, &obfuscatedByte, 1);
+
+    char hex[18];
+    ::sprintf_s(hex, "s%016llx", hash);   // "s": never equal to a raEffectContentKey key
+    return std::string(hex);
+}
+
 // The key a previous compile stored beside its blob; empty when there is none.
 std::string raReadCacheKey(const std::string& path)
 {
@@ -2085,7 +2245,8 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
         return 0;
     }
     // GSLoadObfuscated, read per call in the shipped body with its default byte seeded to 1.
-    if (readBoolSetting("GSLoadObfuscated", true))
+    const bool obfuscated = readBoolSetting("GSLoadObfuscated", true);
+    if (obfuscated)
         deobfuscateShader(source, sourceLen);
 
     // [FIX] Content-keyed cache. Retail reuses the .cfx while it is newer than
@@ -2106,9 +2267,14 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
             ::dice::hfe::loadtrace::Scope keyTrace("fx.key", name.c_str());   // [DEV] BF2_LOAD_TRACE
             D3DXMACRO keyDefines[7];
             fillProfileDefines(0, keyPs, keyDefines);
-            cacheKey = raEffectContentKey(reinterpret_cast<const char*>(source), sourceLen,
-                                          keyDefines, reinterpret_cast<LPD3DXINCLUDE>(m_sub),
-                                          flags);
+            // [PERF] The source key; the preprocessor key only where it cannot be formed.
+            cacheKey = raEffectSourceKey(reinterpret_cast<const char*>(source), sourceLen,
+                                         keyDefines, flags, m_shaderDefines + m_debugDefines,
+                                         obfuscated);
+            if (cacheKey.empty())
+                cacheKey = raEffectContentKey(reinterpret_cast<const char*>(source), sourceLen,
+                                              keyDefines, reinterpret_cast<LPD3DXINCLUDE>(m_sub),
+                                              flags);
         }
     }
     const std::string cacheKeyPath = cachePath + ".key";
