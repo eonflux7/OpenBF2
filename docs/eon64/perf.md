@@ -1,7 +1,8 @@
 # Load times
 
 The `perf` lane ([AGENTS.md](../../AGENTS.md)): make loading faster without changing what is
-loaded. The target is the **first map load**, menu to spawn screen, with PR.
+loaded. The target is the **first map load**, menu to spawn screen, with PR. Frame time in the
+running game is in [frametime.md](frametime.md).
 
 ## Measuring
 

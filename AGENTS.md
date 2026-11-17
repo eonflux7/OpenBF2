@@ -18,7 +18,7 @@ Seven kinds of work happen here. They are called **lanes**, and every change bel
 | `fix` | A bug in the reconstructed engine (crash, wrong behaviour, x64 hazard) | Smallest correct change. Match retail where the evidence exists; say so when it was not checked | Upstream (kr4uzi / B2BF) |
 | `compat` | What PR's content, scripts or launcher need from the engine | Specified by what PR does, never by guesswork about rhooks internals. No visual changes | Possibly realitymod |
 | `render` | The renderer uplift: new design, not retail | Clean rewrites. No retail constraint. No legacy path kept beside a new one once the step is accepted | Private to this fork |
-| `perf` | Load times and throughput: threading, caching, avoiding repeated work | Changes when and on which thread work happens, never what it produces: the loaded state matches a serial load. While a step is developed, a flag forces the serial path for comparison; it is deleted when the owner accepts the step | Upstream where it stands alone; otherwise this fork |
+| `perf` | Load times and frame time: threading, caching, avoiding repeated work, cheaper algorithms | Changes what work costs, never what it produces: the loaded state matches a serial load, and frames draw the same. A step that changes order, threading or caching has a flag forcing the old path while it is developed; it is deleted when the owner accepts the step. A swap that returns the same result (a lookup in place of a scan) needs no flag, only the in-game check | Upstream where it stands alone; otherwise this fork |
 | `build` | Toolchain, CMake/Ninja, build scripts, ABI checks | Never changes runtime behaviour | Mostly upstream |
 | `dev` | Diagnostics and developer hooks (traces, autohost, file monitor) | Off by default; when unset, behaviour and cost are unchanged | Case by case |
 | `upstream` | Imported code: upstream merges, realitymod's PR #1 game-logic port | Not edited in place. A bug in it is a `fix` | — |
@@ -102,8 +102,8 @@ A marker is a pointer, not a justification: the comment beside it still explains
 - Every flag this fork adds is listed in `docs/eon64/flags.md` with its lane and removal condition.
 - A `render` flag exists only while its step is being developed. When the owner accepts the step
   in game, the flag and the replaced path are deleted in the same change.
-- A `perf` flag selects the old serial path while its step is developed, and goes when the step
-  is accepted, as for `render`.
+- A `perf` flag selects the old path (serial, uncached, in the old order) while its step is
+  developed, and goes when the step is accepted, as for `render`. Same-result swaps have none.
 - `dev` flags are permanent, off by default, and inert when unset.
 - `compat` flags gate behaviour retail BF2 must not see (for example `BF2_HUD_AUTOVAR`).
 
@@ -115,6 +115,7 @@ A marker is a pointer, not a justification: the comment beside it still explains
 | Renderer architecture, passes, targets, sampler slots, shader contract, roadmap | `docs/eon64/renderer.md` |
 | PR compatibility: what PR needs from the engine and what is done | `docs/eon64/compat.md` |
 | Load times: measurements, plan, what is done | `docs/eon64/perf.md` |
+| Frame time: measurements, profile, plan, what is done | `docs/eon64/frametime.md` |
 | Fixes worth upstreaming, with commits | `docs/eon64/upstream-fixes.md` |
 | Flags | `docs/eon64/flags.md` |
 

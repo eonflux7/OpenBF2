@@ -23,7 +23,7 @@ Every commit belongs to one lane; the commit subject starts with it (`render(csm
 | `fix` | Bugs in the reconstructed engine | [upstream-fixes.md](upstream-fixes.md) |
 | `compat` | What PR needs from the engine | [compat.md](compat.md) |
 | `render` | The renderer uplift | [renderer.md](renderer.md) |
-| `perf` | Load times and throughput | [perf.md](perf.md) |
+| `perf` | Load times and frame time | [perf.md](perf.md), [frametime.md](frametime.md) |
 | `build` | Toolchain, CMake/Ninja, ABI checks | [building.md](../building.md), below |
 | `dev` | Diagnostics and developer hooks | [flags.md](flags.md) |
 | `upstream` | Imported code | — |
