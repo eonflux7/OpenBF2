@@ -9,6 +9,7 @@
                                     // extractFilePath, extractFileName, equalsIgnoreCase,
                                     // getEmptyString
 #include "../Stream/MemStream.h"    // IMemStream - the small-file open target
+#include "ArchivePrefetch.h"        // [PERF] archive prefetch
 
 #include <cstring>                  // memset, memcpy
 
@@ -34,6 +35,7 @@ ZipArchive::ZipArchive(ZipArchiveHandler& handler)
 // Releases the handler before destroying members and closing pooled file handles.
 ZipArchive::~ZipArchive()
 {
+    archivePrefetchUnregister(this);    // [PERF] archive prefetch
     m_handler->release();
 }
 
@@ -157,6 +159,8 @@ bool ZipArchive::open(const std::string& file, IFileSystem* /*baseSystem*/, bool
         Debug(DEBUGTYPE_6, "IO/File/ZipArchive.cpp", 395) << "couldn't read entries from " << file;
 
     closeFileHandle(handle);
+    if (ok)
+        archivePrefetchRegister(this, m_filename);   // [PERF] archive prefetch
     return ok;
 }
 
@@ -251,6 +255,27 @@ IStream* ZipArchive::open(const std::string& name, FileMode mode, FileAccess acc
         return 0;
 
     const unsigned int uncompressed = entry->info.uncompressed_size;
+
+    // [PERF] Archive prefetch (ArchivePrefetch.h): the serial path inflates here or as the stream
+    // is read; a worker may already hold the inflated entry.
+    if (archivePrefetchEnabled())
+    {
+        archivePrefetchRecord(m_filename, fixed);
+        std::unique_ptr<std::vector<char> > data =
+            archivePrefetchTake(m_filename, fixed, entry->info, entry->pos);
+        if (data && data->size() == uncompressed)
+        {
+            if (uncompressed > 0xFFFF)
+                return new PrefetchedZipStream(*this, *entry, std::move(data));
+            SmartItf<IMemStream, &IID_IMemStream> memStream;
+            memStream.create(CID_MemStream);
+            memStream->setSize(uncompressed);
+            if (uncompressed)
+                memcpy(memStream->getPtr(), &(*data)[0], uncompressed);
+            IMemStream* result = memStream;
+            return result;
+        }
+    }
 
     if (uncompressed <= 0xFFFF)
     {
@@ -632,10 +657,136 @@ int ZipReadStream::getSize()     { return static_cast<int>(m_entry->info.uncompr
 // the literal, in a function-local static (guard 0x8AC3D90, object 0x8AC3D98).
 const std::string& ZipReadStream::getName()
 {
+    return nameNotStored();
+}
+
+const std::string& ZipReadStream::nameNotStored()
+{
     static const std::string name("Name not stored per zipStream");
     return name;
 }
 
+// [PERF] PrefetchedZipStream: what ZipReadStream would read, from the archive prefetch's buffer.
+
+PrefetchedZipStream::PrefetchedZipStream(ZipArchive& archive, ZipArchive::Entry& entry,
+                                         std::unique_ptr<std::vector<char> > data)
+    : m_refCount(1)
+    , m_archive(&archive)
+    , m_entry(&entry)
+    , m_data(std::move(data))
+    , m_position(0)
+{
+    m_archive->addRef();
+}
+
+PrefetchedZipStream::~PrefetchedZipStream()
+{
+    m_archive->release();
+}
+
+void PrefetchedZipStream::addRef() { ++m_refCount; }
+int  PrefetchedZipStream::getRef() { return m_refCount; }
+
+int PrefetchedZipStream::release()
+{
+    const int remaining = --m_refCount;
+    if (remaining == 0)
+        delete this;
+    return remaining;
+}
+
+// The same interfaces as ZipReadStream.
+void* PrefetchedZipStream::queryInterface(unsigned int iid) const
+{
+    if (iid == IID_IBase || iid == IID_IStream || iid == IID_INonlinearStream)
+        return const_cast<PrefetchedZipStream*>(this);
+    return 0;
+}
+
+unsigned int PrefetchedZipStream::read(void* dest, unsigned int n)
+{
+    const unsigned int size = static_cast<unsigned int>(m_data->size());
+    if (m_position >= size || !n)
+        return 0;
+    if (n > size - m_position)
+        n = size - m_position;
+    memcpy(dest, &(*m_data)[m_position], n);
+    m_position += n;
+    return n;
+}
+
+unsigned int PrefetchedZipStream::write(const void* /*src*/, unsigned int /*n*/)
+{
+    Debug(DEBUGTYPE_6, "IO/File/ZipArchive.cpp", 599) << "write() not valid on ZipReadStream";
+    return 0;
+}
+
+// ZipReadStream::skip reads n bytes and answers 1 only when all of them arrived.
+int PrefetchedZipStream::skip(unsigned int n)
+{
+    if (!n)
+        return 1;
+    const unsigned int size = static_cast<unsigned int>(m_data->size());
+    const unsigned int left = m_position < size ? size - m_position : 0;
+    if (n > left)
+    {
+        m_position += left;
+        return 0;
+    }
+    m_position += n;
+    return 1;
+}
+
+int PrefetchedZipStream::getAvailableBytes()
+{
+    return static_cast<int>(m_entry->info.uncompressed_size - m_position);
+}
+
+// ZipReadStream::clone: a fresh stream over the entry at position zero.
+IStream* PrefetchedZipStream::clone()
+{
+    return new ZipReadStream(*m_archive, *m_entry);
+}
+
+bool PrefetchedZipStream::canRead()  { return true; }
+bool PrefetchedZipStream::canWrite() { return false; }
+
+// ZipReadStream::seek's cases; a backward seek starts again from zero and skips.
+int PrefetchedZipStream::seek(SeekOrigin origin, int offset)
+{
+    if (origin == SEEKORIGIN_BEGIN)
+    {
+        const unsigned int target = static_cast<unsigned int>(offset);
+        if (target == m_position)
+            return 1;
+        if (target >= m_position)
+            return skip(target - m_position);
+        m_position = 0;
+        return skip(target);
+    }
+
+    if (origin == SEEKORIGIN_CURRENT && offset >= 0)
+        return skip(static_cast<unsigned int>(offset));
+
+    if (origin == SEEKORIGIN_END && offset == 0)
+    {
+        m_position = static_cast<unsigned int>(getSize());
+        return 1;
+    }
+
+    Debug(DEBUGTYPE_7, "IO/File/ZipArchive.cpp", 634)
+        << "seek() not all modes supported in ZipReadStream, mode:" << static_cast<int>(origin)
+        << " offset:" << offset;
+    return 0;
+}
+
+int PrefetchedZipStream::getPosition() { return static_cast<int>(m_position); }
+int PrefetchedZipStream::getSize()     { return static_cast<int>(m_entry->info.uncompressed_size); }
+
+const std::string& PrefetchedZipStream::getName()
+{
+    return ZipReadStream::nameNotStored();
+}
 
 } // namespace io
 } // namespace hfe

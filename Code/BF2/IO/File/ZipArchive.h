@@ -8,7 +8,9 @@
 
 #include <list>
 #include <map>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "IFileSystem.h"            // IArchive, IArchiveHandler, IFileSystem enums, FileInfo
 #include "unzip.h"                  // minizip 1.01e - External/zlib-1.2.3/contrib/minizip (the
@@ -157,6 +159,8 @@ public:
     // Own slot, +0x3C: a function-local static "Name not stored per zipStream".
     virtual const std::string& getName();
 
+    static const std::string& nameNotStored();              // [PERF] shared with PrefetchedZipStream
+
 private:
     int init();                                             // borrow handle + teleport
 
@@ -167,6 +171,43 @@ private:
     unsigned int            m_position;     // +0x14 - logical position in the uncompressed entry
     unsigned int            m_buffered;     // +0x18 - bytes staged in the handle's buffer
     unsigned int            m_bufferPos;    // +0x1C - consumed prefix of the staged bytes
+};
+
+// [PERF] A large entry the archive prefetch (ArchivePrefetch.h) already inflated: reads, skips and
+// seeks as ZipReadStream would, from the buffer. clone opens a ZipReadStream, as ZipReadStream's does.
+class PrefetchedZipStream : public INonlinearStream
+{
+public:
+    PrefetchedZipStream(ZipArchive& archive, ZipArchive::Entry& entry,
+                        std::unique_ptr<std::vector<char> > data);
+    ~PrefetchedZipStream();
+
+    virtual void  addRef();
+    virtual int   getRef();
+    virtual int   release();
+    virtual void* queryInterface(unsigned int iid) const;
+
+    virtual unsigned int read(void* dest, unsigned int n);
+    virtual unsigned int write(const void* src, unsigned int n);
+    virtual int  skip(unsigned int n);
+    virtual int  getAvailableBytes();
+    virtual IStream* clone();
+    virtual bool canRead();
+    virtual bool canWrite();
+    virtual int  seek(SeekOrigin origin, int offset);
+    virtual int  getPosition();
+    virtual int  getSize();
+    virtual const std::string& getName();
+
+private:
+    PrefetchedZipStream(const PrefetchedZipStream&);
+    PrefetchedZipStream& operator=(const PrefetchedZipStream&);
+
+    int                                 m_refCount;
+    ZipArchive*                         m_archive;
+    ZipArchive::Entry*                  m_entry;
+    std::unique_ptr<std::vector<char> > m_data;
+    unsigned int                        m_position;
 };
 
 // Archive handler that creates a fresh ZipArchive for each open.

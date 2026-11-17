@@ -4,6 +4,7 @@
 
 #include "GameLogic.h"
 #include "../../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
+#include "../../IO/File/ArchivePrefetch.h"   // [PERF] archive prefetch
 #include "../Main/Game.h"        // isDedicated - loadCallback's client/server split
 #if !DEDICATED
 #include "../VoipClient/BF2VoipClient.h"   // bf2VoipClient (ds:0x9A4DA0)
@@ -540,6 +541,28 @@ bool GameLogic::load(const std::string& levelPath)
     }
     game->setCurrentMapSize(chosenSize);                       // +0x104
     settings->stringSet(std::string("GLGameLevelPath"), levelPath);
+
+    // [PERF] Archive prefetch (IO/File/ArchivePrefetch.h): with the level's archives mounted,
+    // workers start inflating the entries the last load of this level, mode and size opened, and
+    // this load's list is recorded until endLoadStats. Serially, each entry inflated on first use.
+    if (io::archivePrefetchEnabled())
+    {
+        std::string mod = settings->stringGet(std::string("GSModDirectory"), std::string());
+        while (!mod.empty() && (mod[mod.size() - 1] == '/' || mod[mod.size() - 1] == '\\'))
+            mod.erase(mod.size() - 1);
+        if (mod.empty())
+            mod = "mods/bf2";
+        std::ostringstream stem;
+        stem << levelName << "_" << gameMode << "_" << chosenSize;
+        std::string name = stem.str();
+        for (std::size_t i = 0; i < name.size(); ++i)
+        {
+            const char c = name[i];
+            name[i] = (c == '/' || c == '\\' || c == ':') ? '_'
+                    : ((c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c);
+        }
+        io::archivePrefetchBegin("@HOME@/" + mod + "/cache/fileorder_" + name + ".lst");
+    }
 
     loadtrace::mark("load:setup");                             // [DEV] BF2_LOAD_TRACE
     // stats, sun, and the first scripted phase (0x80CEC4A-0x80CEE12)
@@ -2447,6 +2470,8 @@ int GameLogic::getTeamFromName(const std::string& name)
 // HUD the load is over (ECHud/8).
 void GameLogic::endLoadStats()
 {
+    io::archivePrefetchEnd();   // [PERF] archive prefetch: the load is over; write its list
+
     loadStat->unregisterLoadCallback();
     eventManager->postEvent(ECHud, 8, 0, 0.0f);                         // +0x14
 }
