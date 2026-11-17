@@ -42,6 +42,11 @@
 #include <map>
 #include <regex>
 #include <set>
+#include <condition_variable>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 namespace dice {
@@ -1570,9 +1575,9 @@ typedef HRESULT (WINAPI* RaD3dxCreateEffectCompilerFn)(LPCSTR, UINT, CONST D3DXM
 HMODULE                      s_raD3dxModule = 0;              // dword_1023E108
 RaD3dxCreateEffectCompilerFn s_raCreateEffectCompiler = 0;    // dword_1023E10C
 
-long raCreateEffectCompiler(const char* srcData, unsigned int srcDataLen,
-                            const D3DXMACRO* defines, LPD3DXINCLUDE include, unsigned long flags,
-                            ID3DXEffectCompiler** compilerOut, ID3DXBuffer** parseErrorsOut)
+// [PERF] The lazy load on its own, so the effect prefetch can bind the entry point on the main
+// thread before its workers call raCreateEffectCompiler.
+bool raLoadEffectCompiler()
 {
     if (!s_raD3dxModule)
     {
@@ -1588,9 +1593,18 @@ long raCreateEffectCompiler(const char* srcData, unsigned int srcDataLen,
             ::renddx9abi::logf("RaShaderPermutator.cpp:574: Failed to load D3DX9d_24.dll, we need "
                                "this to avoid the April 2005 DxSDK bug(recursive call on parsing "
                                "some .fx files (skinnedmesh.fx)");
-            return static_cast<long>(0x80004005);             // E_FAIL, as the shipped body returns
+            return false;
         }
     }
+    return s_raCreateEffectCompiler != 0;
+}
+
+long raCreateEffectCompiler(const char* srcData, unsigned int srcDataLen,
+                            const D3DXMACRO* defines, LPD3DXINCLUDE include, unsigned long flags,
+                            ID3DXEffectCompiler** compilerOut, ID3DXBuffer** parseErrorsOut)
+{
+    if (!raLoadEffectCompiler())
+        return static_cast<long>(0x80004005);                 // E_FAIL, as the shipped body returns
 
     return s_raCreateEffectCompiler(srcData, srcDataLen, defines, include, flags,
                                     compilerOut, parseErrorsOut);
@@ -1733,6 +1747,7 @@ struct RaKeyFile
     unsigned int             writeTimeLow;
     unsigned int             writeTimeHigh;
     unsigned long long       hash;
+    std::shared_ptr<const std::string> text;   // deobfuscated, for the effect prefetch
     std::vector<std::string> includes;
     bool                     dynamicInclude;   // an #include whose operand is not a literal name
 };
@@ -1790,6 +1805,7 @@ const RaKeyFile& raKeyFile(const std::string& path, bool obfuscated)
     file.writeTimeLow = info.writeTimeLow;
     file.writeTimeHigh = info.writeTimeHigh;
     file.includes.clear();
+    file.text.reset();
     file.dynamicInclude = false;
     file.hash = raFnv1a(14695981039346656037ull, "missing", 7);
 
@@ -1806,6 +1822,7 @@ const RaKeyFile& raKeyFile(const std::string& path, bool obfuscated)
 
     file.present = true;
     file.hash = raFnv1a(14695981039346656037ull, &text[0], info.size);
+    file.text = std::make_shared<const std::string>(reinterpret_cast<const char*>(&text[0]), info.size);
     raScanIncludes(reinterpret_cast<const char*>(&text[0]), info.size, file.includes,
                    file.dynamicInclude);
     return file;
@@ -1822,10 +1839,21 @@ bool raPreprocessorKeyForced()
     return forced == 1;
 }
 
+// One file the effect can include, by the name its #include line gives.
+struct RaIncludeText
+{
+    std::string                        path;       // as raIncludeOpen resolves it; empty for RaDefines
+    std::shared_ptr<const std::string> text;       // null when the file is missing
+};
+typedef std::map<std::string, RaIncludeText> RaIncludeMap;
+
 } // anonymous namespace
 
+// includesOut, when given, receives every reachable include with its text (the effect prefetch
+// compiles from these).
 std::string raEffectSourceKey(const char* source, unsigned int sourceLen, const D3DXMACRO* defines,
-                              unsigned long flags, const std::string& raDefines, bool obfuscated)
+                              unsigned long flags, const std::string& raDefines, bool obfuscated,
+                              RaIncludeMap* includesOut = 0)
 {
     if (raPreprocessorKeyForced())
         return std::string();
@@ -1844,14 +1872,23 @@ std::string raEffectSourceKey(const char* source, unsigned int sourceLen, const 
             || ::_stricmp(name.c_str(), "mods/xpack/shaders/RaDefines.fx") == 0)
         {
             hash = raFnv1a(hash, raDefines.data(), raDefines.size());
+            if (includesOut)
+                (*includesOut)[name].text = std::make_shared<const std::string>(raDefines);
             continue;
         }
         std::string path(name);
         if (g_Renderer)
             applyModPrefix(path);
-        if (!seen.insert(path).second)
+        const bool first = seen.insert(path).second;
+        const RaKeyFile& file = first ? raKeyFile(path, obfuscated) : g_raKeyFiles[path];
+        if (includesOut)
+        {
+            RaIncludeText& entry = (*includesOut)[name];
+            entry.path = path;
+            entry.text = file.present ? file.text : std::shared_ptr<const std::string>();
+        }
+        if (!first)
             continue;
-        const RaKeyFile& file = raKeyFile(path, obfuscated);
         hash = raFnv1a(hash, &file.hash, sizeof(file.hash));
         dynamic = file.dynamicInclude;
         pending.insert(pending.end(), file.includes.begin(), file.includes.end());
@@ -1874,6 +1911,246 @@ std::string raEffectSourceKey(const char* source, unsigned int sourceLen, const 
     ::sprintf_s(hex, "s%016llx", hash);   // "s": never equal to a raEffectContentKey key
     return std::string(hex);
 }
+
+// [PERF] The Ra effect prefetch. The serial path compiles each effect when getEffect first asks
+// for it, one after the other on the main thread: 1338 effects, about 3 minutes, on a first load of
+// muttrah_city_2. The names asked for are appended to effects.lst in the cache directory. At the
+// first compile of a session, the main thread reads each listed effect, its includes and its cache
+// key, and every one whose cache is stale goes to worker threads, which compile it with the first
+// profile the serial loop would try (D3DX compiles without the device). When getEffect reaches the
+// name, compileEffect takes that bytecode in place of compiling it and carries on as before:
+// creating the effect, the technique test, the cache write. A job is used only when its key equals
+// the key compileEffect computes, so its source, includes, defines and flags are the ones the
+// serial compile would see. The include watches the serial include handler registers are
+// registered from the list of files the worker opened. A job whose compile failed, or that asked
+// for a file it was not given, is dropped and the serial compile runs. BF2_PERF_FXPREFETCH=0 turns
+// the prefetch off. Windows only (the compiler entry is resolved from d3dx9_24.dll).
+namespace {
+
+// PE 0x100376C8: insert before registering, and ignore the returned resolved path.
+void raWatchInclude(EffectSubObject* sub, const std::string& path)
+{
+    if (sub->watched.find(path) != sub->watched.end())
+        return;
+    sub->watched.insert(path);
+#if !defined(_MSC_VER)
+    // [CHOSEN, not recovered] The native provider uses its C++ interface.
+    static_cast<io::IFileChangeManager*>(static_cast<void*>(::dice::hfe::fileChangeManager))
+        ->addListener(reinterpret_cast<io::IFileChangeListener*>(&sub->vptr2), path, 3);
+#else
+    static_cast<IFileChangeManagerPe*>(static_cast<void*>(::dice::hfe::fileChangeManager))
+        ->addListener(reinterpret_cast<IBase*>(&sub->vptr2), path, 3);
+#endif
+}
+
+#if defined(_WIN32) && !defined(__APPLE__)
+struct RaPrefetchJob
+{
+    // Inputs, written by the main thread before the job is queued.
+    std::string   name;
+    std::string   key;
+    std::string   source;
+    std::string   defineText[12];
+    D3DXMACRO     defines[7];
+    unsigned long flags;
+    RaIncludeMap  includes;
+    // Results, written by one worker and read by the main thread once done is set.
+    bool                     done;
+    bool                     complete;   // every include it asked for was given
+    ID3DXBuffer*             blob;
+    std::vector<std::string> opened;     // include paths, in the order the compiler opened them
+
+    RaPrefetchJob() : flags(0), done(false), complete(true), blob(0) {}
+};
+
+// Serves a job's includes from memory, as raIncludeOpen would have read them.
+class RaMemoryInclude : public ID3DXInclude
+{
+public:
+    explicit RaMemoryInclude(RaPrefetchJob& job) : m_job(job) {}
+    STDMETHOD(Open)(D3DXINCLUDE_TYPE, LPCSTR name, LPCVOID, LPCVOID* data, UINT* bytes)
+    {
+        const RaIncludeMap::const_iterator it = name ? m_job.includes.find(name) : m_job.includes.end();
+        if (it == m_job.includes.end() || !it->second.text)
+        {
+            m_job.complete = false;
+            return E_FAIL;
+        }
+        if (!it->second.path.empty())
+            m_job.opened.push_back(it->second.path);
+        *data  = it->second.text->c_str();
+        *bytes = static_cast<UINT>(it->second.text->size());
+        return S_OK;
+    }
+    STDMETHOD(Close)(LPCVOID) { return S_OK; }
+
+private:
+    RaPrefetchJob& m_job;
+};
+
+struct RaPrefetchPool
+{
+    std::mutex                 mutex;
+    std::condition_variable    work;
+    std::condition_variable    finished;
+    std::deque<RaPrefetchJob*> queue;
+};
+
+// Never destroyed: the workers block on it until the process ends, and joining them from a static
+// destructor would run under the loader lock.
+RaPrefetchPool* g_raPrefetchPool = 0;
+std::map<std::string, RaPrefetchJob*> g_raPrefetchJobs;   // main thread only
+bool g_raPrefetchStarted = false;
+std::set<std::string> g_raManifestNames;                  // main thread only
+bool g_raManifestRead = false;
+
+void raPrefetchCompile(RaPrefetchJob& job)
+{
+    ::dice::hfe::loadtrace::Scope trace("fx.worker", job.name.c_str());   // [DEV] BF2_LOAD_TRACE
+    RaMemoryInclude include(job);
+    ID3DXEffectCompiler* compiler = 0;
+    ID3DXBuffer* errors = 0;
+    if (raCreateEffectCompiler(job.source.c_str(), static_cast<unsigned int>(job.source.size()),
+                               job.defines, &include, job.flags, &compiler, &errors) == 0 && compiler)
+    {
+        if (errors)
+        {
+            errors->Release();
+            errors = 0;
+        }
+        ID3DXBuffer* blob = 0;
+        if (compiler->CompileEffect(job.flags, &blob, &errors) == 0)
+            job.blob = blob;
+        else if (blob)
+            blob->Release();
+    }
+    if (compiler)
+        compiler->Release();
+    if (errors)
+        errors->Release();
+}
+
+void raPrefetchWorker(RaPrefetchPool* pool)
+{
+    for (;;)
+    {
+        RaPrefetchJob* job = 0;
+        {
+            std::unique_lock<std::mutex> lock(pool->mutex);
+            pool->work.wait(lock, [pool] { return !pool->queue.empty(); });
+            job = pool->queue.front();
+            pool->queue.pop_front();
+        }
+        raPrefetchCompile(*job);
+        {
+            std::lock_guard<std::mutex> lock(pool->mutex);
+            job->done = true;
+        }
+        pool->finished.notify_all();
+    }
+}
+
+bool raPrefetchEnabled()
+{
+    static int enabled = -1;
+    if (enabled < 0)
+    {
+        const char* const v = ::getenv("BF2_PERF_FXPREFETCH");
+        enabled = (v && v[0] == '0' && v[1] == 0) ? 0 : 1;
+    }
+    return enabled == 1;
+}
+
+void raPrefetchQueue(RaPrefetchJob* job)
+{
+    if (!g_raPrefetchPool)
+    {
+        g_raPrefetchPool = new RaPrefetchPool;
+        unsigned int threads = std::thread::hardware_concurrency();
+        threads = threads > 1 ? threads - 1 : 1;
+        if (threads > 8)
+            threads = 8;
+        for (unsigned int i = 0; i < threads; ++i)
+            std::thread(raPrefetchWorker, g_raPrefetchPool).detach();
+    }
+    g_raPrefetchJobs[job->name] = job;
+    {
+        std::lock_guard<std::mutex> lock(g_raPrefetchPool->mutex);
+        g_raPrefetchPool->queue.push_back(job);
+    }
+    g_raPrefetchPool->work.notify_one();
+}
+
+// The listed names, read once per session.
+void raReadManifest(const std::string& path, std::vector<std::string>& names)
+{
+    g_raManifestRead = true;
+    RaFileInfo info;
+    if (!raGetFileInfo(path, info) || info.size == 0)
+        return;
+    renddx9abi::HostStream* const file = raOpen(path, 2, 0);
+    if (!file)
+        return;
+    std::string text(info.size, '\0');
+    const unsigned int read = file->read(&text[0], info.size);
+    file->release();
+    text.resize(read);
+    std::string::size_type line = 0;
+    while (line < text.size())
+    {
+        std::string::size_type end = text.find('\n', line);
+        if (end == std::string::npos)
+            end = text.size();
+        std::string name(text, line, end - line);
+        while (!name.empty() && (name[name.size() - 1] == '\r' || name[name.size() - 1] == ' '))
+            name.erase(name.size() - 1);
+        if (!name.empty() && g_raManifestNames.insert(name).second)
+            names.push_back(name);
+        line = end + 1;
+    }
+}
+
+// Appends a name the manifest does not list yet.
+void raNoteManifest(const std::string& path, const std::string& name)
+{
+    if (!::dice::hfe::fileManager || !g_raManifestNames.insert(name).second)
+        return;
+    const std::string line = name + "\n";
+    ::dice::hfe::fileManager->writeFile(renddx9abi::makeHostString(path), line.data(),
+                                        static_cast<unsigned int>(line.size()), true);
+}
+
+// The prefetched bytecode for name, or null (compile it serially). Waits for the job if a worker
+// still has it. On success the include watches the compile would have registered are registered.
+ID3DXBuffer* raTakePrefetched(const std::string& name, const std::string& key, EffectSubObject* sub)
+{
+    const std::map<std::string, RaPrefetchJob*>::iterator it = g_raPrefetchJobs.find(name);
+    if (it == g_raPrefetchJobs.end())
+        return 0;
+    RaPrefetchJob* const job = it->second;
+    g_raPrefetchJobs.erase(it);
+    {
+        ::dice::hfe::loadtrace::Scope trace("fx.wait", job->name.c_str(), 100);   // [DEV]
+        std::unique_lock<std::mutex> lock(g_raPrefetchPool->mutex);
+        g_raPrefetchPool->finished.wait(lock, [job] { return job->done; });
+    }
+    ID3DXBuffer* blob = 0;
+    if (job->key == key && job->complete && job->blob)
+    {
+        blob = job->blob;
+        job->blob = 0;
+        if (sub)
+            for (std::size_t i = 0; i < job->opened.size(); ++i)
+                raWatchInclude(sub, job->opened[i]);
+    }
+    if (job->blob)
+        job->blob->Release();
+    delete job;
+    return blob;
+}
+#endif // _WIN32 && !__APPLE__
+
+} // anonymous namespace
 
 // The key a previous compile stored beside its blob; empty when there is none.
 std::string raReadCacheKey(const std::string& path)
@@ -2197,6 +2474,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
         cachePath += suffix;
     }
     cachePath += "/";
+    const std::string cacheDirectory(cachePath);   // [PERF] the effect prefetch's manifest lives here
     {
         std::string stem;
         raCacheStem(stem, name);
@@ -2257,9 +2535,10 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
     // this+0x78 is the _Mysize of the string at +0x64 - m_debugDefines - so the cache is used only
     // when NO debug define is active, which is what makes the cached blob safe to reuse at all.
     std::string cacheKey;
+    int keyPs = 5;   // the first profile the compile loop tries; 5 when the cache is not used
     if (!m_byte60 && m_debugDefines.size() == 0)
     {
-        int keyPs = firstPs;
+        keyPs = firstPs;
         while (keyPs < 5 && !psProfileUsable(keyPs))
             ++keyPs;
         if (keyPs < 5)
@@ -2278,6 +2557,82 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
         }
     }
     const std::string cacheKeyPath = cachePath + ".key";
+
+#if defined(_WIN32) && !defined(__APPLE__)
+    // [PERF] The effect prefetch (see raTakePrefetched): list this name, and at the first compile of
+    // the session queue every listed effect whose cache is stale.
+    if (keyPs < 5 && !cacheKey.empty() && raPrefetchEnabled())
+    {
+        const std::string manifestPath = cacheDirectory + "effects.lst";
+        std::vector<std::string> listed;
+        if (!g_raManifestRead)
+            raReadManifest(manifestPath, listed);
+        raNoteManifest(manifestPath, name);
+        if (!g_raPrefetchStarted && raLoadEffectCompiler())
+        {
+            g_raPrefetchStarted = true;
+            ::dice::hfe::loadtrace::Scope prepTrace("fx.prefetch", "queue");   // [DEV] BF2_LOAD_TRACE
+            D3DXMACRO keyDefines[7];
+            fillProfileDefines(0, keyPs, keyDefines);
+            const std::string raDefines = m_shaderDefines + m_debugDefines;
+            unsigned int queued = 0, current = 0, unreadable = 0;
+            for (std::size_t i = 0; i < listed.size(); ++i)
+            {
+                const std::string& other = listed[i];
+                if (other == name)
+                    continue;
+                unsigned char* otherSource = 0;
+                const unsigned int otherLen = readEffectFile(other, &otherSource);
+                if (otherLen == 0)
+                {
+                    ::renddx9abi::engineFree(otherSource);
+                    ++unreadable;
+                    continue;
+                }
+                if (obfuscated)
+                    deobfuscateShader(otherSource, otherLen);
+
+                RaPrefetchJob* const job = new RaPrefetchJob;
+                job->name = other;
+                job->source.assign(reinterpret_cast<const char*>(otherSource), otherLen);
+                ::renddx9abi::engineFree(otherSource);
+                job->key = raEffectSourceKey(job->source.c_str(), otherLen, keyDefines, flags,
+                                             raDefines, obfuscated, &job->includes);
+                std::string otherStem;
+                raCacheStem(otherStem, other);
+                const std::string otherCache = cacheDirectory + otherStem + ".cfx";
+                RaFileInfo otherInfo;
+                if (job->key.empty()
+                    || (raGetFileInfo(otherCache, otherInfo)
+                        && raReadCacheKey(otherCache + ".key") == job->key))
+                {
+                    delete job;
+                    ++current;
+                    continue;
+                }
+                int d = 0;
+                for (; d < 6 && keyDefines[d].Name; ++d)
+                {
+                    job->defineText[2 * d] = keyDefines[d].Name;
+                    job->defineText[2 * d + 1] = keyDefines[d].Definition ? keyDefines[d].Definition : "";
+                    job->defines[d].Name = job->defineText[2 * d].c_str();
+                    job->defines[d].Definition =
+                        keyDefines[d].Definition ? job->defineText[2 * d + 1].c_str() : 0;
+                }
+                job->defines[d].Name = 0;
+                job->defines[d].Definition = 0;
+                job->flags = flags;
+                raPrefetchQueue(job);
+                ++queued;
+            }
+            ::fprintf(stderr, "[EFFECTPREFETCH] %u listed: %u queued on worker threads, %u cached, "
+                              "%u unreadable now
+", static_cast<unsigned>(listed.size()), queued,
+                      current, unreadable);
+            ::fflush(stderr);
+        }
+    }
+#endif
 
     bool useCache = false;
     RaFileInfo cacheInfo;
@@ -2380,8 +2735,15 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
 
                 unsigned long passFlags = flags;      // the shipped body passes a copy by pointer
                 const long long compileT0 = ::dice::hfe::loadtrace::enabled() ? ::dice::hfe::loadtrace::now() : -1;   // [DEV]
-                ID3DXBuffer* const blob = compileEffectSource(
-                    reinterpret_cast<const char*>(source), sourceLen, defines, &passFlags, &errors);
+                ID3DXBuffer* blob = 0;
+#if defined(_WIN32) && !defined(__APPLE__)
+                // [PERF] The first attempt uses the prefetched bytecode when there is one.
+                if (vsIndex == 0 && psIndex == keyPs && !cacheKey.empty())
+                    blob = raTakePrefetched(name, cacheKey, m_sub);
+#endif
+                if (!blob)
+                    blob = compileEffectSource(
+                        reinterpret_cast<const char*>(source), sourceLen, defines, &passFlags, &errors);
                 if (compileT0 >= 0)   // [DEV] BF2_LOAD_TRACE: one span per profile attempted
                     ::dice::hfe::loadtrace::span(blob ? "fx.compile" : "fx.compile.fail", name.c_str(), compileT0,
                                                 ::dice::hfe::loadtrace::now());
@@ -2650,19 +3012,7 @@ long __stdcall raIncludeOpen(void* self, int /*includeType*/, const char* fileNa
         if (obfuscated)
             deobfuscateShader(reinterpret_cast<unsigned char*>(buffer), info.size);
 
-        // PE 0x100376C8: insert before registering, and ignore the returned resolved path.
-        if (sub->watched.find(path) == sub->watched.end())
-        {
-            sub->watched.insert(path);
-#if !defined(_MSC_VER)
-            // [CHOSEN, not recovered] The native provider uses its C++ interface.
-            static_cast<io::IFileChangeManager*>(static_cast<void*>(::dice::hfe::fileChangeManager))
-                ->addListener(reinterpret_cast<io::IFileChangeListener*>(&sub->vptr2), path, 3);
-#else
-            static_cast<IFileChangeManagerPe*>(static_cast<void*>(::dice::hfe::fileChangeManager))
-                ->addListener(reinterpret_cast<IBase*>(&sub->vptr2), path, 3);
-#endif
-        }
+        raWatchInclude(sub, path);
     }
 
     // The splice. `"^#include\\s+\"" + fileName + "\".*"`, PME flags "mg", applied to the expanded
