@@ -24,7 +24,7 @@ Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`
 | `BF2_PERF_MEMEINDEX=0` | on | The HUD's name registry (BFMeme) walks its child lists for every lookup and insert again, with no name index | The registry index is accepted in game |
 | `BF2_PERF_FXEVENT=0` | on | Every effect load posts a loading-screen repaint again, instead of at most thirty per second | The repaint throttle is accepted in game |
 | `BF2_PERF_TSCCAL=0` | on | The one-second TSC calibration spins on the main thread during startup again, instead of on a worker joined at the end of engine init | The worker calibration is accepted in game |
-| `BF2_PERF_VIDEODETECT=0` | on | Renderer initialization runs the video quality heuristic again (its CPU benchmark sleeps one second) although it drops the result | The skipped detection is accepted in game |
+| `BF2_PERF_VIDEODETECT=0` | on | The video quality heuristic runs again (its CPU benchmark sleeps one second) at renderer initialization and in VideoSettings::detectVideoOptionScheme (every profile login), although both drop its level | The skipped detection is accepted in game |
 | `BF2_PERF_FXSTAT=0` | on | The Ra effect key looks up the size and write time of every include file for every effect again, instead of once per frame | The file-info memo is accepted in game |
 | `BF2_PERF_FXSRC=0` | on | Effects loaded through `compileEffectFile` (fsquaddrawer, postproduction, skydome, terrainshader, ...) compile from source on every load again, with no bytecode cache | The source-effect cache is accepted in game |
 
