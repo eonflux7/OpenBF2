@@ -14,6 +14,8 @@
 #include "Debug.h"      // dice::hfe::Debug, DEBUGTYPE_6 - the five sites above
 #include "IBase.h"      // create()'s return type
 #include "Ids.h"        // IID_IBase, IID_IEventManager
+#include "LoadTrace.h"  // [DEV] BF2_LOAD_TRACE
+#include <typeinfo>     // [DEV] the event span's listener name
 
 
 namespace dice {
@@ -351,7 +353,21 @@ void EventManager::dispatchEvent(EventNode* node)
     Handler* h = m_handlers[node->m_category];
     while (h != 0)
     {
+        // [DEV] BF2_LOAD_TRACE: an "event" span for each delivery of 1 ms or more, named by the
+        // listener's class, category and id.
+        const long long traceStart = loadtrace::enabled() ? loadtrace::now() : -1;
         h->m_listener->handleEvent(node->m_category, id, node, userData);
+        if (traceStart >= 0)
+        {
+            const long long traceEnd = loadtrace::now();
+            if (traceEnd - traceStart >= 1000)
+            {
+                char name[256];
+                std::snprintf(name, sizeof name, "%s %d/%u", typeid(*h->m_listener).name(),
+                              static_cast<int>(node->m_category), id);
+                loadtrace::span("event", name, traceStart, traceEnd);
+            }
+        }
         h = h->m_next;
     }
 

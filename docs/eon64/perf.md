@@ -26,6 +26,7 @@ on worker threads). Each image (BF2.exe, RendDX9, BF2Audio) writes its own file,
 | `file.prefetch` / `file.wait` | `ArchivePrefetch.cpp` | One entry inflated by a prefetch worker; the main thread waiting for one in progress. `file.prefetch.queue` reads the level's list, `file.prefetch.end` writes it |
 | `fx.ra` | `EffectManager::compileEffect` | Ra effects; inside it `fx.read` (the source), `fx.stat` (each file-info lookup), `fx.key` (the content key), `fx.keyfile` (the stored key), `fx.setup` (before the source read), `fx.listen`, `fx.event` (the loading-progress event), `fx.cacheload`, `fx.compile` (one per shader profile attempted), `fx.compile.fail`, `fx.create` |
 | `py.init` / `py.admin` / `py.gamemode` / `py.event` | `PythonHost` | Interpreter start, admin module, the game-mode import and init, event handlers of 1 ms or more |
+| `event` | `EventManager::dispatchEvent` | One delivery to a listener of 1 ms or more, named by the listener's class, category and id |
 | `frame` | `BF2Engine::mainLoop` | Frames over 50 ms; after a load, these show work deferred to first use |
 
 `Code/Tools/LoadTrace/loadtrace.py <prefix>` nests the spans and prints, per phase, the self time
