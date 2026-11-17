@@ -886,8 +886,8 @@ void buildPresentParameters(void* renderer)
             D3DFMT_X8R8G8B8, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_SURFACE, D3DFMT_D24FS8)))
         b->pp.AutoDepthStencilFormat = D3DFMT_D24FS8;
     else
-        std::fprintf(stderr, "[RENDER] D24FS8 unsupported: reversed depth keeps format %d "
-                     "(integer depth loses far precision)\n",
+        std::fprintf(stderr, "[RENDER] D24FS8 not offered: depth stays format %d (float only if the "
+                     "driver backs it with float, e.g. DXVK d3d9.useD32forD24)\n",
                      static_cast<int>(b->pp.AutoDepthStencilFormat));
 
     // The multisample pair, 8 bytes, only if the vector is non-empty.
