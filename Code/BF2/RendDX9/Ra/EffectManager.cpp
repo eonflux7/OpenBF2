@@ -2576,18 +2576,58 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
             fillProfileDefines(0, keyPs, keyDefines);
             const std::string raDefines = m_shaderDefines + m_debugDefines;
             unsigned int queued = 0, current = 0, unreadable = 0;
+            // A generated permutation reads only once its metashader is loaded, which the mesh
+            // code does when it first initializes, after this. So when a listed name does not
+            // read, the metashaders whose names start it are loaded now (the load would load them
+            // later anyway) and the name is tried once more.
+            std::vector<std::string> metaShaders;
+            bool metaShadersListed = false;
+            std::set<std::string> metaShadersLoaded;
             for (std::size_t i = 0; i < listed.size(); ++i)
             {
                 const std::string& other = listed[i];
                 if (other == name)
                     continue;
                 unsigned char* otherSource = 0;
-                const unsigned int otherLen = readEffectFile(other, &otherSource);
+                unsigned int otherLen = readEffectFile(other, &otherSource);
                 if (otherLen == 0)
                 {
                     ::renddx9abi::engineFree(otherSource);
-                    ++unreadable;
-                    continue;
+                    otherSource = 0;
+                    if (!metaShadersListed && ::dice::hfe::fileManager)
+                    {
+                        metaShadersListed = true;
+                        std::list< ::dice::hfe::io::FileInfo> files;
+                        ::dice::hfe::fileManager->findFiles(
+                            ::renddx9abi::makeHostString(std::string("shaders/")), false, files);
+                        for (std::list< ::dice::hfe::io::FileInfo>::const_iterator f = files.begin();
+                             f != files.end(); ++f)
+                            if (equalsIgnoreCase(extractFileExt(f->name), std::string("mfx"), 3))
+                                metaShaders.push_back(std::string("shaders/") + f->name.c_str());
+                    }
+                    std::string lowered(other);
+                    pathToLower(lowered);
+                    bool loadedOne = false;
+                    for (std::size_t m = 0; m < metaShaders.size(); ++m)
+                    {
+                        std::string stem;
+                        pathStripExtension(stem, metaShaders[m]);
+                        pathToLower(stem);
+                        if (lowered.compare(0, stem.size(), stem) == 0
+                            && metaShadersLoaded.insert(stem).second)
+                        {
+                            getMetaFx(metaShaders[m]);
+                            loadedOne = true;
+                        }
+                    }
+                    if (loadedOne)
+                        otherLen = readEffectFile(other, &otherSource);
+                    if (otherLen == 0)
+                    {
+                        ::renddx9abi::engineFree(otherSource);
+                        ++unreadable;
+                        continue;
+                    }
                 }
                 if (obfuscated)
                     deobfuscateShader(otherSource, otherLen);
