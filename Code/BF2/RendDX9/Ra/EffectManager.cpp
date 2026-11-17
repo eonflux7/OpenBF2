@@ -1638,14 +1638,15 @@ long raPreprocessShader(const char* srcData, unsigned int srcDataLen, const D3DX
                         LPD3DXINCLUDE include, ID3DXBuffer** textOut, ID3DXBuffer** errorsOut)
 {
     // The compiler's module: D3DXPreprocessShader must expand exactly as its compiler does.
+    // Its own handle: sharing s_raD3dxModule made raCreateEffectCompiler skip resolving its entry
+    // point (it resolves only when it loads the module itself) and call null.
     static RaD3dxPreprocessShaderFn preprocess = 0;
     if (!preprocess)
     {
-        if (!s_raD3dxModule)
-            s_raD3dxModule = ::LoadLibraryA("d3dx9_24.dll");
-        if (s_raD3dxModule)
+        const HMODULE module = ::LoadLibraryA("d3dx9_24.dll");
+        if (module)
             preprocess = reinterpret_cast<RaD3dxPreprocessShaderFn>(
-                ::GetProcAddress(s_raD3dxModule, "D3DXPreprocessShader"));
+                ::GetProcAddress(module, "D3DXPreprocessShader"));
         if (!preprocess)
             return static_cast<long>(0x80004005);             // E_FAIL
     }
