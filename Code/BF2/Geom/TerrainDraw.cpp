@@ -883,8 +883,7 @@ void Terrain::drawTechniquePass(Frustum* source, int pass, int preserveColorMask
     else
         list = m_culler->visiblePatches();
 
-    const bool high = dx9rend::effectHasTechnique(m_effect, std::string("Hi_Terrain"));
-    dx9rend::effectSetTechniqueByName(m_effect, std::string(high ? "Hi_Terrain" : "Low_Terrain"));
+    dx9rend::effectSetTechniqueByName(m_effect, std::string("Hi_Terrain"));   // [RENDER] one terrain path
     dx9rend::effectBegin(m_effect);
     dx9rend::vertexBufferBindStream(m_baseGridVertexBuffer, 0);
     dx9rend::vertexDeclarationBind(m_vertexDeclaration);
@@ -933,33 +932,9 @@ void Terrain::drawMain()
         dx9rend::vertexBufferBindStream(m_baseGridVertexBuffer, 0);
     dx9rend::vertexDeclarationBind(m_vertexDeclaration);
 
-    const char* technique;
-    if (!m_lowQuality)
-    {
-        if (dx9rend::effectHasTechnique(m_effect, std::string("Hi_Terrain")))
-            technique = "Hi_Terrain";
-        else
-        {
-            // ShaderManager_updateShaderDefines(dword_1023B97C, this) as shipped - the callee
-            // re-reads the renderer base from its global, which is what the tree's signature takes.
-            dx9rend::updateShaderDefines(dx9rend::g_shaderManager, dx9rend::g_rendererBase);
-            dx9rend::shaderManagerReloadAllEffects(dx9rend::g_shaderManager);
-            if (dx9rend::effectHasTechnique(m_effect, std::string("Hi_Terrain")))
-                technique = "Hi_Terrain";
-            else
-            {
-                if (m_lowQuality != 1)
-                {
-                    m_lowQuality = 1;
-                    m_lowQualityB = 1;
-                    reloadForLowQuality();
-                }
-                technique = "Low_Terrain";
-            }
-        }
-    }
-    else
-        technique = "Low_Terrain";
+    // [RENDER] Hi_Terrain only. Retail fell back to Low_Terrain (reloading the effects, then the
+    // low-detail data) when the effect had no Hi_Terrain; the renderer has one terrain path.
+    const char* const technique = "Hi_Terrain";
     dx9rend::effectSetTechniqueByName(m_effect, std::string(technique));
     dx9rend::effectBegin(m_effect);
 
@@ -1594,41 +1569,6 @@ void Terrain::drawMaskLights()
 }
 
 
-// PE 0x100DDF90.
-// the Low_Terrain fallback: the low-detail texture, the detail records dropped
-// (low quality) or re-read from their file offset, then each patch's reload and the culler's.
-
-void Terrain::reloadForLowQuality()
-{
-    loadLowDetailTexture();
-    TerrainRawReader reader;
-    reader.open(m_levelPath, 2, 0, 0);                                    // sub_100763A0(+0x740, 2, 0, 0)
-    if (m_lowQuality)
-    {
-        for (int i = 0; i < m_detailTextureCount; ++i)
-        {
-            TerrainDetailTexture* const record = m_detailTextures.data()[i];   // unchecked, as shipped
-            if (record)
-            {
-                record->~TerrainDetailTexture();                          // vslot 0 with 1: the deleting destructor
-                ::renddx9abi::engineFree(record);
-            }
-        }
-        m_detailTextures.clear();                                         // sub_100E1C20(0, 0)
-    }
-    else
-    {
-        reader.seek(0, m_fileOffsetDetail);
-        loadDetailTextures(reader);
-    }
-    for (int j = 0; j < m_patchCount * m_patchCount; ++j)
-        m_patches[j]->reloadDetailLayers(reader);
-    if (!m_lowQuality)
-        m_culler->reloadDetailLayers();
-    reader.close();
-}
-
-
 // the +0xBC arm's diffuse passes: the technique again, per visible node's patch the
 // colormap and the low-detail map, then the patch's detail passes.
 
@@ -1638,7 +1578,7 @@ void Terrain::drawFinal()
     if (m_compactVertices)
         dx9rend::vertexBufferBindStream(m_baseGridVertexBuffer, 0);
     dx9rend::vertexDeclarationBind(m_vertexDeclaration);
-    dx9rend::effectSetTechniqueByName(m_effect, std::string(m_lowQuality ? "Low_Terrain" : "Hi_Terrain"));
+    dx9rend::effectSetTechniqueByName(m_effect, std::string("Hi_Terrain"));
     dx9rend::effectBegin(m_effect);
     if (m_flag35B)
     {

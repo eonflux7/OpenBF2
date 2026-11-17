@@ -849,12 +849,9 @@ void Terrain::load(const std::string& path)
     // The resource manager's default texture priority is forced to 10 for the duration.
     const int savedPriority = dx9rend::resourceManagerSwapDefaultPriority(10);
 
-    // Video option 0 - the "Terrain" quality - at 1 selects the low-detail arms.
-    if (dx9rend::rendererGetVideoOptions()->getQuality(0) == 1)
-    {
-        m_lowQuality  = 1;
-        m_lowQualityB = 1;
-    }
+    // [RENDER] Retail selected the low-detail arms (Low_Terrain) when video option 0, the "Terrain"
+    // quality, was 1. The renderer has one terrain path: Low_Terrain has no depth prepass or shadow
+    // caster technique, so it is never entered.
     m_levelPath = path;
 
     ::dice::hfe::eventManager->postEvent(ECHud, 7u, const_cast<char*>("Loading Terrain.."), 0.0f);
@@ -1614,18 +1611,6 @@ void Terrain::setFlag2AC(unsigned char value)
 {
     m_flag2AC = value;
     createLodIndexBuffer();
-}
-
-// PE 0x100DF130. The terrain-quality setter; VideoOptions' three terrain-quality arms
-// (0x1000FEE4, 0x1000FF54, 0x1000FFC3) call it after setting the culler's LOD switch distance.
-void Terrain::setLowQuality(unsigned char value)
-{
-    if (m_lowQuality != value)
-    {
-        m_lowQuality = value;
-        m_lowQualityB = value;
-        reloadForLowQuality();
-    }
 }
 
 // PE 0x100DC340. Unreachable in 1.50: no code or data references.

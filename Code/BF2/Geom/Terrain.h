@@ -482,7 +482,6 @@ public:
     void  setFlag3B8(unsigned char value);                           // +0x3B8; also the legacy base-grid table
     void  setFlag2AD(unsigned char value);                           // +0x2AD
     void  setFlag2AC(unsigned char value);                           // +0x2AC
-    void  setLowQuality(unsigned char value);                        // +0x35F / +0x35E, then the Low_Terrain reload; VideoOptions' terrain-quality arms call it
     void  drawMain();                                                // sub_100E0940  Hi_/Low_Terrain pass 0 (and pass 7 shadows) into the accumulation target
     // [RENDER] Sun shadow casters. gatherShadowCasters collects the drawable culler
     // nodes (the camera walk's units) whose sphere meets `volume`, with the LOD the camera drew them
@@ -494,7 +493,6 @@ public:
     void  drawDepthPrepass();                                        // [RENDER] technique RaDepthPrepass
     void  drawDetailPass();                                          // sub_100DF990  the ShaderVersion-1 detail/light pass [read - stops, see the body]
     void  drawMaskLights();                                          // sub_100DE5B0  the point-light pass over getVisibleLightsByMask(2313) - LightManager +0x18, the frame's visible lights
-    void  reloadForLowQuality();                                     // sub_100DDF90  the Low_Terrain fallback reload
     void  drawFinal();                                               // sub_100DB680  the +0xBC arm's diffuse passes
     void  drawSurrounding();                                         // sub_100E0F80  Shared_SurroundingTerrain over the ring
     void  drawWaterRa(float seaLevel);                               // sub_100DBF50  the ShaderVersion-1 Ra water over the gathered nodes
@@ -669,8 +667,10 @@ public:
     unsigned char  m_flag35B;               // +0x35B  0  drawFinal: "makeDynamicLightmap is obsolete!" when set
     unsigned char  m_surroundingBuilt;      // +0x35C  0; loadSurroundingPatches raises it after slot +0xCC; the +0xBC arm's third gate
     unsigned char  m_flag35D;               // +0x35D  0
-    unsigned char  m_lowQualityB;           // +0x35E  0; load: 1 when the Terrain quality option is 1 (the detail-layer loader and the draws test it)
-    unsigned char  m_lowQuality;            // +0x35F  0; load: 1 when the Terrain quality option is 1 (the texture loaders and the technique choice test it)
+    // [RENDER] Always 0: the renderer has one terrain path (Hi_Terrain). Retail set both when the
+    // Terrain quality option was 1; the branches that test them go with the terrain rewrite.
+    unsigned char  m_lowQualityB;           // +0x35E
+    unsigned char  m_lowQuality;            // +0x35F
     int            m_drawDebugFlags;        // +0x360  0; drawFinal: bit 1 skips the lower-LOD merge, bit 2 enables the LOD-0 merge [UNRESOLVED writer]
     unsigned char  m_flag364;               // +0x364  0
     unsigned char  m_pad365[3];

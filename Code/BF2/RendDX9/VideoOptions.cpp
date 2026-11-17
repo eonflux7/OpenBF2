@@ -462,15 +462,15 @@ void videoOptionsApplyCore(VideoOptions* vo)
     void* const roads       = ::dice::hfe::geom::g_RoadCompiledRenderer;
 
     // Each arm first sets the terrain's culler LOD switch distance (PE 0x100E2EF0; the culler is
-    // read unguarded once the terrain exists) and its low-quality mode (Terrain::setLowQuality, PE
-    // 0x100DF130; calls at 0x1000FFC3, 0x1000FF54, 0x1000FEE4 for qualities 1, 2, 3).
+    // read unguarded once the terrain exists). [RENDER] Retail then set the terrain's low-quality
+    // mode (Terrain::setLowQuality, PE 0x100DF130; 1 for quality 1, else 0); the renderer has one
+    // terrain path, so the call is gone.
     ::dice::hfe::geom::Terrain* const qualityTerrain = ::dice::hfe::geom::terrain();
     if (wanted0 == 1)
     {
         if (qualityTerrain)
         {
             ::dice::hfe::geom::setCullerLodSwitchDistance(qualityTerrain->m_culler RD9_THUNK_ARG, 64);
-            qualityTerrain->setLowQuality(1);
         }
         if (undergrowth) { undergrowth->setSimpleShaderEnable(true); undergrowth->setViewDistanceScale(0.5f); }
         if (renderer)    { writeRendererByte(renderer, 1700, 0); callSlotInt(roads, 24, 0); }
@@ -481,7 +481,6 @@ void videoOptionsApplyCore(VideoOptions* vo)
         if (qualityTerrain)
         {
             ::dice::hfe::geom::setCullerLodSwitchDistance(qualityTerrain->m_culler RD9_THUNK_ARG, 80);
-            qualityTerrain->setLowQuality(0);
         }
         if (undergrowth) { undergrowth->setSimpleShaderEnable(true); undergrowth->setViewDistanceScale(0.75f); }
         if (renderer)    { writeRendererByte(renderer, 1700, 1); callSlotInt(roads, 24, 1); }
@@ -492,7 +491,6 @@ void videoOptionsApplyCore(VideoOptions* vo)
         if (qualityTerrain)
         {
             ::dice::hfe::geom::setCullerLodSwitchDistance(qualityTerrain->m_culler RD9_THUNK_ARG, 100);
-            qualityTerrain->setLowQuality(0);
         }
         if (undergrowth) { undergrowth->setSimpleShaderEnable(false); undergrowth->setViewDistanceScale(1.0f); }
         if (renderer)    { writeRendererByte(renderer, 1700, 1); callSlotInt(roads, 24, 1); }
