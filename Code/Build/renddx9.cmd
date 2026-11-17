@@ -152,173 +152,15 @@ rem edit here - which is the same discipline build.cmd's engine manifest enforce
 rem direction.
 rem ---------------------------------------------------------------------------
 echo [2/4] compiling
-set SOURCES=^
- "%ABI%\BfMemory.cpp" ^
- "%ABI%\Frontier.cpp" ^
- "%ABI%\CrashReport.cpp" ^
- "%ABI%\EngineFile.cpp" ^
- "%ABI%\DllMain.cpp" ^
- "%ABI%\PluginEntry.cpp" ^
- "%BF2%\RendDX9\BF2Render.cpp" ^
- "%BF2%\RendDX9\PostProductionFrameWork.cpp" ^
- "%BF2%\RendDX9\RendDX9Init.cpp" ^
- "%BF2%\RendDX9\BufferManager.cpp" ^
- "%BF2%\RendDX9\QueryManager.cpp" ^
- "%BF2%\RendDX9\RendDX9Types.cpp" ^
- "%BF2%\RendDX9\Texture.cpp" ^
- "%BF2%\RendDX9\TextureManager.cpp" ^
- "%BF2%\RendDX9\TextureAtlas\TextureAtlas.cpp" ^
- "%BF2%\RendDX9\ResourceManager.cpp" ^
- "%BF2%\RendDX9\ResourceTracer.cpp" ^
- "%BF2%\RendDX9\VideoOptions.cpp" ^
- "%BF2%\RendDX9\Effect.cpp" ^
- "%BF2%\RendDX9\DiceEffect.cpp" ^
- "%BF2%\RendDX9\FXParameter.cpp" ^
- "%BF2%\RendDX9\ShaderManager.cpp" ^
- "%BF2%\RendDX9\StateManager.cpp" ^
- "%BF2%\RendDX9\RendDX9Draw.cpp" ^
- "%BF2%\RendDX9\MovieRenderer.cpp" ^
- "%BF2%\RendDX9\RenderQueues.cpp" ^
- "%BF2%\RendDX9\SunShadows.cpp" ^
- "%BF2%\RendDX9\Ra\EffectManager.cpp" ^
- "%BF2%\RendDX9\Ra\RaShaderPermutator.cpp" ^
- "%BF2%\RendDX9\Ra\RaShader.cpp" ^
- "%BF2%\RendDX9\Ra\RaVertexStreams.cpp" ^
- "%BF2%\RendDX9\Ra\RaStreamDataEditable.cpp" ^
- "%BF2%\RendMisc\RendModule.cpp" ^
- "%BF2%\RendMisc\RenderView.cpp" ^
- "%BF2%\RendMisc\EnvMapSystem\EnvMapManager.cpp" ^
- "%BF2%\RendMisc\EnvMapSystem\EnvMapObject.cpp" ^
- "%BF2%\Math\Mat4.cpp" ^
- "%BF2%\Math\Mat4Inverse.cpp" ^
- "%BF2%\Math\Vec3.cpp" ^
- "%BF2%\Math\Frustum.cpp" ^
- "%BF2%\Core\Debug.cpp" ^
- "%BF2%\Core\StringUtil.cpp" ^
- "%BF2%\Math\Plane3.cpp" ^
- "%BF2%\IO\Tokenizer.cpp" ^
- "%BF2%\Geom\ModuleGeom.cpp" ^
- "%BF2%\Geom\GeometryTemplateManager.cpp" ^
- "%BF2%\Geom\MeshTemplate.cpp" ^
- "%BF2%\Geom\StaticMeshTemplate.cpp" ^
- "%BF2%\Geom\SkinnedMeshTemplate.cpp" ^
- "%BF2%\Geom\SkinnedMesh.cpp" ^
- "%BF2%\Geom\BundledMeshTemplate.cpp" ^
- "%BF2%\Geom\BundledMeshMaterial.cpp" ^
- "%BF2%\Geom\BundledMeshStateManager.cpp" ^
- "%BF2%\Geom\BundledMesh.cpp" ^
- "%BF2%\Geom\BundledMeshDraw.cpp" ^
- "%BF2%\Geom\BundledMeshHeight.cpp" ^
- "%BF2%\Geom\StaticMesh.cpp" ^
- "%BF2%\Geom\StaticMeshLightmapGeneration.cpp" ^
- "%BF2%\Geom\StaticMeshMaterial.cpp" ^
- "%BF2%\Geom\StaticMeshStateManager.cpp" ^
- "%BF2%\Geom\SkyDome.cpp" ^
- "%BF2%\Geom\UndergrowthSystem.cpp" ^
- "%BF2%\Geom\LightningManager.cpp" ^
- "%BF2%\Geom\WeatherManager.cpp" ^
- "%BF2%\Geom\Rain\RainManager.cpp" ^
- "%BF2%\Geom\UndergrowthSystemLoad.cpp" ^
- "%BF2%\Geom\UndergrowthSystemRender.cpp" ^
- "%BF2%\Geom\Terrain.cpp" ^
- "%BF2%\Geom\QuadPatch.cpp" ^
- "%BF2%\Geom\RaQuadPatchAdapter.cpp" ^
- "%BF2%\Geom\SurroundingPatch.cpp" ^
- "%BF2%\Geom\TerrainDraw.cpp" ^
- "%BF2%\Geom\TerrainEditable.cpp"
-rem The list is split in two `set` lines (SOURCES, SOURCES2), each with its own loop below: expanded at
-rem a checkout such as C:\rendbuild\src, one line holding all of it passed cmd.exe's 8191-character
-rem limit, cmd dropped the whole assignment, no file of the list compiled, and the link lost initDll.
-set SOURCES2=^
- "%BF2%\Geom\TerrainEditableGetSets.cpp" ^
- "%BF2%\Geom\QuadPatchEditable.cpp" ^
- "%BF2%\Geom\SurroundingPatchEditable.cpp" ^
- "%BF2%\Geom\TerrainLightSampling.cpp" ^
- "%BF2%\Geom\LightmapGeneration\LightmapGeneration.cpp" ^
- "%BF2%\Geom\LightmapGeneration\MeshLightSampling.cpp" ^
- "%BF2%\Geom\ObjectDrawer.cpp" ^
- "%BF2%\Geom\XpLightManager.cpp" ^
- "%BF2%\Geom\LightMerger.cpp" ^
- "%BF2%\Geom\LightGeometry.cpp" ^
- "%BF2%\Geom\MeshOptimizer.cpp" ^
- "%BF2%\Geom\BundledMeshOptimizer.cpp" ^
- "%BF2%\Geom\StaticMeshOptimizer.cpp" ^
- "%BF2%\Geom\NametagManager.cpp" ^
- "%BF2%\Geom\NameTagRenderer.cpp" ^
- "%BF2%\Geom\Overgrowth\OverGrowth.cpp" ^
- "%BF2%\Geom\Overgrowth\OverGrowthLoad.cpp" ^
- "%BF2%\Geom\Overgrowth\OverGrowthCells.cpp" ^
- "%BF2%\Geom\Overgrowth\OverGrowthCellRender.cpp" ^
- "%BF2%\Geom\Overgrowth\OverGrowthRender.cpp" ^
- "%BF2%\Geom\RoadCompiledRenderer.cpp" ^
- "%BF2%\Geom\RoadCompiledTemplate.cpp" ^
- "%BF2%\Geom\RoadCompiled.cpp" ^
- "%BF2%\Geom\RoadTemplate.cpp" ^
- "%BF2%\Geom\RoadEditableRenderer.cpp" ^
- "%BF2%\Geom\RoadEditable.cpp" ^
- "%BF2%\Geom\DecalSystem\DecalManager.cpp" ^
- "%BF2%\Geom\DecalSystem\DecalShadowManager.cpp" ^
- "%BF2%\Geom\DecalSystem\DecalObject.cpp" ^
- "%BF2%\Geom\DecalSystem\DecalTemplate.cpp" ^
- "%BF2%\Geom\DecalSystem\DecalRenderer.cpp" ^
- "%BF2%\Geom\ParticleSystem\ParticleSystemManager.cpp" ^
- "%BF2%\Geom\HemiMapManager\HemiMapManager.cpp" ^
- "%BF2%\Geom\ParticleSystem\ParticleSystemTemplate.cpp" ^
- "%BF2%\Geom\ParticleSystem\ParticleSystemTemplateType1.cpp" ^
- "%BF2%\Geom\ParticleSystem\MeshParticleMesh\MeshParticleMeshTemplate.cpp" ^
- "%BF2%\Geom\ParticleSystem\MeshParticleMesh\MeshParticleMesh.cpp" ^
- "%BF2%\Geom\ParticleSystem\TrailSystemTemplate.cpp" ^
- "%BF2%\Geom\ParticleSystem\ParticleSystemTemplateType3.cpp" ^
- "%BF2%\Geom\ParticleSystem\NSAParticleSystemTemplate.cpp" ^
- "%BF2%\Geom\StaticMeshRenderer.cpp" ^
- "%BF2%\Geom\SkinnedMeshRenderer.cpp" ^
- "%BF2%\Geom\SwiffRender.cpp" ^
- "%BF2%\GeomMisc\ModuleGeomMisc.cpp" ^
- "%BF2%\GeomMisc\FSQuadDrawer.cpp" ^
- "%BF2%\GeomMisc\DebugTextWriter.cpp" ^
- "%BF2%\GeomMisc\Debug.cpp" ^
- "%BF2%\GeomMisc\DebugBoxMesh.cpp" ^
- "%BF2%\GeomMisc\DebugCylinderMesh.cpp" ^
- "%BF2%\GeomMisc\DebugSphereMesh.cpp" ^
- "%BF2%\GeomMisc\DebugPlaneMesh.cpp" ^
- "%BF2%\GeomMisc\DebugPolygonMesh.cpp" ^
- "%BF2%\GeomMisc\DebugTorusMesh.cpp" ^
- "%BF2%\GeomMisc\DebugXMesh.cpp" ^
- "%BF2%\GeomMisc\DebugRenderer.cpp" ^
- "%BF2%\GeomMisc\DebugTextDrawer.cpp" ^
- "%BF2%\GeomMisc\DebugCircleDrawer.cpp" ^
- "%BF2%\GeomMisc\DebugLineDrawer.cpp" ^
- "%BF2%\GeomMisc\FontSystem\FontSystem.cpp" ^
- "%BF2%\GeomMisc\FontSystem\SwiffFont.cpp" ^
- "%BF2%\GeomMisc\OverlayTexture.cpp" ^
- "%BF2%\GeomMisc\DebugLineGraphD3d.cpp" ^
- "%BF2%\GeomMisc\PerlinNoise.cpp" ^
- "%BF2%\GeomMisc\SplineControlPoint.cpp" ^
- "%BF2%\GeomMisc\EditorSpline.cpp" ^
- "%BF2%\GeomMisc\MenuRend\MemeTexture.cpp" ^
- "%BF2%\GeomMisc\MenuRend\FSMoviePlayer.cpp" ^
- "%BF2%\GeomMisc\MenuRend\Video.cpp" ^
- "%BF2%\GeomMisc\MenuRend\QuadDrawer.cpp" ^
- "%BF2%\GeomMisc\MenuRend\QuadOutputCache.cpp" ^
- "%BF2%\GeomMisc\DebugBlockGraphD3D.cpp" ^
- "%BF2%\GeomMisc\LoadingScreen\LoadingScreen.cpp"
-
-rem These sources use the rebuilt host's native std::string/list/map ABI.
-rem Keep them in a separate list and loop: appending them to SOURCES made that one `set` line
-rem exceed cmd.exe's 8191-character limit at deeper checkout paths, which silently dropped the
-rem whole assignment and left every ConsoleObject symbol unresolved at link time.
-set CONSOLE_SOURCES= "%BF2%\Core\ConsoleObjectBase.cpp" "%ABI%\NativeConsoleObjects.cpp" "%BF2%\Geom\LightManagerConsole.cpp" "%BF2%\Geom\HemiMapManager\HemiMapManagerConsole.cpp" "%BF2%\Geom\SkyDomeConsole.cpp" "%BF2%\Geom\TerrainConsole.cpp" "%BF2%\RendDX9\RendererConsole.cpp" "%BF2%\Geom\NametagManagerConsole.cpp" "%BF2%\Geom\Overgrowth\OverGrowthConsole.cpp" "%BF2%\Geom\UndergrowthSystemConsole.cpp" "%BF2%\Geom\DecalSystem\DecalManagerConsole.cpp" "%BF2%\Geom\WeatherManagerConsole.cpp"
-rem RD1 (2026-09-30): the `Object.geometry.loadMesh` row - native console ABI, like the list above.
-set CONSOLE_SOURCES=!CONSOLE_SOURCES! "%BF2%\Geom\ObjectGeometryConsole.cpp"
-rem The 2006 editor's `lightmapGeneration` rows - native console ABI; the TU is empty unless
-rem BF2_IMAGE_EDITOR (the BF2_RENDDX9_EDITOR=1 flavour) is set.
-set CONSOLE_SOURCES=!CONSOLE_SOURCES! "%BF2%\Geom\LightmapGeneration\LightmapGenerationConsole.cpp"
-rem The StaticMeshRenderer atlas rows (loadAllLightMapFiles / loadAllLightMapFilesDLL) - native console ABI.
-set CONSOLE_SOURCES=!CONSOLE_SOURCES! "%BF2%\Geom\StaticMeshRendererConsole.cpp"
-set CONSOLE_SOURCES=!CONSOLE_SOURCES! "%BF2%\Geom\TerrainCullerConsole.cpp"
-rem Roads step 3 (2026-10-01): the native host's EventNode shape for the HeightmapEventNode
-rem RoadEditable::projectToTerrain posts.
-set CONSOLE_SOURCES=!CONSOLE_SOURCES! "%BF2%\Geom\HeightmapEventNode.cpp"
+rem The image's main translation units are listed in renddx9_sources.txt (shared with CMakeLists.txt;
+rem one path per line relative to Code\, compile order). Reading them from the file also keeps the list
+rem clear of cmd.exe's 8191-character line limit, which once dropped a whole `set` of them silently.
+set MANIFEST=%~dp0renddx9_sources.txt
+if not exist "%MANIFEST%" (
+    echo   MISSING "%MANIFEST%"
+    exit /b 1
+)
+set "CONSOLE_SOURCES="
 rem [CHOSEN, not recovered] D3DX fallback: DXGetErrorDescription9A without the SDK's DxErr9.lib.
 if defined BF2_D3DX_FALLBACK set CONSOLE_SOURCES=!CONSOLE_SOURCES! "%ABI%\DxErr9StandIn.cpp"
 
@@ -341,29 +183,18 @@ set /a OBJN=0
 rem Objects are NUMBERED for the same reason build.cmd numbers its own: the output directory is flat,
 rem and Geom\ModuleGeom.cpp meeting a future GeomMisc\ModuleGeom.cpp would silently overwrite one
 rem object with the other and make a written body look unwritten at link time.
-for %%F in (%SOURCES%) do (
+for /f "usebackq eol=# tokens=* delims=" %%L in ("%MANIFEST%") do (
     set /a OBJN+=1
-    cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nF.obj" "%%F" >"%OUT%\cl_%%~nF.log" 2>&1
+    cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nL.obj" "%CODE%\%%L" >"%OUT%\cl_%%~nL.log" 2>&1
     if errorlevel 1 (
         set /a BAD+=1
-        echo   COMPILE FAIL %%~nxF
-        type "%OUT%\cl_%%~nF.log"
+        echo   COMPILE FAIL %%~nxL
+        type "%OUT%\cl_%%~nL.log"
     ) else (
         set /a OK+=1
     )
 )
-for %%F in (%SOURCES2%) do (
-    set /a OBJN+=1
-    cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nF.obj" "%%F" >"%OUT%\cl_%%~nF.log" 2>&1
-    if errorlevel 1 (
-        set /a BAD+=1
-        echo   COMPILE FAIL %%~nxF
-        type "%OUT%\cl_%%~nF.log"
-    ) else (
-        set /a OK+=1
-    )
-)
-rem Second loop continues the same OBJN so object numbering stays unique across both lists.
+rem The loops below continue the same OBJN so object numbering stays unique across the lists.
 for %%F in (%CONSOLE_SOURCES%) do (
     set /a OBJN+=1
     cl %FLAGS% /Fo"%OUT%\!OBJN!_%%~nF.obj" "%%F" >"%OUT%\cl_%%~nF.log" 2>&1

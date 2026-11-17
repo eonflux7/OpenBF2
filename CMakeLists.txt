@@ -1652,19 +1652,23 @@ if(TRUE)
     set_property(TARGET bf2_textureatlas_native PROPERTY FOLDER "BF2")
     # [CHOSEN, not recovered] G2w: BF2_GFX_SEAM=ON makes renddx9.cmd compile the renderer against the subset
     # headers plus the generated forwarding backend (Platform/Gfx/D3D9Forward).
-    set(BF2_RENDDX9_SEAM_ENV)
+    # [CHOSEN, not recovered] RendDX9.dll is a Ninja target (Code/RendDX9Abi/CMakeLists.txt): the
+    # script's manifest, flags, link and ABI checks, built incrementally with compiler-reported header
+    # dependencies, so a rebuild is exactly as fresh as the script's clean one. It compiles /Z7 (no
+    # shared PDB writer), so the script-ordering mitigation below does not apply to it. The seam
+    # flavour stays with the script.
     if(BF2_GFX_SEAM)
-        set(BF2_RENDDX9_SEAM_ENV "${CMAKE_COMMAND}" -E env BF2_GFX_SEAM=ON)
-    endif()
-    add_custom_target(bf2_renddx9_native
-        COMMAND ${BF2_FRONTIER_DEFAULT_ENV} ${BF2_RENDDX9_SEAM_ENV} cmd.exe /d /c "${BF2_RENDDX9_SCRIPT}" ${BF2_PLUGIN_FLAVOUR}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Code/Build"
-        COMMENT "Building the ${BF2_PLUGIN_FLAVOUR} RendDX9.dll (Code/Build/renddx9.cmd ${BF2_PLUGIN_FLAVOUR})"
-        VERBATIM
-    )
-    set_property(TARGET bf2_renddx9_native PROPERTY FOLDER "BF2")
-    if(NOT BF2_GFX_SEAM)
-        add_dependencies(bf2_renddx9_native bf2_textureatlas_native)
+        add_custom_target(bf2_renddx9_native
+            COMMAND ${BF2_FRONTIER_DEFAULT_ENV} "${CMAKE_COMMAND}" -E env BF2_GFX_SEAM=ON cmd.exe /d /c "${BF2_RENDDX9_SCRIPT}" ${BF2_PLUGIN_FLAVOUR}
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Code/Build"
+            COMMENT "Building the ${BF2_PLUGIN_FLAVOUR} RendDX9.dll (Code/Build/renddx9.cmd ${BF2_PLUGIN_FLAVOUR})"
+            VERBATIM
+        )
+        set_property(TARGET bf2_renddx9_native PROPERTY FOLDER "BF2")
+        set(BF2_RENDDX9_DLL "${CMAKE_CURRENT_SOURCE_DIR}/Code/Build/bin_renddx9_${BF2_PLUGIN_FLAVOUR}_seam/RendDX9.dll")
+    else()
+        add_subdirectory(Code/RendDX9Abi "${CMAKE_BINARY_DIR}/renddx9_build")
+        set(BF2_RENDDX9_DLL "$<TARGET_FILE:bf2_renddx9_native>")
     endif()
     add_custom_target(bf2_swiffplayer_native
         COMMAND ${BF2_FRONTIER_DEFAULT_ENV} cmd.exe /d /c "${BF2_SWIFFPLAYER_SCRIPT}" ${BF2_PLUGIN_FLAVOUR}
@@ -1673,8 +1677,12 @@ if(TRUE)
         VERBATIM
     )
     set_property(TARGET bf2_swiffplayer_native PROPERTY FOLDER "BF2")
-    # The ordering edge described above. RendDX9 is the longer build, so it goes first.
-    add_dependencies(bf2_swiffplayer_native bf2_renddx9_native)
+    # The ordering edge described above, between the scripts.
+    if(BF2_GFX_SEAM)
+        add_dependencies(bf2_swiffplayer_native bf2_renddx9_native)
+    else()
+        add_dependencies(bf2_swiffplayer_native bf2_textureatlas_native)
+    endif()
     # BF2Audio.dll - the OpenAL sound engine (2026-09-29). The native flavour (Code\Build\
     # bf2audio.cmd native -> Code/Build/bin_bf2audio_native) is the one the rebuilt BF2.exe
     # loads: BfSoundModule::init does LoadLibraryA("BF2Audio.dll") + getSoundEngine exactly as
@@ -1695,9 +1703,9 @@ endif()
 set(BF2_PLUGIN_STAGE_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/Code/Build/stage_plugin.cmake")
 add_custom_target(bf2_client_plugins
     COMMAND "${CMAKE_COMMAND}"
-            "-DBF2_PLUGIN_SRC=${CMAKE_CURRENT_SOURCE_DIR}/Code/Build/bin_renddx9_${BF2_PLUGIN_FLAVOUR}/RendDX9.dll"
+            "-DBF2_PLUGIN_SRC=${BF2_RENDDX9_DLL}"
             "-DBF2_PLUGIN_DST_DIR=${BF2_CLIENT_OUTPUT_DIR}"
-            "-DBF2_PLUGIN_HINT=build it with Code/Build/renddx9.cmd ${BF2_PLUGIN_FLAVOUR}"
+            "-DBF2_PLUGIN_HINT=build the bf2_renddx9_native target"
             -P "${BF2_PLUGIN_STAGE_SCRIPT}"
     COMMAND "${CMAKE_COMMAND}"
             "-DBF2_PLUGIN_SRC=${CMAKE_CURRENT_SOURCE_DIR}/Code/Build/bin_swiffplayer_${BF2_PLUGIN_FLAVOUR}/SwiffPlayer.dll"
