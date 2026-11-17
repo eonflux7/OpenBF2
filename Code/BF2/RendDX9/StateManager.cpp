@@ -13,6 +13,7 @@
 #include "../../RendDX9Abi/Frontier.h"
 #include "RendDX9Base.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stddef.h>
@@ -75,13 +76,29 @@ void stateManagerMarkStandardDepth(bool standard)
     g_standardDepthBound = standard;
 }
 
+// BF2_REVERSED_Z=2: trace the first depth clears and depth-state issues to stderr ([REVZ]).
+static int reversedZTraceBudget()
+{
+    static int budget = [] {
+        const char* v = std::getenv("BF2_REVERSED_Z");
+        return (v && v[0] == '2') ? 400 : 0;
+    }();
+    return budget > 0 ? budget-- : 0;
+}
+
 float stateManagerClearDepth(float depth)
 {
-    return stateManagerReversedDepthBound() ? 1.0f - depth : depth;
+    const float out = stateManagerReversedDepthBound() ? 1.0f - depth : depth;
+    if (reversedZTraceBudget())
+        std::fprintf(stderr, "[REVZ] clear depth %.3f -> %.3f standard=%d\n", depth, out,
+                     g_standardDepthBound ? 1 : 0);
+    return out;
 }
 
 unsigned int stateManagerMapDepthState(unsigned int state, unsigned int value)
 {
+    if (state == 23u && rendererReversedZ() && reversedZTraceBudget())
+        std::fprintf(stderr, "[REVZ] zfunc %u standard=%d\n", value, g_standardDepthBound ? 1 : 0);
     if (!stateManagerReversedDepthBound())
         return value;
     if (state == 23u)   // D3DRS_ZFUNC

@@ -18,6 +18,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <cstring>
+#include <cstdio>
 #include <cstdlib>
 #include <new>                                 // renderViewCopyConstruct's placement copy
 
@@ -716,6 +717,13 @@ void RenderView::rebuildProjection()
         {
             m[10] = 1.0f - m[10];
             m[14] = -m[14];
+        }
+        static int traced = 0;
+        if (traced < 8)
+        {
+            ++traced;
+            std::fprintf(stderr, "[REVZ] view %p mode %u near %.3f far %.1f -> m10 %.6f m14 %.6f\n",
+                         static_cast<void*>(this), m_projectionMode, m_nearPlane, m_farPlane, m[10], m[14]);
         }
     }
 
