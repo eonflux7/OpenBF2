@@ -28,11 +28,12 @@ kept in a private repository; this document describes only the contract between 
 Each step is accepted in game against the reference views (see [Tooling](#tooling)) before the next
 one starts.
 
-**5. Sun CSM.** Open, in this order: cull casters per cascade, then tuning of distance, resolution
-and bias, measured with the GPU pass timers. Casters were culled per cascade against the square
-around the cascade's sphere; on Muttrah (skirmish) that drew 188 / 419 / 1059 / 2348 casters in
-cascades 0-3 against 1176 in the main prepass. Casters are now culled against the cascade's slice
-swept toward the sun (see [Sun shadows](#sun-shadows)); not yet measured in game.
+**5. Sun CSM.** Open: tuning of distance, resolution and bias, measured with the GPU pass timers.
+Caster culling per cascade is done (`505ca7ab`): each cascade draws the casters of its slice swept
+toward the sun (see [Sun shadows](#sun-shadows)). On Muttrah (skirmish, one frame each, different
+camera positions) caster draws went from 188 / 419 / 1059 / 2348 in cascades 0-3 (4014, 3.4 times the
+main prepass) to 152 / 221 / 505 / 1263 (2141, 1.9 times); primitives from 800k to 675k. No missing
+shadows were seen in game.
 
 **6. Shader audit and cleanup.** An inventory of the shader set: every effect and header, its
 techniques and permutations, which of them a PR session loads, the code each later step replaces,
