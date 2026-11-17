@@ -756,7 +756,11 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 bool rendererSunShadowsEnabled();
 bool rendererSunShadowsRender(float time, float* maskConstants /* kSunShadowMaskVec4s float4s */);
 void rendererSunShadowsRelease();
-const unsigned int kSunShadowMaskVec4s = 21;
+const unsigned int kSunShadowMaskVec4s = 22;
+// This frame's RASM (kSunShadowMaskVec4s float4s) while the main world pass draws, all zero
+// otherwise (nothing covered: baked sunlight). RaShader::begin sets it on every Ra effect with a
+// parameter of semantic RASM, so receivers without prepass depth (water) sample the cascades.
+const float* rendererSunMaskConstants();
 IDirect3DSurface9* rendererDepthStencilSurface();       // +0x770, the depth-stencil reference
 // The render-path target texture at retail `retailOffset` (+0x778..+0x7D4).
 EngineTexture*     rendererPathTarget(unsigned int retailOffset);

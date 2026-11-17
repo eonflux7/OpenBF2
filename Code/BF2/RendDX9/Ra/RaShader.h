@@ -177,6 +177,7 @@ public:
     unsigned char        m_built;                    // +0x170  ctor: 0; build: 1
     unsigned char        m_pad171[3];
     int                  m_buildSerial;              // +0x174  ctor: -1
+    void*                m_sunMaskParameter;         // [RENDER] the RASM parameter's D3DXHANDLE, or null
 };
 
 

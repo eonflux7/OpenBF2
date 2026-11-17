@@ -1102,6 +1102,7 @@ RaShader::RaShader(const std::string& shaderName, void* renderQueue)
     m_built     = 0;
     m_pad171[0] = m_pad171[1] = m_pad171[2] = 0;
     m_buildSerial = -1;
+    m_sunMaskParameter = 0;
 
     // g_rendererBase[+0x0C] - the D3D device.  Read straight out of the base object, exactly as
     // Texture.cpp and QueryManager.cpp read it, rather than from any renderer accessor.  The
@@ -1227,6 +1228,12 @@ unsigned int RaShader::begin(RenderQueueEntry* entry)
             ::renddx9abi::d3dxHandle(m_activeTechnique));
         static_cast<ID3DXEffect*>(m_effect)->Begin(&passes, 7u);
         applyParameterSet(m_globalParameters, entry);            // sub_1004B210(this + 0x58)
+        // [RENDER] The frame's sun cascade constants, for receivers that sample the cascades.
+        if (m_sunMaskParameter)
+            static_cast<ID3DXEffect*>(m_effect)->SetVectorArray(
+                ::renddx9abi::d3dxHandle(m_sunMaskParameter),
+                reinterpret_cast<const D3DXVECTOR4*>(rendererSunMaskConstants()),
+                kSunShadowMaskVec4s);
     }
 
     return passes;
@@ -1421,8 +1428,10 @@ bool RaShader::build()
     ID3DXEffect* const effect = static_cast<ID3DXEffect*>(loadEffect());
     m_effect      = effect;                                              // +0x16C
     m_buildSerial = -1;                                                  // +0x174
+    m_sunMaskParameter = 0;
     if (!effect)
         return false;
+    m_sunMaskParameter = ::renddx9abi::d3dxHandleValue(effect->GetParameterBySemantic(0, "RASM"));
 
     m_byte134 = 1;                                                       // +0x134
 
@@ -1640,7 +1649,8 @@ RaShader* findOrCreateShader(RaShaderTable* table, const std::string& name, bool
         collection.push_back(queue);
     }
 
-    void* const storage = ::renddx9abi::engineAlloc(sizeof(RaShader));   // sub_1005F320(0x178)
+    // sub_1005F320(0x178); the [RENDER] tail member makes it larger here.
+    void* const storage = ::renddx9abi::engineAlloc(sizeof(RaShader));
     RaShader* shader = 0;
     if (storage)
         shader = new (storage) RaShader(lowered, queue);

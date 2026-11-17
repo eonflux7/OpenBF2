@@ -4068,6 +4068,7 @@ IDirect3DTexture9* g_bakedSunTexture = 0;       // managed 1x1 (1, 0, 0): the ma
 const DWORD kLinearDepthSampler = 15;
 const DWORD kShadowMaskSampler = 14;
 const DWORD kSurfaceNormalSampler = 12;
+float g_sunMaskConstants[kSunShadowMaskVec4s * 4] = {};   // RASM while the world pass draws
 
 void bindSampler(DWORD stage, IDirect3DTexture9* texture, D3DTEXTUREFILTERTYPE filter)
 {
@@ -4147,6 +4148,11 @@ bool ensureLinearDepthTargets()
 }
 }
 
+const float* rendererSunMaskConstants()
+{
+    return g_sunMaskConstants;
+}
+
 IDirect3DTexture9* rendererLinearDepthTexture()
 {
     return g_linearDepthTexture;
@@ -4155,12 +4161,13 @@ IDirect3DTexture9* rendererLinearDepthTexture()
 void rendererDepthPrepass(bool drawTerrain, float time)
 {
     bindBakedSunMask();
+    std::memset(g_sunMaskConstants, 0, sizeof(g_sunMaskConstants));
     if (!ensureLinearDepthTargets())
         return;
 
-    // The mask constants (RaShadowMask's RASM): zero means no cascade covers anything, so every
-    // receiver keeps its baked sunlight.
-    float maskConstants[kSunShadowMaskVec4s * 4] = {};
+    // The mask constants (RASM): zero means no cascade covers anything, so every receiver keeps
+    // its baked sunlight. They stay published for the world pass (rendererSunMaskConstants).
+    float* const maskConstants = g_sunMaskConstants;
     rendererSunShadowsRender(time, maskConstants);
 
     IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
@@ -4237,6 +4244,7 @@ void rendererDepthPrepass(bool drawTerrain, float time)
 void rendererDepthPrepassEndWorldPass()
 {
     bindBakedSunMask();
+    std::memset(g_sunMaskConstants, 0, sizeof(g_sunMaskConstants));
 }
 
 void rendererDepthPrepassRelease()

@@ -42,6 +42,7 @@ unsigned int raHashString(const std::string& s);
 namespace {
 
 const unsigned int kCascades = 4;
+const float kCascadeBlend = 0.2f;   // the part of each slice the previous cascade blends over
 const DWORD kShadowAtlasSampler = 13;
 
 IDirect3DTexture9* g_atlas = 0;          // R32F, 2 x 2 cascades
@@ -132,7 +133,8 @@ struct Cascade
     float lightX, lightY, lightZ;   // sphere centre in light coordinates (texel-snapped across)
     float radius;
     float nearZ, rangeZ;            // light depth: [nearZ, nearZ + rangeZ]
-    float splitFar;                 // view depth the cascade ends at
+    float splitFar;                 // view depth the cascade's slice ends at
+    float coverFar;                 // view depth its sphere covers to (into the next slice)
     Vec3f centre;                   // world sphere centre
 };
 
@@ -199,24 +201,31 @@ bool rendererSunShadowsRender(float time, float* constants)
         nearDist = 0.05f;
     const float farDist = shadowDistance();
 
-    // Practical split scheme: a blend of logarithmic and uniform splits.
+    // Practical split scheme: a blend of logarithmic and uniform splits. Each cascade but the last
+    // also covers the first kCascadeBlend of the next slice, where the mask blends the two.
     const float lambda = 0.75f;
+    const auto splitDepth = [&](unsigned int n) {
+        const float t = static_cast<float>(n) / kCascades;
+        return lambda * nearDist * std::pow(farDist / nearDist, t)
+            + (1.0f - lambda) * (nearDist + (farDist - nearDist) * t);
+    };
     const unsigned int size = g_cascadeSize;
     Cascade cascades[kCascades];
     float splitNear = nearDist;
     for (unsigned int i = 0; i < kCascades; ++i)
     {
-        const float t = static_cast<float>(i + 1) / kCascades;
-        const float logSplit = nearDist * std::pow(farDist / nearDist, t);
-        const float uniSplit = nearDist + (farDist - nearDist) * t;
-        const float splitFar = lambda * logSplit + (1.0f - lambda) * uniSplit;
+        const float splitFar = splitDepth(i + 1);
+        const float coverFar = i + 1 < kCascades
+            ? splitFar + kCascadeBlend * (splitDepth(i + 2) - splitFar)
+            : splitFar;
 
-        // The smallest sphere around the slice's eight corners: its centre lies on the view axis.
-        float centreDepth = 0.5f * (splitNear + splitFar) * (1.0f + slope2);
-        if (centreDepth > splitFar)
-            centreDepth = splitFar;
-        const float farOff = splitFar - centreDepth;
-        float radius = std::sqrt(farOff * farOff + splitFar * splitFar * slope2);
+        // The smallest sphere around the covered slice's eight corners: its centre lies on the
+        // view axis.
+        float centreDepth = 0.5f * (splitNear + coverFar) * (1.0f + slope2);
+        if (centreDepth > coverFar)
+            centreDepth = coverFar;
+        const float farOff = coverFar - centreDepth;
+        float radius = std::sqrt(farOff * farOff + coverFar * coverFar * slope2);
         radius = std::ceil(radius * 16.0f) / 16.0f;     // steady across float noise
 
         const Vec3f centre = madd(cameraPos, cameraFwd, centreDepth);
@@ -229,6 +238,7 @@ bool rendererSunShadowsRender(float time, float* constants)
         k.nearZ = k.lightZ - radius - casterReach();
         k.rangeZ = 2.0f * radius + casterReach();
         k.splitFar = splitFar;
+        k.coverFar = coverFar;
         k.centre = madd(madd(madd(Vec3f(), right, k.lightX), up, k.lightY), forward, k.lightZ);
         splitNear = splitFar;
     }
@@ -330,6 +340,7 @@ bool rendererSunShadowsRender(float time, float* constants)
         row[11] = -k.nearZ / zr;
 
         constants[4 * 16 + i] = k.splitFar;                     // RASM[16]: cascade ends
+        constants[4 * 21 + i] = k.coverFar;                     // RASM[21]: coverage ends
         constants[4 * 18 + i] = 2.0f * r / static_cast<float>(size);   // RASM[18]: texel size
         constants[4 * 19 + i] = 1.0f / zr;                      // RASM[19]: depth per metre
     }

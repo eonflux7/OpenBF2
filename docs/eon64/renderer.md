@@ -22,9 +22,6 @@ kept in a private repository; this document describes only the contract between 
 
 Open in step 5:
 - Stop rendering BF2's legacy per-object shadow maps and remove their effect parameters.
-- Water samples the cascades directly (it is transparent and has no prepass depth): bind the atlas
-  and mask constants as frame constants in `RaShader::begin`.
-- Blend between cascades; the mask currently switches at each split.
 - Tuning: distance, resolution, bias.
 
 ## Frame
@@ -44,9 +41,12 @@ In draw order, for the main world view:
 4. **Sun mask.** A full-screen pass (FSQuadDrawer technique `RaShadowMask`) rebuilds each pixel's
    world position from the linear depth and writes an `A8R8G8B8` mask:
    `.r` cascade sun visibility, `.g` the cascades' weight against baked sunlight, `.b` N.L.
-5. **World passes.** Lit shaders read the mask instead of computing their own shadows.
+5. **World passes.** Lit shaders read the mask instead of computing their own shadows. Water is
+   transparent and has no prepass depth, so it samples the cascades itself with `RASM`, which
+   `RaShader::begin` sets on every Ra effect that declares it (`rendererSunMaskConstants`).
 6. **End of the world pass** (`rendererDepthPrepassEndWorldPass`) binds a 1 x 1 mask of
-   `(1, 0, 0)`, so first-person passes and every other view keep their baked sunlight.
+   `(1, 0, 0)` and zeroes `RASM`, so first-person passes and every other view keep their baked
+   sunlight.
 7. **Post-production** runs every frame: the colour grade is the frame's only encode from linear
    to display, so it cannot be skipped. Tinnitus blends over the float scene target first.
 
@@ -72,25 +72,30 @@ reused, because meshes cull per material against the camera. Casters draw with e
 `RaShadowDepth` technique; terrain draws its own (`Terrain::drawShadowCasters`).
 
 - Four cascades over the view depth up to `BF2_CSM_DISTANCE` (400 m), split by a blend of
-  logarithmic and uniform (lambda 0.75).
+  logarithmic and uniform (lambda 0.75). Each cascade but the last also covers the first 20 % of
+  the next slice; there the receiver blends from the finer cascade to the coarser one, so splits
+  don't show.
 - Each cascade is a bounding sphere of its view slice, so its size does not change as the camera
   turns, and its centre is snapped to whole texels across the light, so static shadows don't crawl.
 - Casters up to `BF2_CSM_CASTER_REACH` (500 m) toward the sun beyond the sphere still draw.
 - The atlas stores the light-space depth of the nearest caster (0 = sun-side bound, 1 = far side).
-  The mask pass compares and filters (PCF) and, past 90 % of the last split, blends to the baked
-  lightmap sun.
+  Receivers compare and filter (3 x 3 tent PCF) and, past 90 % of the last split, blend to the
+  baked lightmap sun.
 
-### Mask constants (`RASM`, 21 float4)
+### Mask constants (`RASM`, 22 float4)
 
 | Rows | Contents |
 |---|---|
 | 0–3 | Camera: position; forward; right / P00; up / P11 |
 | 4 + 3i .. 6 + 3i | Cascade i: world to atlas texel (x, y) and light depth |
-| 16 | View depth each cascade ends at |
+| 16 | View depth each cascade's slice ends at |
 | 17 | `.xyz` direction toward the sun; `.w` view depth where the blend to baked sun starts |
 | 18 | Each cascade's texel size in world units |
 | 19 | Each cascade's light depth per metre |
 | 20 | `.x` one atlas texel in UV |
+| 21 | View depth each cascade's coverage ends at (its blend into the next slice) |
+
+All zero outside the main world pass, and when no cascade was rendered: nothing is covered.
 
 ## Shader contract
 
@@ -99,7 +104,7 @@ Samplers 12–15 are reserved for renderer frame resources. No effect may use th
 | Slot | Resource | Format | Bound |
 |---|---|---|---|
 | s12 | Prepass world normals | `A2R10G10B10` | After the prepass |
-| s13 | Sun cascade atlas | `R32F` | During the mask pass |
+| s13 | Sun cascade atlas | `R32F` | From the cascade pass, rest of the frame |
 | s14 | Sun mask | `A8R8G8B8` | World pass; a 1 x 1 `(1, 0, 0)` elsewhere |
 | s15 | Linear view depth | `R32F` | After the prepass, rest of the frame |
 
@@ -110,6 +115,13 @@ Techniques the engine looks up by name:
 | `RaDepthPrepass` | Ra mesh effects, terrain | Linear depth to COLOR0, world normal to COLOR1 |
 | `RaShadowDepth` | Ra mesh effects, terrain | Light depth into the atlas, with `RaShadowViewProj` |
 | `RaShadowMask` | FSQuadDrawer effect | The sun mask, from `RASM` |
+
+Parameters the engine sets by semantic:
+
+| Semantic | Type | Set on |
+|---|---|---|
+| `RaShadowViewProj` | `float4x4` | Ra effects drawing `RaShadowDepth`: the cascade being drawn |
+| `RASM` | `float4[22]` | The mask pass, and in `RaShader::begin` every Ra effect that declares it |
 
 ## Effect cache
 
