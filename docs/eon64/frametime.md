@@ -57,4 +57,5 @@ Main thread, 10 s of samples:
 
 ## State
 
-Baseline measured; nothing changed yet.
+- `Renderer::tailField` answers from a table indexed by retail offset (plan 1). Built; not yet
+  measured in game.

@@ -90,6 +90,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <algorithm>
+#include <vector>
 #include <cstring>
 #include <new>
 #include <math.h>
@@ -3893,6 +3894,36 @@ const TailFieldRow kTailFields[] =
 
 #undef RD9_TAIL_ROW
 
+// [PERF] Per retail offset: the first kTailFields row covering it, and the offset into that row.
+struct TailOffsetSlot
+{
+    const TailFieldRow* row;
+    unsigned int        within;
+};
+
+const std::vector<TailOffsetSlot>& tailOffsetSlots()
+{
+    static const std::vector<TailOffsetSlot> slots = [] {
+        unsigned int end = 0;
+        for (const TailFieldRow& row : kTailFields)
+            end = std::max(end, static_cast<unsigned int>(row.retailOffset) + row.retailBytes);
+        const TailOffsetSlot none = { 0, 0 };
+        std::vector<TailOffsetSlot> table(end, none);
+        for (const TailFieldRow& row : kTailFields)
+            for (unsigned int within = 0; within != row.retailBytes; ++within)
+            {
+                TailOffsetSlot& slot = table[row.retailOffset + within];
+                if (!slot.row)
+                {
+                    slot.row = &row;
+                    slot.within = within;
+                }
+            }
+        return table;
+    }();
+    return slots;
+}
+
 Renderer* publishedRenderer()
 {
     return static_cast<Renderer*>(static_cast<void*>(g_Renderer));
@@ -3936,19 +3967,17 @@ void* Renderer::tailField(unsigned int retailOffset, TailKind kind, unsigned int
         if (retailOffset == 0x8C8) return &m_xpLightFallTime;
         if (retailOffset == 0x8D0) return &m_xpLightMarkTime;
     }
-    for (unsigned int i = 0; i != sizeof(kTailFields) / sizeof(kTailFields[0]); ++i)
-    {
-        const TailFieldRow& row = kTailFields[i];
-        const unsigned int first = row.retailOffset;
-        const unsigned int end = first + row.retailBytes;
-        if (retailOffset < first || retailOffset >= end)
-            continue;
-        const unsigned int within = retailOffset - first;
-        if (row.kind != kind || row.elementBytes != bytes || (within % bytes) != 0)
-            return 0;
-        return reinterpret_cast<unsigned char*>(this) + row.nativeOffset + within;
-    }
-    return 0;
+    // [PERF] Answered from kTailOffsets, built once, instead of scanning kTailFields on every
+    // call: per-object mesh LOD and fade code reads tail fields, and the scan cost about 6 % of the
+    // main thread (frametime.md). The answer is the scan's: the first row covering the offset.
+    const std::vector<TailOffsetSlot>& slots = tailOffsetSlots();
+    if (retailOffset >= slots.size())
+        return 0;
+    const TailOffsetSlot& slot = slots[retailOffset];
+    if (!slot.row || slot.row->kind != kind || slot.row->elementBytes != bytes
+        || (slot.within % bytes) != 0)
+        return 0;
+    return reinterpret_cast<unsigned char*>(this) + slot.row->nativeOffset + slot.within;
 }
 
 // [CHOSEN, not recovered] Owner-TU seams over the Renderer's unrecovered tail (issue #7): other
