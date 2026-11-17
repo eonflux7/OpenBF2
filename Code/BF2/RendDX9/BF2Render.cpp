@@ -90,7 +90,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <algorithm>
-#include <vector>
+#include <vector>   // [PERF] the tail offset table
 #include <cstring>
 #include <new>
 #include <math.h>
@@ -3906,7 +3906,11 @@ const std::vector<TailOffsetSlot>& tailOffsetSlots()
     static const std::vector<TailOffsetSlot> slots = [] {
         unsigned int end = 0;
         for (const TailFieldRow& row : kTailFields)
-            end = std::max(end, static_cast<unsigned int>(row.retailOffset) + row.retailBytes);
+        {
+            const unsigned int rowEnd = static_cast<unsigned int>(row.retailOffset) + row.retailBytes;
+            if (rowEnd > end)
+                end = rowEnd;
+        }
         const TailOffsetSlot none = { 0, 0 };
         std::vector<TailOffsetSlot> table(end, none);
         for (const TailFieldRow& row : kTailFields)
