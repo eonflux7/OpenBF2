@@ -18,6 +18,7 @@ list(FILTER _expat_sources INCLUDE REGEX "\\.c$")
 
 # The owner-approved Expat 1.95.0 substitute, compiled as C into a static library as the script does.
 add_library(bf2_swiffplayer_expat STATIC ${_expat_sources})
+bf2_plugin_optimize(bf2_swiffplayer_expat)
 set_target_properties(bf2_swiffplayer_expat PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${_out}/lib"
     MSVC_RUNTIME_LIBRARY MultiThreadedDLL

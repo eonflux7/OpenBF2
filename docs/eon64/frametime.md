@@ -26,7 +26,8 @@ seen as a whole.
 ## Baseline
 
 Muttrah City 2, `gpm_skirmish` 16, standing in the city, 4x MSAA, sun cascades on, 2026-11-18
-(engine `074b3d39`):
+(engine `074b3d39`). **RendDX9, SwiffPlayer and BF2Audio were compiled without optimisation** (the
+plugin targets followed the `.cmd` scripts' flags); this baseline is superseded once `/O2` is measured:
 
 - **13.3 ms a frame (76 fps)**, `game.lockFps` 200. The main thread is at 100 % of one core, DXVK's
   submission thread at 12 %: the frame is CPU-bound.
@@ -59,5 +60,8 @@ Main thread, 10 s of samples:
 
 - `Renderer::tailField` answers from a table indexed by retail offset (plan 1). Built; not yet
   measured in game.
-- The sun casters carry their sort keys (shader, material), copied at capture (plan 2). Built;
-  not yet measured in game.
+- `tailField`: 5.6 % to 0.8 % of the main thread, measured in game (unoptimised RendDX9).
+- The sun casters carry their sort keys (shader, material), copied at capture (plan 2). No gain in
+  the unoptimised build: the sort's cost was the unoptimised insertion sort (every move a call and
+  a `rep movsb`), not the pointer chasing.
+- The plugin DLLs compile with `/O2` (`BF2_PLUGIN_OPTIMIZE`). Built; not yet measured.

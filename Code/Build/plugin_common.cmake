@@ -2,7 +2,8 @@
 # Code/SwiffPlayerAbi, Code/BF2AudioAbi), included at the top of each directory's CMakeLists.txt. Each
 # target builds the same image as its Code/Build/<name>.cmd script, from the same TU manifest, so the
 # directory takes no compiler flag the script does not pass: the configuration flags are cleared here and
-# each target adds its script's flags.
+# each target adds its script's flags. The one exception is optimisation: the scripts compile RendDX9,
+# SwiffPlayer and BF2Audio without it, and the targets add /O2 (BF2_PLUGIN_OPTIMIZE, default ON).
 
 set(_code "${PROJECT_SOURCE_DIR}/Code")
 set(_bf2 "${_code}/BF2")
@@ -51,6 +52,14 @@ function(bf2_plugin_dll_properties target name dir crt)
         FOLDER "BF2")
     bf2_add_compile_debug_info(${target})
     target_link_options(${target} PRIVATE /DEBUG /INCREMENTAL:NO "/MAP:${dir}/${name}.map")
+    bf2_plugin_optimize(${target})
+endfunction()
+
+# /O2 for a plugin target and its static parts (BF2_PLUGIN_OPTIMIZE).
+function(bf2_plugin_optimize target)
+    if(BF2_PLUGIN_OPTIMIZE)
+        target_compile_options(${target} PRIVATE /O2)
+    endif()
 endfunction()
 
 # The script's STEP 4 on every link: Code/Build/plugin_abicheck.cmake removes the DLL and fails the build

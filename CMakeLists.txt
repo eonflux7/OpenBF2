@@ -16,6 +16,9 @@ option(BF2_GFX_SEAM "Compile the renderer against the D3D9/D3DX subset headers" 
 # explicit env value (continue / abort) wins in both. Reaches the .cmd image builds as the env var
 # BF2_FRONTIER_DEFAULT_CONTINUE=ON|OFF (always passed, so a stray shell variable cannot flip it).
 option(BF2_FRONTIER_DEFAULT_CONTINUE "Frontier trap defaults to continue (release packages)" OFF)
+# [BUILD] The plugin scripts (Code/Build/<plugin>.cmd) compile without optimisation; the Ninja plugin
+# targets add /O2 unless this is OFF (for stepping through a plugin in a debugger).
+option(BF2_PLUGIN_OPTIMIZE "Compile the plugin DLLs with /O2" ON)
 if(BF2_FRONTIER_DEFAULT_CONTINUE)
     set(BF2_FRONTIER_DEFAULT_ENV "${CMAKE_COMMAND}" -E env BF2_FRONTIER_DEFAULT_CONTINUE=ON)
 else()

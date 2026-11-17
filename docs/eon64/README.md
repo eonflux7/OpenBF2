@@ -44,6 +44,8 @@ The client is built for x64 with MSVC, CPython 2.7 headers (`BF2_PYTHON27_SRC`) 
 - After each plugin link, `Code/Build/plugin_abicheck.cmake` checks the DLL's exports, imports and
   CRT against the shape the engine expects, and deletes the DLL if it drifted.
 - `bf2_client_plugins` stages the DLLs next to `BF2.exe`.
+- The plugin targets compile with `/O2` (`BF2_PLUGIN_OPTIMIZE`, default on). Their `.cmd` scripts,
+  upstream's developer builds, compile RendDX9, SwiffPlayer and BF2Audio without optimisation.
 - RendDX9's seam build (`BF2_GFX_SEAM`) still uses `renddx9.cmd`.
 
 ## Running
