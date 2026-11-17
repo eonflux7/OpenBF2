@@ -4,10 +4,113 @@
 #if !DEDICATED
 #include "Object.h"
 #include "Stream.h"
+#include <cstdlib>
 #include <cstring>
+#include <map>
 #include <new>
+#include <string>
+#include <unordered_map>
 namespace dice { namespace meme {
 namespace {
+
+// [PERF] The child index. A container keeps its children in one singly linked list: containers
+// first, then object entries sorted by name, and both the lookup and the insert walk it from the
+// head (the lookup recursively, one virtual call per entry). The HUD registers some ten thousand
+// objects under the root while each hudBuilder command looks names up, so building the HUD is
+// quadratic: about 5 s of startup. Here each container that is looked up or inserted into keeps a
+// side index of its object entries by name, kept up to date by insert and erase, and both
+// operations use it to reach the same entry, or the same position, the walk would. It is used
+// only while the list has the shape the walk relies on (containers before objects, objects in
+// strcmp order); a list in any other shape keeps the walk. A rename through an entry rebuilds the
+// indexes on next use; replacing a container's children drops its index. The layout of the
+// registry classes is unchanged (the index lives beside them). BF2_PERF_MEMEINDEX=0 keeps the
+// walk everywhere.
+bool memeIndexEnabled()
+{
+    static int on = -1;
+    if (on < 0) { const char* e = std::getenv("BF2_PERF_MEMEINDEX"); on = (e && *e == '0') ? 0 : 1; }
+    return on == 1;
+}
+struct ChildIndex
+{
+    ChildIndex() : epoch(0), built(false), usable(false) {}
+    std::multimap<std::string, NameTreeNode*> objects;   // equal names in list order
+    unsigned int epoch;                                  // g_nameEpoch when built
+    bool built;
+    bool usable;                                         // the list has the indexed shape
+};
+std::unordered_map<const NameTreeNode*, ChildIndex> g_childIndexes;
+unsigned int g_nameEpoch = 0;   // bumped by NameTreeObjectEntry::setName
+
+// The container's index, built from its list when missing or stale; null when the index is off
+// or the list does not have the indexed shape.
+ChildIndex* childIndex(const NameTreeNode* container, NameTreeNode* children)
+{
+    if (!memeIndexEnabled())
+        return nullptr;
+    ChildIndex& index = g_childIndexes[container];
+    if (index.built && index.epoch == g_nameEpoch)
+        return index.usable ? &index : nullptr;
+    index.built = true;
+    index.objects.clear();
+    index.epoch = g_nameEpoch;
+    index.usable = true;
+    bool seenObject = false;
+    const char* previous = nullptr;
+    for (NameTreeNode* node = children; node; node = node->next) {
+        if (node->isContainer()) {
+            if (seenObject) { index.usable = false; break; }
+            continue;
+        }
+        const char* const name = node->getObject() ? node->getName() : nullptr;
+        if (!name || (previous && std::strcmp(previous, name) > 0)) { index.usable = false; break; }
+        seenObject = true;
+        previous = name;
+        index.objects.insert(index.objects.end(), std::make_pair(std::string(name), node));
+    }
+    if (!index.usable) {
+        index.objects.clear();
+        return nullptr;
+    }
+    return &index;
+}
+void dropChildIndex(const NameTreeNode* container)
+{
+    if (!g_childIndexes.empty())
+        g_childIndexes.erase(container);
+}
+// Removes an object entry that is being unlinked from the container's list.
+void unindexChild(const NameTreeNode* container, NameTreeNode* node)
+{
+    if (g_childIndexes.empty() || node->isContainer())
+        return;
+    std::unordered_map<const NameTreeNode*, ChildIndex>::iterator found = g_childIndexes.find(container);
+    if (found == g_childIndexes.end() || !found->second.usable)
+        return;
+    ChildIndex& index = found->second;
+    const char* const name = node->getObject() ? node->getName() : nullptr;
+    if (name) {
+        typedef std::multimap<std::string, NameTreeNode*>::iterator It;
+        std::pair<It, It> range = index.objects.equal_range(std::string(name));
+        for (It it = range.first; it != range.second; ++it)
+            if (it->second == node) { index.objects.erase(it); return; }
+    }
+    g_childIndexes.erase(found);   // not where its name says: rebuild on next use
+}
+// The first object entry named path among a container's children, as the walk finds it; sets
+// handled to false when the walk must run instead.
+Object* findIndexedChild(const NameTreeNode* container, NameTreeNode* children, const char* path,
+                         bool& handled)
+{
+    handled = false;
+    ChildIndex* const index = childIndex(container, children);
+    if (!index)
+        return nullptr;
+    handled = true;
+    const std::string key(path);
+    std::multimap<std::string, NameTreeNode*>::iterator it = index->objects.lower_bound(key);
+    return (it == index->objects.end() || it->first != key) ? nullptr : it->second->getObject();
+}
 char* copyName(const char* name) // 737DC0, ordinary allocation; no null guard on allocation
 {
     if (!name) return nullptr;
@@ -49,7 +152,7 @@ bool NameTreeNode::stream(System*, Stream*) { return false; }
 NameTreeContainer::NameTreeContainer(const char* name)
     : m_children(nullptr), m_name(copyName(name)) {}
 NameTreeContainer::~NameTreeContainer() // name, children, then base-owned next
-{ ::operator delete(m_name); m_name = nullptr; delete m_children; }
+{ dropChildIndex(this); ::operator delete(m_name); m_name = nullptr; delete m_children; }   // [PERF] the index
 const char* NameTreeContainer::getName() { return m_name; }
 bool NameTreeContainer::setName(const char* name)
 {
@@ -58,10 +161,12 @@ bool NameTreeContainer::setName(const char* name)
     m_name = copyName(name);
     return true;
 }
-void NameTreeContainer::setPayload(void* payload) { m_children = static_cast<NameTreeNode*>(payload); }
+void NameTreeContainer::setPayload(void* payload)
+{ dropChildIndex(this); m_children = static_cast<NameTreeNode*>(payload); }   // [PERF] the index
 bool NameTreeContainer::isContainer() { return true; }
 NameTreeNode* NameTreeContainer::getChildren() { return m_children; }
-void NameTreeContainer::setChildren(NameTreeNode* children) { m_children = children; }
+void NameTreeContainer::setChildren(NameTreeNode* children)
+{ dropChildIndex(this); m_children = children; }   // [PERF] the index
 bool NameTreeContainer::save(System* system) // next is visited even after child failure
 {
     bool result = true;
@@ -86,15 +191,33 @@ bool NameTreeContainer::insert(System* system, Object* object, const char* conta
     }
     NameTreeNode* previous = nullptr;
     NameTreeNode* current = m_children;
-    while (current) {
-        if (current->getObject() && std::strcmp(current->getName(), name) > 0) break;
-        previous = current; current = current->next;
+    // [PERF] With the index, the same position: after the last object entry whose name is not
+    // greater (upper_bound), or after the leading containers when there is none.
+    ChildIndex* const index = childIndex(this, m_children);
+    std::multimap<std::string, NameTreeNode*>::iterator at;
+    if (index) {
+        at = index->objects.upper_bound(std::string(name));
+        if (at != index->objects.begin()) {
+            std::multimap<std::string, NameTreeNode*>::iterator before = at;
+            previous = (--before)->second;
+        } else {
+            for (NameTreeNode* node = m_children; node && node->isContainer(); node = node->next)
+                previous = node;
+        }
+        current = previous ? previous->next : m_children;
+    } else {
+        while (current) {
+            if (current->getObject() && std::strcmp(current->getName(), name) > 0) break;
+            previous = current; current = current->next;
+        }
     }
     void* allocation = ::operator new(sizeof(NameTreeObjectEntry));
     NameTreeNode* entry = allocation ? new(allocation) NameTreeObjectEntry(object) : nullptr;
     // The retail null-allocation branch still dereferences entry here.
     if (previous) { entry->next = current; previous->next = entry; }
     else { entry->next = m_children; m_children = entry; }
+    if (index)   // [PERF] last among equal names, as in the list
+        index->objects.insert(at, std::make_pair(std::string(name), entry));
     return true;
 }
 NameTreeNode* NameTreeContainer::createContainer(System* system, const char* path)
@@ -128,6 +251,7 @@ bool NameTreeContainer::eraseObject(System* system, Object* object)
     NameTreeNode* previous = nullptr;
     for (NameTreeNode* node = m_children; node; previous = node, node = node->next) {
         if (node->getObject() == object) {
+            unindexChild(this, node);   // [PERF] the index
             if (previous) previous->next = node->next; else m_children = node->next;
             node->next = nullptr; delete node; return true;
         }
@@ -140,6 +264,7 @@ bool NameTreeContainer::eraseNode(System* system, NameTreeNode* target)
     NameTreeNode* previous = nullptr;
     for (NameTreeNode* node = m_children; node; previous = node, node = node->next) {
         if (node == target) {
+            unindexChild(this, node);   // [PERF] the index
             if (previous) previous->next = node->next; else m_children = node->next;
             node->next = nullptr; delete node; return true;
         }
@@ -164,7 +289,10 @@ Object* NameTreeContainer::findObject(System* system, const char* path)
     if (!path) return nullptr;
     if (m_children) {
         if (!m_name) {
-            Object* object = m_children->findObject(system, path);
+            // [PERF] The index answers a plain name; a path walks.
+            bool handled = false;
+            Object* object = separator(path) ? nullptr : findIndexedChild(this, m_children, path, handled);
+            if (!handled) object = m_children->findObject(system, path);
             if (object) return object;
         } else {
             const char* rest = separator(path);
@@ -173,7 +301,10 @@ Object* NameTreeContainer::findObject(System* system, const char* path)
                 const unsigned int count = static_cast<unsigned int>(rest - path);
                 std::memcpy(name, path, count); name[count] = 0;
                 if (!std::strcmp(m_name, name)) {
-                    Object* object = m_children->findObject(system, rest + 1);
+                    bool handled = false;   // [PERF] as above
+                    Object* object = separator(rest + 1)
+                        ? nullptr : findIndexedChild(this, m_children, rest + 1, handled);
+                    if (!handled) object = m_children->findObject(system, rest + 1);
                     if (object) return object;
                 }
             }
@@ -256,9 +387,10 @@ bool NameTreeRoot::nodePath(NameTreeNode* node, char* buffer, int capacity)
 }
 const char* NameTreeObjectEntry::getName() { return m_object->getName(); }
 bool NameTreeObjectEntry::setName(const char* name) // 83A220, ignores object return
-{ if (!name) return false; m_object->setName(name); return true; }
+{ if (!name) return false; ++g_nameEpoch; m_object->setName(name); return true; }   // [PERF] reindex
 Object* NameTreeObjectEntry::getObject() { return m_object; }
-void NameTreeObjectEntry::setPayload(void* object) { m_object = static_cast<Object*>(object); }
+void NameTreeObjectEntry::setPayload(void* object)
+{ ++g_nameEpoch; m_object = static_cast<Object*>(object); }   // [PERF] reindex
 bool NameTreeObjectEntry::contains(Object* object) // 83A240 includes null equality
 { return m_object == object || (next ? next->contains(object) : false); }
 bool NameTreeObjectEntry::eraseObject(System* system, Object* object)
@@ -267,6 +399,7 @@ bool NameTreeObjectEntry::eraseNode(System* system, NameTreeNode* node)
 { return next ? next->eraseNode(system, node) : false; }
 bool NameTreeObjectEntry::close(System* system)
 {
+    ++g_nameEpoch;   // [PERF] the object goes; reindex (the walk then meets the entry as retail does)
     if (m_object && !destroyRuntimeObject(reinterpret_cast<RuntimeObject*&>(m_object))) return false;
     if (next && !next->close(system)) return false;
     return true;
