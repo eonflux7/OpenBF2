@@ -1,7 +1,8 @@
 # Renderer
 
 The `render` lane replaces BF2's forward, gamma-space, lightmap-lit renderer with a linear HDR
-pipeline built on a depth prepass, cascaded sun shadows and, later, screen-space ambient occlusion.
+pipeline built on a depth prepass and cascaded sun shadows, and later on a shared atmosphere,
+image-based ambient specular and screen-space ambient occlusion.
 It is a new design. Retail behaviour is not a constraint, and an accepted step leaves no legacy path
 behind it.
 
@@ -18,17 +19,78 @@ kept in a private repository; this document describes only the contract between 
 | 3. Shared lighting model | Accepted (shader-only) | — |
 | 4. Depth prepass + screen-space sun mask | Accepted | `3a00bf99`, `988774bf`, `82e04f61` |
 | 5. Sun cascaded shadow maps + PCF | In progress, behind `BF2_SUN_SHADOWS` | `271c8d45`, `df9a6a40`, `6261ac82` |
-| 6. GTAO, then drop lightmaps | Not started | — |
+| 6. Shader audit and cleanup | Started 2026-11-17 | — |
+| 7. MSAA with the single-sample prepass | Not started | — |
+| 8. Atmosphere, sky IBL, water reflections | Not started | — |
+| 9. HDR bloom + auto-exposure | Not started | — |
+| 10. GTAO + lightmap channel ownership | Not started | — |
 
-Open in step 5:
-- Tuning: distance, resolution, bias.
+Each step is accepted in game against the reference views (see [Tooling](#tooling)) before the next
+one starts.
 
-Left for step 6: BF2's directional (sun) shadow maps are no longer rendered or created
-(`renderShadowMaps` draws point and spot maps only), so no sun shadow record exists and every
-receiver of one (mesh shadow permutations `hasshadow` / `hasshadowocclusion`, terrain, undergrowth,
-overgrowth, decals) stays inactive. Their code, the now unreferenced directional pass in
-`XpLightManager.cpp`, and the effect parameters (`ShadowMap`, `ShadowProjMat`, ...) are deleted
-together with the lightmaps, which touch the same mesh and terrain code.
+**5. Sun CSM.** Open: tuning of distance, resolution and bias, measured with the GPU pass timers.
+
+**6. Shader audit and cleanup.** An inventory of the shader set: every effect and header, its
+techniques and permutations, which of them a PR session loads, the code each later step replaces,
+and the duplicated lighting, fog and Fresnel code that the shared model should own. The inventory
+itself lives with the private shaders; this document records only contract changes. Cleanup that
+follows from it:
+- The toggles the engine fixed when steps 1–4 were accepted (reversed-Z, log depth, gamma-space
+  lighting) and their dead branches.
+- BF2's directional (sun) shadow maps, which are no longer rendered or created (`renderShadowMaps`
+  draws point and spot maps only), so no sun shadow record exists and every receiver of one (mesh
+  shadow permutations `hasshadow` / `hasshadowocclusion`, terrain, undergrowth, overgrowth, decals)
+  is inactive. Their receivers, the unreferenced directional pass in `XpLightManager.cpp`, and the
+  effect parameters (`ShadowMap`, `ShadowProjMat`, ...) are deleted.
+- One terrain path. `Low_Terrain` had no `RaDepthPrepass` or `RaShadowDepth` technique, so the
+  engine no longer enters it: not at load, not from the terrain-quality video option, not as a
+  fallback. The `m_lowQuality` branches left in the terrain code are always false and go with the
+  terrain rewrite.
+- Liveness comes from `BF2_DRAW_STATS` ([flags.md](flags.md)), run on a set of maps that between them
+  cover water, foliage, buildings and vehicles.
+
+**7. MSAA.** The scene draws with 4x MSAA, but the prepass depth, normals and sun mask are single
+sample, so an edge pixel reads one mask value for all its samples (halos on silhouettes, mostly
+foliage against the sky). Decide how full-screen terms meet MSAA (edge-aware upsampling,
+per-sample evaluation at edges, or another anti-aliasing approach) before step 10 adds a second one.
+
+**8. Atmosphere, sky IBL, water reflections.**
+- One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial
+  perspective, so sky, sun near the horizon and haze agree.
+- A sky cubemap prefiltered per level at load (one mip per roughness) gives ambient specular to
+  glossy surfaces. Every receiver occludes it: statics and terrain with the lightmap sky visibility,
+  vehicles and soldiers with the hemi map, first-person models with the sky visibility under the
+  camera. Bundled meshes (vehicles, first-person models) and static meshes come first.
+- Material interpretation without new assets: gloss maps become roughness, and each material
+  class (paint, glass, metal, fabric) gets its own F0 and roughness range. Vehicle environment
+  maps stop being blended into albedo and become specular.
+- Water: screen-space reflections. The opaque scene is resolved to a texture before water draws
+  (also the source for refraction); water marches against the prepass depth and falls back to the
+  prefiltered sky where the ray leaves the screen.
+
+**9. HDR bloom + auto-exposure.** An energy-conserving bloom without threshold, and exposure that
+adapts between interiors and open terrain, both before the frame grade.
+
+**10. GTAO + lightmap channel ownership.** GTAO for small-scale occlusion. Lightmaps are kept, with
+one owner per channel: inside cascade range the cascades own sun visibility and the baked sun term
+is only the fallback beyond the last cascade (as now); sky visibility and baked point lights stay
+baked. Lightmaps are not re-baked at a higher resolution unless the reference views show the baked
+sky term failing.
+
+Not planned: converting the assets to a PBR material set. The existing maps are interpreted as
+PBR inputs (step 8) instead.
+
+### Tooling
+
+Built into the client, not the editor, so that the running game and its scripts are what is measured.
+
+- **GPU pass timers** (with step 5): timestamp queries around each renderer pass.
+- **Reference views:** per-map lists of camera positions (with or without the first-person model,
+  optionally with a spawned vehicle). After autohost the client visits each view, waits a fixed
+  number of frames, and writes a screenshot and the pass timings, for regression and performance
+  comparison between steps.
+- **Debug overlay** (Dear ImGui, after the reference views): pass timings, debug views, live shader
+  constants, and spawning vehicles and kits.
 
 ## Frame
 
