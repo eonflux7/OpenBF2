@@ -1663,6 +1663,16 @@ std::string raEffectContentKey(const char* source, unsigned int sourceLen, const
     ID3DXBuffer* text = 0;
     ID3DXBuffer* errors = 0;
     const long hr = raPreprocessShader(source, sourceLen, defines, include, &text, &errors);
+    // A failure here silently disables the cache for the effect, so report the first one.
+    static bool reported = false;
+    if ((hr != 0 || !text) && !reported)
+    {
+        reported = true;
+        const char* message = errors ? static_cast<const char*>(errors->GetBufferPointer()) : "";
+        ::fprintf(stderr, "[EFFECTCACHE] no cache key: D3DXPreprocessShader hr=0x%08lx text=%p: %.400s\n",
+                  static_cast<unsigned long>(hr), static_cast<void*>(text), message);
+        ::fflush(stderr);
+    }
     if (errors)
         errors->Release();
     if (hr != 0 || !text)
