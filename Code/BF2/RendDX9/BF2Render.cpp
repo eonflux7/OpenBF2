@@ -85,6 +85,7 @@
 #include "MovieRenderer.h"                  // base +0x3F4, the demo movie recorder
 #include "../GeomMisc/DebugRenderer.h"    // geom::g_DebugRenderer, flushed by renderFrame
 #include "../AI/AIDLL/AI/Main/BF2AI.h"    // ai::IAI - the "AI" singleton's isInitialized
+#include "GpuTimers.h"                    // [DEV] BF2_GPU_TIMERS
 
 #include <cstdlib>
 #include <cstdio>
@@ -1034,6 +1035,7 @@ void releaseRendererPathResources(Renderer* renderer)
     dx9rend::rendererHdrReleaseSurface();                         // [RENDER] HDR
     dx9rend::rendererDepthPrepassRelease();                       // [RENDER] depth prepass
     dx9rend::rendererSunShadowsRelease();                         // [RENDER] BF2_SUN_SHADOWS
+    dx9rend::gpuTimersRelease();                                  // [DEV] BF2_GPU_TIMERS
     renderer->releaseHemiScratchTexture();
     for (unsigned int offset = 0x778; offset <= 0x7C8; offset += 4)
         dx9rend::textureReleaseRef(pathTarget(renderer, offset));
@@ -2674,6 +2676,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 // [RENDER] Depth prepass: the queues are complete here (the
                 // overgrowth enqueues above), and nothing has consumed them yet.
                 rendererDepthPrepass(sw(1701) && geom::g_Terrain, timeF);
+                gpuTimerMark("world opaque");                // [DEV] BF2_GPU_TIMERS
 
                 renderQueuesFlushWorldPass();
 
@@ -2734,6 +2737,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                     noteOnce(128u, "SkyDome (draw pass)");
             }
 
+            gpuTimerMark("world transparent");               // [DEV] BF2_GPU_TIMERS
             renderQueueFlush(0x3C, 1);                       // RSMTFogPass
 
             if (sw(1693) && isCameraUnderWater())
@@ -2789,12 +2793,14 @@ bool Renderer::renderFrame(double time, float deltaTime)
             if (sw(1717) && g_PostProductionFrameWorkOwner
                 && (!m_postProductionNeedsActive || postProductionActive()))
             {
+                gpuTimerMark("post pass");                   // [DEV] BF2_GPU_TIMERS
                 postProductionPass();
             }
 
             // [RENDER] Depth prepass: the mask describes the world pass only; the
             // first-person passes and every later view read a lit mask.
             rendererDepthPrepassEndWorldPass();
+            gpuTimerMark("first person");                    // [DEV] BF2_GPU_TIMERS
 
             if (m_clearDepthBeforeFirstPerson)
             {
@@ -2833,6 +2839,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 dev->SetDepthStencilSurface(0);                                    // +0x9C
             }
 
+            gpuTimerMark("post finish");                     // [DEV] BF2_GPU_TIMERS
             // PE 0x10030712..0x100307A0: the profiler is initialized on first use.
             if (sw(1717) && g_PostProductionFrameWorkOwner
                 && (!m_postProductionNeedsActive || postProductionActive()))
@@ -2843,6 +2850,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 QueueProfiler::end();
             }
             rendererHdrEndScene();          // [RENDER] HDR: the HUD and overlays go to the back buffer
+            gpuTimerMark("hud");            // [DEV] BF2_GPU_TIMERS
 
             if (sw(1704))
             {
@@ -4185,6 +4193,7 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     if (savedDepth)
         savedDepth->AddRef();
 
+    gpuTimerMark("depth prepass");   // [DEV] BF2_GPU_TIMERS
     IDirect3DSurface9* target = 0;
     g_linearDepthTexture->GetSurfaceLevel(0, &target);
     IDirect3DSurface9* normals = 0;
@@ -4202,6 +4211,7 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     // The sun shadow mask: world positions rebuilt from the linear depth (s15). The camera rows
     // are the render view's camera transform (right, up, forward, position) over the projection
     // scales, so position + depth * (forward + ndc.x * right' + ndc.y * up') is the world point.
+    gpuTimerMark("sun mask");   // [DEV] BF2_GPU_TIMERS
     stateManagerSetRenderTarget(1, 0);
     if (normals)
         normals->Release();

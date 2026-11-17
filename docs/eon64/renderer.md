@@ -90,7 +90,10 @@ PBR inputs (step 8) instead.
 
 Built into the client, not the editor, so that the running game and its scripts are what is measured.
 
-- **GPU pass timers** (with step 5): timestamp queries around each renderer pass.
+- **GPU pass timers** (`BF2_GPU_TIMERS`, [flags.md](flags.md)): spans in frame order: `pre-world`
+  (BeginScene to the sun cascades), `sun clear`, `sun c0`..`sun c3`,
+  `depth prepass`, `sun mask`, `world opaque` (to the sky), `world transparent` (fog pass, decals,
+  particles, water, transparency), `post pass`, `first person`, `post finish`, `hud` (to Present).
 - **Reference views:** per-map lists of camera positions (with or without the first-person model,
   optionally with a spawned vehicle). After autohost the client visits each view, waits a fixed
   number of frames, and writes a screenshot and the pass timings, for regression and performance

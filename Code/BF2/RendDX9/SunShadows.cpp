@@ -15,6 +15,7 @@
 #include "../../RendDX9Abi/D3dx9Sdk.h"
 #include "RendDX9Base.h"
 #include "DrawStats.h"
+#include "GpuTimers.h"
 #include "../RendMisc/IRenderView.h"
 #include "../Math/Frustum.h"
 #include "../Math/Mat4.h"
@@ -386,6 +387,7 @@ bool rendererSunShadowsRender(float time, float* constants)
     stateManagerSetDepthStencilSurface(g_atlasDepth);
     stateManagerMarkStandardDepth(true);
     flushRenderTargetsSeam();
+    gpuTimerMark("sun clear");   // [DEV] BF2_GPU_TIMERS
     stateManagerClear(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0xFFFFFFFFu, 1.0f, 0);
 
     static const unsigned int key = raHashString(std::string("RaShadowDepth"));
@@ -411,6 +413,8 @@ bool rendererSunShadowsRender(float time, float* constants)
                                                    2.0f * r / static_cast<float>(size));
 
         static const char* const kScopes[kCascades] = { "c0", "c1", "c2", "c3" };
+        static const char* const kSpans[kCascades] = { "sun c0", "sun c1", "sun c2", "sun c3" };
+        gpuTimerMark(kSpans[i]);         // [DEV] BF2_GPU_TIMERS
         drawStatsSetScope(kScopes[i]);   // [DEV] BF2_DRAW_STATS: caster draws per cascade
         if (terrain)
             terrain->drawShadowCasters(viewProjection, cull);

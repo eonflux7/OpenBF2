@@ -11,6 +11,7 @@
 #include "../../RendDX9Abi/D3dx9Sdk.h"
 #include "RendDX9Base.h"
 #include "DrawStats.h"   // [DEV] BF2_DRAW_STATS
+#include "GpuTimers.h"   // [DEV] BF2_GPU_TIMERS
 #include "../RendMisc/IRenderer.h"
 #include "../GeomMisc/Debug.h"
 #if defined(_WIN32)
@@ -284,6 +285,7 @@ bool rendererPresent(unsigned int mode)
 
     b->framePresented = 1;
     drawStatsFrame();   // [DEV] BF2_DRAW_STATS
+    gpuTimersFrame();   // [DEV] BF2_GPU_TIMERS
     return true;
 }
 
@@ -302,6 +304,7 @@ bool rendererBeginScene(const unsigned int* clearRgb, bool doClear)
     }
 
     statsBeginFrame();
+    gpuTimerMark("pre-world");   // [DEV] BF2_GPU_TIMERS: up to the main world view's prepass
 
     if (device()->BeginScene() < 0)
     {
