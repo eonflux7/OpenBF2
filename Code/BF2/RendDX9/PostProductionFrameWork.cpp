@@ -1760,7 +1760,12 @@ bool drawPostProduction(PostProductionOwner* o)
         drawGasMask(o);                                               // sub_1004E970
     if (o->tinnitus.state == 1)
     {
-        if (rendererPostMultisampleActive())
+        // [CHOSEN, not recovered] BF2_HDR: the scene target holds linear radiance that only the
+        // final copy (the frame grade) turns into display values, so tinnitus blends over the scene
+        // target and the copy still runs, multisampled or not.
+        if (rendererHdrEnabled())
+            geom::lightManagerSetRenderTargetTexture(0, target<0x788>());
+        else if (rendererPostMultisampleActive())
         {
             copyScene = false;
             rendererPostSetTarget(0);
