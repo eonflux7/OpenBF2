@@ -30,6 +30,14 @@ BF2/RendDX9/StateManager.cpp
 BF2/RendDX9/RendDX9Draw.cpp
 BF2/RendDX9/DrawStats.cpp
 BF2/RendDX9/GpuTimers.cpp
+BF2/RendDX9/UiLayer.cpp
+# [UI] Dear ImGui for the fork's in-game UI (docs/eon64/ui.md)
+BF2/External/imgui/imgui.cpp
+BF2/External/imgui/imgui_draw.cpp
+BF2/External/imgui/imgui_tables.cpp
+BF2/External/imgui/imgui_widgets.cpp
+BF2/External/imgui/backends/imgui_impl_dx9.cpp
+BF2/External/imgui/backends/imgui_impl_win32.cpp
 BF2/RendDX9/MovieRenderer.cpp
 BF2/RendDX9/RenderQueues.cpp
 BF2/RendDX9/SunShadows.cpp

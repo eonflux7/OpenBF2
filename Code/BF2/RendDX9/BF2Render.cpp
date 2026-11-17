@@ -86,6 +86,8 @@
 #include "../GeomMisc/DebugRenderer.h"    // geom::g_DebugRenderer, flushed by renderFrame
 #include "../AI/AIDLL/AI/Main/BF2AI.h"    // ai::IAI - the "AI" singleton's isInitialized
 #include "GpuTimers.h"                    // [DEV] BF2_GPU_TIMERS
+#include "UiLayer.h"                      // [UI] docs/eon64/ui.md
+#include "../RendMisc/IRendererUi.h"     // [UI]
 
 #include <cstdlib>
 #include <cstdio>
@@ -1037,6 +1039,7 @@ void releaseRendererPathResources(Renderer* renderer)
     dx9rend::rendererDepthPrepassRelease();                       // [RENDER] depth prepass
     dx9rend::rendererSunShadowsRelease();                         // [RENDER] sun cascades
     dx9rend::gpuTimersRelease();                                  // [DEV] BF2_GPU_TIMERS
+    dx9rend::uiLayerDeviceLost();                                 // [UI] ImGui device objects
     renderer->releaseHemiScratchTexture();
     for (unsigned int offset = 0x778; offset <= 0x7C8; offset += 4)
         dx9rend::textureReleaseRef(pathTarget(renderer, offset));
@@ -1464,6 +1467,9 @@ void* Renderer::queryInterface(unsigned int iid) const
 {
     if (iid == RD9_IID_IBASE || iid == IID_IRenderer)
         return const_cast<Renderer*>(this);
+    // [UI] The fork's UI (docs/eon64/ui.md): a separate object, so Renderer's retail layout stays.
+    if (iid == dx9rend::IID_IRendererUi)
+        return dx9rend::uiLayerInterface();
     return 0;
 }
 

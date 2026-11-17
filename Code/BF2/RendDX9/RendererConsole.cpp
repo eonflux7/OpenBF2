@@ -18,6 +18,7 @@
 #include "RendDX9Base.h"
 #include "QueryManager.h"
 #include "PostProductionFrameWork.h"
+#include "UiLayer.h"   // [UI] renderer.uiMenuKey
 #include "../Geom/Terrain.h"              // the water properties' target, geom::terrain() (dword_1024B930)
 #include "../Geom/BundledMeshStateManager.h"
 #include "../GeomMisc/FSQuadDrawer.h"
@@ -1382,6 +1383,11 @@ BF2_CONSOLE_PROPERTY_FN(roadSlopeScaleDepthBias, float, consoleRoadCompiledRende
 // PE 0x100B2231, 0x100B22A2
 BF2_CONSOLE_PROPERTY_FN(roadLodDistMod, float, consoleRoadCompiledRenderer() != 0,
                         getRoadLodDistanceModifier(), setRoadLodDistanceModifier, kRendererConsoleTag)
+
+// [UI] The Win32 virtual-key code that opens and closes the fork's menu (docs/eon64/ui.md);
+// 45 (Insert) by default.
+BF2_CONSOLE_PROPERTY_FN(uiMenuKey, int, true, uiLayerGetMenuKey(), uiLayerSetMenuKey,
+                        kRendererConsoleTag)
 
 
 } // anonymous namespace

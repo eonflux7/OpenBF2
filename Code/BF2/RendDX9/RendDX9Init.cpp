@@ -26,6 +26,7 @@
 #include <windows.h>
 #include <d3d9.h>
 #include "../../RendDX9Abi/D3dx9Sdk.h"
+#include "UiLayer.h"   // [UI] docs/eon64/ui.md
 #if defined(_WIN32)
 #include <dxerr9.h>
 #include <dxdiag.h>
@@ -1812,6 +1813,7 @@ void destroyDeviceCaps()
 bool rendererReleaseD3DDevice(void* renderer)
 {
     RendDX9Base* const b = baseOf(renderer);
+    uiLayerShutdown();   // [UI] the ImGui layer holds device references
     for (std::vector<IDirect3DSwapChain9*>::iterator it = b->swapChains.begin();
          it != b->swapChains.end(); ++it)
         (*it)->Release();

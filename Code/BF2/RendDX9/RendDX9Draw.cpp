@@ -12,6 +12,7 @@
 #include "RendDX9Base.h"
 #include "DrawStats.h"   // [DEV] BF2_DRAW_STATS
 #include "GpuTimers.h"   // [DEV] BF2_GPU_TIMERS
+#include "UiLayer.h"     // [UI] docs/eon64/ui.md
 #include "../RendMisc/IRenderer.h"
 #include "../GeomMisc/Debug.h"
 #if defined(_WIN32)
@@ -249,6 +250,8 @@ bool rendererPresent(unsigned int mode)
         mode = b->presentAsync;                                  // +0x3AC
 
     IDirect3DSwapChain9* chain = b->swapChains[b->currentSwapChain];   // +0xE4[+0xF0]
+
+    uiLayerPresent(chain);   // [UI] the fork's UI, over the finished frame and after its screenshot
 
     HRESULT hr = chain->Present(0, 0, 0, 0, mode);
     while (hr)

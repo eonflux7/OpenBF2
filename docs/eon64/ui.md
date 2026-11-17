@@ -17,29 +17,40 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 
 | Step | Commit scope | Status |
 |---|---|---|
-| 1. ImGui layer | `ui(imgui)` | Planned |
+| 1. ImGui layer | `ui(imgui)` | In development |
 | 2. Sun shadow tuning as console variables (lane `render`, before step 3) | `render(csm)` | Planned |
 | 3. Debug menu and performance overlay | `ui(debug)` | Planned |
 | 4. Console frontend | `ui(console)` | Planned |
 
 ### 1. ImGui layer
 
-One ImGui context, owned by the renderer, since it owns the device, `Reset` and `Present`.
+`RendDX9/UiLayer.cpp`; the game image's side is `RendMisc/IRendererUi.h` and
+`BF2Engine::filterGameInput`.
 
-- **Device:** created with the renderer's device; `ImGui_ImplDX9_InvalidateDeviceObjects` before
-  `Reset` (`RendDX9Init.cpp`), re-created after.
-- **Drawing:** after the HUD, onto the back buffer, before `Present` (`rendererPresent`). Never into
-  the HDR scene target, so exposure and tonemapping do not touch it. The DX9 backend saves and
-  restores render state around its draw.
-- **Input:** the game reads mouse and keyboard through DirectInput, the mouse in exclusive mode, so
-  the Win32 messages the ImGui backend expects do not arrive while playing. While a UI window has
-  focus, the mouse goes non-exclusive (as in the main menu), the cursor is shown, and game input is
-  not delivered. To decide in this step: whether ImGui takes Win32 messages from the game's window
-  procedure or events from the game's input layer, and how that crosses from `BF2.exe` to RendDX9
-  without breaking the plugin ABI check.
-- **Font:** a TTF scaled to the display height; ImGui's built-in bitmap font is unreadable at
-  1440p.
-- **Hotkey:** Insert toggles the menu (F1-F8 switch vehicle seats). The key is a console variable.
+- **Owner:** one ImGui context in RendDX9, which owns the device, `Reset` and `Present`. It is
+  created at the first Present; ImGui is compiled into RendDX9 (`Code/Build/renddx9_sources.txt`).
+- **Drawing:** in `rendererPresent`, just before `Present`: after the frame, the HUD and the
+  screenshot (`renderer.dumpScreen` captures at `EndScene`), so screenshots never show the UI. Its
+  own `BeginScene`/`EndScene` on the back buffer, never the HDR scene target. The DX9 backend's
+  state block restores render state; the layer restores the render target, depth surface and sRGB
+  states itself, so StateManager's caches stay true. Nothing runs while nothing is shown.
+- **Device:** the renderer's lost-device listener (`releaseRendererPathResources`) releases the
+  backend's objects; they are re-created on the next draw. `rendererReleaseD3DDevice` shuts the
+  layer down.
+- **Input, window side:** the layer chains a window procedure in front of the game's. The menu key
+  toggles the menu and never reaches the game. While the menu is open, ImGui gets every message,
+  and mouse, key and character messages stop there (system keys still pass, so Alt+F4 works).
+- **Input, game side:** `BF2.exe` asks the renderer singleton for `IRendererUi` through
+  `IBase::queryInterface(IID_IRendererUi)`; no export changes, so the plugin ABI check is
+  untouched. While `uiCapturesInput()` is true, `filterGameInput` and `filterPlayerInput` deliver
+  nothing (as with the console), and the DirectInput mouse is released (as the main menu does), so
+  Windows delivers the cursor. It is re-acquired when the menu closes, unless the main menu is up.
+- **Cursor:** ImGui draws its own; the game keeps the system cursor hidden.
+- **Font:** ImGui's embedded scalable font, 16 px at 1080p, scaled with the back-buffer height
+  along with the style's sizes.
+- **Hotkey:** `renderer.uiMenuKey`, a Win32 virtual-key code, 45 (Insert) by default. F1-F8
+  switch vehicle seats.
+- **Not written:** no `imgui.ini` or log next to the game.
 
 ### 2. Sun shadow tuning (lane `render`)
 
