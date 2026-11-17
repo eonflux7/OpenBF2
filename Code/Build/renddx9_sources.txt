@@ -28,6 +28,7 @@ BF2/RendDX9/FXParameter.cpp
 BF2/RendDX9/ShaderManager.cpp
 BF2/RendDX9/StateManager.cpp
 BF2/RendDX9/RendDX9Draw.cpp
+BF2/RendDX9/DrawStats.cpp
 BF2/RendDX9/MovieRenderer.cpp
 BF2/RendDX9/RenderQueues.cpp
 BF2/RendDX9/SunShadows.cpp

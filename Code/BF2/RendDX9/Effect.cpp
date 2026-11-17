@@ -6,6 +6,7 @@
 #include "../../RendDX9Abi/ThunkAbi.h"
 #include "../../RendDX9Abi/HfeAbi.h"
 #include "../Core/LoadTrace.h"   // [DEV] BF2_LOAD_TRACE
+#include "DrawStats.h"            // [DEV] BF2_DRAW_STATS
 #include "../../RendDX9Abi/ModuleCommon.h"
 #include "../../RendDX9Abi/BfMemory.h"
 #include "../../RendDX9Abi/Frontier.h"
@@ -913,6 +914,8 @@ void Effect::beginPass(unsigned int index)
         m_d3dxEffect->EndPass();
     m_d3dxEffect->BeginPass(index);
     m_byte6C = 1;
+    if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+        drawStatsBeginPass(m_string0C, m_string38, index);
 }
 
 void Effect::end()
@@ -922,6 +925,7 @@ void Effect::end()
     m_d3dxEffect->End();
     m_byte6C = 0;
     shaderManagerSetCurrentEffect(0);
+    drawStatsEndPass();   // [DEV] BF2_DRAW_STATS
 }
 
 

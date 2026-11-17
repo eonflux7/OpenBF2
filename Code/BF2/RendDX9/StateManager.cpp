@@ -12,6 +12,7 @@
 #include "../../RendDX9Abi/BfMemory.h"
 #include "../../RendDX9Abi/Frontier.h"
 #include "RendDX9Base.h"
+#include "DrawStats.h"   // [DEV] BF2_DRAW_STATS
 
 #include <cstdio>
 #include <cstdlib>
@@ -1543,6 +1544,7 @@ void rendererDrawPrimitive(unsigned int primCount, unsigned int type, unsigned i
         return;
     preDrawApply(sm());
     rendererDevice()->DrawPrimitive(static_cast<D3DPRIMITIVETYPE>(type), startVertex, primCount);
+    drawStatsDraw(primCount);   // [DEV] BF2_DRAW_STATS
     unsigned char* stats = static_cast<RendDX9Base*>(g_rendererBase)->renderStats;
     if (stats[644])
     {
@@ -1564,6 +1566,7 @@ void rendererDrawIndexedPrimitive(unsigned int primCount, unsigned int type, int
     preDrawApply(sm());
     rendererDevice()->DrawIndexedPrimitive(static_cast<D3DPRIMITIVETYPE>(type), baseVertex,
                                            minIndex, numVertices, startIndex, primCount);
+    drawStatsDraw(primCount);   // [DEV] BF2_DRAW_STATS
     unsigned char* stats = static_cast<RendDX9Base*>(g_rendererBase)->renderStats;
     if (stats[644])
     {
@@ -1587,6 +1590,7 @@ void rendererDrawPrimitiveUP(unsigned int primCount, const void* data,
     preDrawApply(sm());
     rendererDevice()->DrawPrimitiveUP(static_cast<D3DPRIMITIVETYPE>(type), primCount, data,
                                       stride);
+    drawStatsDraw(primCount);   // [DEV] BF2_DRAW_STATS
     unsigned char* stats = static_cast<RendDX9Base*>(g_rendererBase)->renderStats;
     if (stats[644])
     {

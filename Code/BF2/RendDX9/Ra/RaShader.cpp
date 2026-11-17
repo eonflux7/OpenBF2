@@ -7,6 +7,7 @@
 
 #include "../../../RendDX9Abi/ThunkAbi.h"
 #include "RaShader.h"
+#include "../DrawStats.h"                 // [DEV] BF2_DRAW_STATS
 #include "../../Core/StringUtil.h"           // getLowerCase (sub_10074E80)
 #include "../Texture.h"                    // EngineTexture - the engine-texture holder apply
 #include "../../Geom/MeshTemplate.h"       // geom::RaMaterialParameters - the constructor's temporary
@@ -1253,7 +1254,16 @@ void RaShader::end()
 void RaShader::beginPass(unsigned int pass)
 {
     if (m_effect)
+    {
         static_cast<ID3DXEffect*>(m_effect)->BeginPass(pass);
+        if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+        {
+            D3DXTECHNIQUE_DESC desc;
+            const bool named = static_cast<ID3DXEffect*>(m_effect)->GetTechniqueDesc(
+                                   ::renddx9abi::d3dxHandle(m_activeTechnique), &desc) >= 0;
+            drawStatsBeginPass(m_name, named ? std::string(desc.Name) : std::string("?"), pass);
+        }
+    }
 }
 
 // PE 0x1004AF10.
@@ -1261,6 +1271,7 @@ void RaShader::endPass()
 {
     if (m_effect)
         static_cast<ID3DXEffect*>(m_effect)->EndPass();
+    drawStatsEndPass();   // [DEV] BF2_DRAW_STATS
 }
 
 // +0x10, sub_1004B340 (0x8A B).  The instance set (effect-gated), then every 16-byte plane of the
@@ -1350,6 +1361,7 @@ void RaShader::draw(RenderQueueEntry* entry)
                                    static_cast<UINT>(minIndex), static_cast<UINT>(numVertices),
                                    static_cast<UINT>(startIndex),
                                    static_cast<UINT>(primitiveCount));   // device +0x148
+    drawStatsDraw(static_cast<unsigned int>(primitiveCount));   // [DEV] BF2_DRAW_STATS
 }
 
 // sub_1004AFD0, read in full. GetParameterByName(0, "ShaderVersion") is D3DX slot +0x24 and GetInt
