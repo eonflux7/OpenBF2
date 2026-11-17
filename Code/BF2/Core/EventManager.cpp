@@ -15,8 +15,37 @@
 #include "IBase.h"      // create()'s return type
 #include "Ids.h"        // IID_IBase, IID_IEventManager
 #include "LoadTrace.h"  // [DEV] BF2_LOAD_TRACE
-#include <typeinfo>     // [DEV] the event span's listener name
+#include <cstring>      // [DEV] the event span's listener name
+#ifdef _WIN32
+#include <windows.h>    // [DEV] GetModuleHandleExA / GetModuleFileNameA
+#endif
 
+
+namespace {
+
+// [DEV] BF2_LOAD_TRACE: "module+0xoffset" for an address, for the event span's listener vtable.
+void describeVtable(const void* vtable, char* out, std::size_t size)
+{
+#ifdef _WIN32
+    HMODULE module = 0;
+    char path[MAX_PATH];
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                           | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           static_cast<LPCSTR>(vtable), &module)
+        && GetModuleFileNameA(module, path, sizeof path))
+    {
+        const char* base = std::strrchr(path, '\\');
+        base = base ? base + 1 : path;
+        std::snprintf(out, size, "%s+0x%llx", base,
+                      static_cast<unsigned long long>(static_cast<const char*>(vtable)
+                                                      - reinterpret_cast<const char*>(module)));
+        return;
+    }
+#endif
+    std::snprintf(out, size, "%p", vtable);
+}
+
+} // namespace
 
 namespace dice {
 namespace hfe {
@@ -354,10 +383,11 @@ void EventManager::dispatchEvent(EventNode* node)
     while (h != 0)
     {
         // [DEV] BF2_LOAD_TRACE: an "event" span for each delivery of 1 ms or more, named by the
-        // listener's class, category and id. Both are read before the call: a listener may
-        // unregister (freeing h) or delete itself while handling the event.
+        // listener's vtable (module+offset; plugin listeners have hand-built vtables without RTTI),
+        // category and id. Read before the call: a listener may unregister (freeing h) or delete
+        // itself while handling the event.
         const bool traced = loadtrace::enabled();
-        const char* const traceListener = traced ? typeid(*h->m_listener).name() : 0;
+        const void* const traceListener = traced ? *reinterpret_cast<void* const*>(h->m_listener) : 0;
         const int traceCategory = static_cast<int>(node->m_category);
         const long long traceStart = traced ? loadtrace::now() : -1;
         h->m_listener->handleEvent(node->m_category, id, node, userData);
@@ -366,8 +396,10 @@ void EventManager::dispatchEvent(EventNode* node)
             const long long traceEnd = loadtrace::now();
             if (traceEnd - traceStart >= 1000)
             {
-                char name[256];
-                std::snprintf(name, sizeof name, "%s %d/%u", traceListener, traceCategory, id);
+                char name[512];
+                describeVtable(traceListener, name, sizeof name);
+                const std::size_t used = std::strlen(name);
+                std::snprintf(name + used, sizeof name - used, " %d/%u", traceCategory, id);
                 loadtrace::span("event", name, traceStart, traceEnd);
             }
         }
