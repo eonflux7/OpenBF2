@@ -5784,7 +5784,7 @@ bool Renderer::renderScene(double time, const RenderFlags* flags, void* drawObje
     if (sw(1714) && sw(1715))
         skyDomeDrawPass(geom::g_SkyDome, 2);
 
-    if (!g_renderSceneSkipPostProduction && postProductionPath && g_PostProductionFrameWorkOwner)
+    if (!g_renderSceneSkipPostProduction && g_PostProductionFrameWorkOwner)
     {
         postProductionFinish();                                                   // sub_100512C0
     }
