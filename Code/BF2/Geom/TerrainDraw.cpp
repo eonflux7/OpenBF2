@@ -397,22 +397,6 @@ void Terrain::setWaterReflectivityBelow(float value)
     m_waterRecord[6] = value;
 }
 
-// PE 0x100DB610 (also 0x100FBFA0): the StaticMesh copy walks the same records and compares the same
-// word with its own pointer. Unreachable in 1.50: no code or data references. The shipped test
-// compares the record's +0x454 word with the Terrain pointer itself.
-LightShadowRecord* Terrain::findOwnedShadowRecord()
-{
-    typedef std::vector<LightShadowRecord> RecordVector;
-    RecordVector::iterator end = lightManagerPointShadowRecords(g_LightManager).end();            // +0x7DC
-    RecordVector::iterator it = lightManagerPointShadowRecords(g_LightManager).begin();
-    for (; it != end; ++it)
-    {
-        if (static_cast<const void*>(it->source) == static_cast<const void*>(this))
-            break;
-    }
-    return it != lightManagerPointShadowRecords(g_LightManager).end() ? &*it : 0;
-}
-
 // sub_100DB030 / sub_100DB000 - terrain.ambientColor: +0x2FC as stored; the set raises +0x41C.
 Vec3* Terrain::getAmbientColor(Vec3* out) const
 {
@@ -898,7 +882,6 @@ void Terrain::drawMain()
     std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
     TerrainCullerNode** it = 0;
     m_shadowPatches.clear();                                              // sub_100E1C20(0, 0)
-    m_shadowRanges.clear();                                               // sub_100E2430(0, ...)
 
     // [RENDER] The sun shadow comes from the renderer's screen-space mask in the final passes;
     // retail's per-caster shadow pass (7) and its range gathering are not drawn.
@@ -1108,90 +1091,7 @@ void Terrain::drawDepthPrepass()
     dx9rend::stateManagerPop();
 }
 
-// the ShaderVersion-1 detail/light pass. read in full: pass 16, multipleshadowmap from
 namespace {
-
-// PE 0x100E2550/0x100E29D0/0x100E1110: fixed-capacity projection arrays and their range list.
-struct TerrainLightBatch
-{
-    Mat4* matrices;
-    Vec4* positions;
-    Vec4* sizes;
-    int capacity;
-    int count;
-    std::vector<TerrainShadowRange> ranges;
-
-    // PE 0x100E2550; range storage is reserved by 0x100E2320.
-    explicit TerrainLightBatch(int limit) : capacity(limit), count(0)
-    {
-        matrices = static_cast<Mat4*>(::renddx9abi::engineAlloc(limit * sizeof(Mat4)));
-        if (matrices)
-            for (int i = 0; i != limit; ++i)
-                matrices[i] = Mat4::getIdentity();
-        positions = static_cast<Vec4*>(::renddx9abi::engineAlloc(limit * sizeof(Vec4)));
-        if (positions)
-            std::memset(positions, 0, limit * sizeof(Vec4));
-        sizes = static_cast<Vec4*>(::renddx9abi::engineAlloc(limit * sizeof(Vec4)));
-        if (sizes)
-            std::memset(sizes, 0, limit * sizeof(Vec4));
-        ranges.reserve(limit);
-    }
-
-    // Cleanup at PE 0x100E2CBB/0x100E0423/0x100E08E3 precedes the range-vector destructor.
-    ~TerrainLightBatch()
-    {
-        ::renddx9abi::engineFree(matrices);
-        ::renddx9abi::engineFree(positions);
-        ::renddx9abi::engineFree(sizes);
-    }
-
-    void clear() { ranges.clear(); count = 0; }
-
-    // PE 0x100E29D0.
-    bool append(const TerrainShadowRange& range, const Mat4& matrix, const Vec4& position, const Vec4& size)
-    {
-        if (count >= capacity)
-            return false;
-        matrices[count] = matrix;
-        positions[count] = position;
-        sizes[count] = size;
-        ++count;
-        ranges.push_back(range);
-        return true;
-    }
-
-    // PE 0x100E1110.
-    void apply() const
-    {
-        if (count > 0)
-        {
-            param(terrainShadowArrayParameter(0))->setValue(matrices, count);
-            param(terrainShadowArrayParameter(1))->setValue(positions, count);
-            param(terrainShadowArrayParameter(2))->setValue(sizes, count);
-        }
-        param(terrainShadowArrayParameter(3))->setInt(count);
-    }
-};
-
-// PE 0x10079340's matrix, followed by both sequential PE 0x10077A30 products.
-void terrainReceiverProjection(const LightShadowRecord& record, Mat4& output)
-{
-    static const Mat4 bias = {{ 0.5f,0,0,0, 0,-0.5f,0,0, 0,0,1,0, 0.5f,0.5f,0,1 }};
-    output = Mat4::getIdentity();
-    geometryRendererMatrixProduct(output, record.matrices[1], record.matrices[2]);
-    geometryRendererMatrixProduct(output, output, bias);
-}
-
-float terrainInverseRangeSquared(float radius)
-{
-#if defined(__APPLE__)
-    // [CHOSEN, not recovered] Retain the PE's x87 intermediates on the native port.
-    return bf2x87::store(bf2x87::div(bf2x87::wide(1.0f),
-        bf2x87::mul(bf2x87::wide(radius), bf2x87::wide(radius))));
-#else
-    return 1.0f / (radius * radius);
-#endif
-}
 
 float terrainScaledInverseRangeSquared(float radius, float scale)
 {
@@ -1205,204 +1105,18 @@ float terrainScaledInverseRangeSquared(float radius, float scale)
 #endif
 }
 
-float terrainConeCosine(float degrees)
-{
-    const float radians = 0.01745329238474369049f; // PE 0x1021A318
-#if defined(__APPLE__)
-    // [CHOSEN, not recovered] Retain the multiply through the native x87 cosine policy.
-    return bf2x87::store(bf2x87::cosValue(bf2x87::mul(bf2x87::wide(degrees), bf2x87::wide(radians))));
-#else
-    return static_cast<float>(std::cos(degrees * radians));
-#endif
-}
-
-// PE 0x100DF900 and 0x100E2BD0: append every record of each overlapping dynamic wrapper.
-void terrainCollectDynamicRecords(QuadPatch* patch, std::vector<const LightShadowRecord*>& output)
-{
-    // PE 0x10239214 is 1 and has no writer or data-table reference in the image.
-    const std::vector<XpLight*>& lights = xpDynamicFrameLights();
-    for (XpLight* const* it = lights.data(); it != lights.data() + lights.size(); ++it)
-    {
-        world::LightSource* const source = xpLightSource(*it);
-        const float radius = xpLightRadius(*it);
-        if (patch->intersectsLightSphere(source->getAbsolutePosition(), radius))
-        {
-            const std::vector<LightShadowRecord>& records = xpLightShadowRecords(*it);
-            for (const LightShadowRecord* record = records.data();
-                 record != records.data() + records.size(); ++record)
-                output.push_back(record);
-        }
-    }
-}
-
-// PE 0x100E2A50. The image's 0x10239210 draw switch is fixed at 1.
-void terrainFlushShadowBatch(TerrainLightBatch& batch, QuadPatch* patch,
-                             TerrainCullerNode** first, std::vector<TerrainCullerNode*>* visible)
-{
-    if (batch.count == 0)
-        return;
-    batch.apply();
-    if (!dx9rend::rendererPerformanceFlag(12))
-    {
-        patch->drawShadowBatch(first, visible, batch.ranges);
-        ++terrainRendererStat(0x264);
-    }
-    batch.clear();
-}
-
-// PE 0x100E2C90: the per-patch shadow batch's teardown - the last flush, then the cursor moved past
-// the patch's visible nodes (the list end is read once). The three array frees and the range
-// vector's release follow in ~TerrainLightBatch.
-void terrainFinishShadowBatch(TerrainLightBatch& batch, QuadPatch* patch, TerrainCullerNode**& node,
-                              std::vector<TerrainCullerNode*>* visible)
-{
-    terrainFlushShadowBatch(batch, patch, node, visible);
-    TerrainCullerNode** const end = visible->data() + visible->size();
-    while (node != end && (*node)->patch == patch)
-        ++node;
-}
-
-// PE 0x100E2AF0. Even an empty batch uploads count zero and traverses the gather; the cursor is
-// a copy, so the caller's range start does not move.
-void terrainFlushPointBatch(TerrainLightBatch& batch, TerrainCullerNode** first,
-                            TerrainCullerNode**& end)
-{
-    batch.apply();
-    while (first != end)
-    {
-        QuadPatch* const patch = (*first)->patch;
-        patch->drawPointLight(first);
-    }
-    batch.clear();
-}
-
-// PE 0x100E2B60. The spot-light twin of terrainFlushPointBatch.
-void terrainFlushSpotBatch(TerrainLightBatch& batch, TerrainCullerNode** first,
-                           TerrainCullerNode**& end)
-{
-    batch.apply();
-    while (first != end)
-    {
-        QuadPatch* const patch = (*first)->patch;
-        patch->drawSpotLight(first);
-    }
-    batch.clear();
-}
-
-void terrainAppendProjection(TerrainLightBatch& batch, const TerrainShadowRange& range,
-                             const LightShadowRecord& record, const Mat4& matrix)
-{
-    const Vec4 position = { record.atlasScaleOffset[0], record.atlasScaleOffset[1], 0.0f, 0.0f };
-    const Vec4 size = { record.atlasScaleOffset[2], record.atlasScaleOffset[3], 0.0f, 0.0f };
-    batch.append(range, matrix, position, size);
-}
-
 } // anonymous namespace
 
-// PE 0x100DF990. The zero switches at 0x102592D4/D1/D0/CC/C8 and the one switch at
-// 0x10239218 have no image writers or data-table references. Clip-plane and direct-draw debug
-// arms are consequently unreachable; the renderer's performance flags remain live queries.
+// PE 0x100DF990, the ShaderVersion-1 detail/light pass (pass 16).
+// [RENDER] Point and spot shadow maps are gone, so this pass keeps only the unshadowed point-light
+// draw over each static light's gathered patches. Retail also drew the dynamic shadow ranges and,
+// for spot lights, only lights with shadow records; outside the expansion pack those lists were
+// always empty, so neither draw was ever issued for PR.
 void Terrain::drawDetailPass()
 {
-    std::vector<TerrainCullerNode*>* const visible = m_culler->visiblePatches();
     dx9rend::effectBeginPass(m_effect, 16);
-    param(m_hMultipleShadowMap)->setValue(lightManagerPointShadowMapTexture(g_LightManager), 0);
-    static std::vector<TerrainShadowRange> ranges;                  // PE 0x102592E8
-    static std::vector<const LightShadowRecord*> dynamicRecords;   // PE 0x102592D8
-    ranges.clear();
-    dynamicRecords.clear();
-
-    if (!dx9rend::rendererPerformanceFlag(8))
-    {
-        unsigned short* const indices = static_cast<unsigned short*>(
-            dx9rend::indexBufferLock(m_indexBuffer, 0, m_indexBufferCount, 0x2000));
-        int cursor = 0;
-        QuadPatch* previous = 0;
-        for (TerrainCullerNode* const* node = visible->data(); node != visible->data() + visible->size(); ++node)
-        {
-            QuadPatch* const patch = (*node)->patch;
-            if (patch != previous)
-            {
-                if (m_indexBufferCount < static_cast<unsigned int>(cursor) + 12u)
-                    break;
-                // shipped quirk: this scratch list is not cleared between patches.
-                terrainCollectDynamicRecords(patch, dynamicRecords);
-                for (const LightShadowRecord* const* record = dynamicRecords.data();
-                     record != dynamicRecords.data() + dynamicRecords.size(); ++record)
-                {
-                    if (m_indexBufferCount < static_cast<unsigned int>(cursor) + 12u)
-                        break;
-                    if (!dx9rend::rendererPerformanceFlag(9))
-                        patch->gatherShadowRecord(indices, &cursor, const_cast<LightShadowRecord*>(*record),
-                                                  ranges, 1.0f, 0);
-                }
-            }
-            previous = patch;
-        }
-        dx9rend::indexBufferUnlock(m_indexBuffer);
-        dx9rend::indexBufferBind(m_indexBuffer);
-    }
-    else if (dx9rend::rendererPerformanceFlag(10))
-    {
-        QuadPatch* previous = 0;
-        for (TerrainCullerNode* const* node = visible->data(); node != visible->data() + visible->size(); ++node)
-        {
-            QuadPatch* const patch = (*node)->patch;
-            if (patch != previous)
-            {
-                terrainCollectDynamicRecords(patch, dynamicRecords);
-                for (const LightShadowRecord* const* record = dynamicRecords.data();
-                     record != dynamicRecords.data() + dynamicRecords.size(); ++record)
-                {
-                    TerrainShadowRange range; // start and distance are deliberately unwritten.
-                    range.patchIndex = -1;
-                    range.count = 0;
-                    range.node = *node;
-                    range.shadowRecord = reinterpret_cast<const unsigned char*>(*record);
-                    ranges.push_back(range);
-                }
-            }
-            previous = patch;
-        }
-    }
-
     if (!dx9rend::rendererPerformanceFlag(11))
-    {
-        TerrainShadowRange* range = ranges.data();
-        TerrainCullerNode** node = visible->data();
-        while (node != visible->data() + visible->size())
-        {
-            QuadPatch* const patch = (*node)->patch;
-            std::vector<TerrainCullerNode*>* const batchVisible = m_culler->visiblePatches();
-            TerrainLightBatch batch(1);
-            world::LightSource* previous = 0;
-            while (range != ranges.data() + ranges.size() && range->node->patch == patch)
-            {
-                const LightShadowRecord& shadow = *reinterpret_cast<const LightShadowRecord*>(range->shadowRecord);
-                if (!shadow.casters.empty())
-                {
-                    if (shadow.source != previous)
-                    {
-                        terrainFlushShadowBatch(batch, patch, node, batchVisible);
-                        previous = shadow.source;
-                    }
-                    const Mat4& transform = shadow.source->getAbsoluteTransformation();
-                    param(m_hLightPos1)->setValue(transform.m + 12, 0);
-                    param(m_hLightAttSqrInv1)->setFloat(terrainInverseRangeSquared(shadow.source->getAttenuationRange2()));
-                    Mat4 projection;
-                    terrainReceiverProjection(shadow, projection);
-                    param(m_hLightViewProj)->setValue(&projection, 0);
-                    param(m_hViewportMap)->setValue(shadow.atlasBounds, 0);
-                    if (batch.count >= batch.capacity)
-                        terrainFlushShadowBatch(batch, patch, node, batchVisible);
-                    terrainAppendProjection(batch, *range, shadow, projection);
-                }
-                ++range;
-            }
-            terrainFinishShadowBatch(batch, patch, node, batchVisible);
-        }
         dx9rend::stateManagerSetRenderState(27, 0);
-    }
     dx9rend::stateManagerSetRenderState(168, 15);
     dx9rend::indexBufferBind(m_lodIndexBuffer);
 
@@ -1415,101 +1129,18 @@ void Terrain::drawDetailPass()
             continue;
         struct PointRecord { Vec3 position; float inverseRange; Vec3 color; } point;
         static_assert(sizeof(PointRecord) == 7 * sizeof(float), "point-light shader payload");
-        point.position = { 0.0f, 0.0f, 0.0f };
-        point.color = { 0.0f, 0.0f, 0.0f };
         point.position = source->getAbsolutePosition();
         const float radius = source->getAttenuationRange2();
         point.inverseRange = terrainScaledInverseRangeSquared(radius, g_LightManager->getDynamicLightRangeScale());
         point.color = source->getColor();
         param(m_hPointLight)->setValue(&point, 0);
-        const std::vector<LightShadowRecord>& records = xpLightShadowRecords(wrapper);
-        const float gatherRadius = xpLightRadius(wrapper);
-        m_culler->gatherVisibleSphere(&source->getAbsolutePosition().x, gatherRadius);
+        m_culler->gatherVisibleSphere(&source->getAbsolutePosition().x, xpLightRadius(wrapper));
         std::vector<TerrainCullerNode*>* const gathered = m_culler->gatheredPatches();
+        param(terrainShadowArrayParameter(3))->setInt(0);
         TerrainCullerNode** first = gathered->data();
-        TerrainCullerNode** end = gathered->data() + gathered->size();
-        TerrainLightBatch batch(6);
-        for (const LightShadowRecord* shadow = records.data(); shadow != records.data() + records.size(); ++shadow)
-        {
-            if (shadow->casters.empty())
-                continue;
-            Mat4 projection;
-            terrainReceiverProjection(*shadow, projection);
-            param(m_hLightViewProj)->setValue(&projection, 0);
-            param(m_hViewportMap)->setValue(shadow->atlasBounds, 0);
-            const TerrainShadowRange empty = {};
-            if (batch.count >= batch.capacity)
-            {
-                terrainFlushPointBatch(batch, first, end);
-                if (batch.count >= batch.capacity)
-                    continue;
-            }
-            terrainAppendProjection(batch, empty, *shadow, projection);
-        }
-        terrainFlushPointBatch(batch, first, end);
-    }
-
-    const std::vector<XpLight*>& spotLights = xpStaticFrameLights();
-    // PE 0x102592B8 has no element writer/reader. [UNRESOLVED] element type;
-    // [CHOSEN, not recovered] pointer-sized words retain the always-empty native container.
-    static std::vector<std::uintptr_t> unusedRecords;
-    unusedRecords.clear();
-    XpLight* const* light = spotLights.data();
-    while (light != spotLights.data() + spotLights.size())
-    {
-        XpLight* const wrapper = *light;
-        world::LightSource* const source = xpLightSource(wrapper);
-        if (xpLightType(wrapper) != 1)
-        {
-            struct SpotRecord { Vec3 position; float inverseRange; Vec3 color; float outer; Vec3 direction; float inner; } spot;
-            static_assert(sizeof(SpotRecord) == 12 * sizeof(float), "spot-light shader payload");
-            spot.position = { 0.0f, 0.0f, 0.0f };
-            spot.color = { 0.0f, 0.0f, 0.0f };
-            spot.direction = { 0.0f, 0.0f, 0.0f };
-            spot.position = source->getAbsolutePosition();
-            spot.inverseRange = terrainInverseRangeSquared(source->getAttenuationRange2());
-            spot.color = source->getColor();
-            const float innerAngle = source->getConeAngle1();
-            spot.outer = terrainConeCosine(source->getConeAngle2());
-            const Mat4& transform = source->getAbsoluteTransformation();
-            spot.direction.x = transform.m[8];
-            spot.direction.y = transform.m[9];
-            spot.direction.z = transform.m[10];
-            spot.inner = terrainConeCosine(innerAngle);
-            param(m_hSpotLight)->setValue(&spot, 0);
-            while (light != spotLights.data() + spotLights.size() && *light == wrapper)
-                ++light;
-            const std::vector<LightShadowRecord>& records = xpLightShadowRecords(wrapper);
-            if (!records.empty())
-            {
-                xpLightGatherTerrain(wrapper, m_culler);
-                std::vector<TerrainCullerNode*>* const gathered = m_culler->gatheredPatches();
-                TerrainCullerNode** first = gathered->data();
-                TerrainCullerNode** end = gathered->data() + gathered->size();
-                TerrainLightBatch batch(6);
-                for (const LightShadowRecord* shadow = records.data(); shadow != records.data() + records.size(); ++shadow)
-                {
-                    if (shadow->casters.empty())
-                        continue;
-                    Mat4 projection;
-                    terrainReceiverProjection(*shadow, projection);
-                    param(m_hLightViewProj)->setValue(&projection, 0);
-                    param(m_hViewportMap)->setValue(shadow->atlasBounds, 0);
-                    const TerrainShadowRange empty = {};
-                    if (batch.count >= batch.capacity)
-                    {
-                        terrainFlushSpotBatch(batch, first, end);
-                        if (batch.count >= batch.capacity)
-                            continue;
-                    }
-                    terrainAppendProjection(batch, empty, *shadow, projection);
-                }
-                terrainFlushSpotBatch(batch, first, end);
-            }
-        }
-        // shipped defect: advances again after consuming equal wrappers, skipping the next
-        // entry or stepping past end. The original loop still tests inequality with end.
-        ++light;
+        TerrainCullerNode** const end = gathered->data() + gathered->size();
+        while (first != end)
+            (*first)->patch->drawPointLight(first);
     }
 }
 

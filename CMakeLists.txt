@@ -1787,7 +1787,7 @@ if(BF2_BUILD_MACOS)
             Geom/MeshTemplate.cpp Geom/StaticMeshTemplate.cpp Geom/SkinnedMeshTemplate.cpp
             Geom/SkinnedMesh.cpp Geom/BundledMeshTemplate.cpp Geom/BundledMeshMaterial.cpp
             Geom/BundledMeshStateManager.cpp Geom/BundledMesh.cpp Geom/BundledMeshDraw.cpp
-            Geom/BundledMeshHeight.cpp Geom/StaticMesh.cpp Geom/StaticMeshLightmapGeneration.cpp
+            Geom/BundledMeshHeight.cpp Geom/StaticMesh.cpp
             Geom/StaticMeshMaterial.cpp Geom/StaticMeshStateManager.cpp Geom/SkyDome.cpp
             Geom/UndergrowthSystem.cpp Geom/UndergrowthSystemLoad.cpp
             Geom/LightningManager.cpp Geom/WeatherManager.cpp Geom/Rain/RainManager.cpp

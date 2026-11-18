@@ -48,7 +48,6 @@ unsigned int rendererFrameOrdinal();
 }
 namespace geom {
 extern unsigned char g_bundledMeshTechniquesPending;
-extern dx9rend::Effect* g_bundledShadowEffect;
 bool meshBuildTechniqueMasks(const std::string&,const std::string&,const char* const*,
     std::map<unsigned int,dx9rend::Ra::RaShader*>&,std::vector<unsigned int>&);
 
@@ -570,7 +569,7 @@ void BundledMeshTemplate::readMaterials(renddx9abi::HostNonlinearStream* stream)
                 if(m->m_kind==1) lod.renderKind=2;
                 else { m_hasOpaqueMaterials=1; if(m->m_kind==2) lod.hasAlphaTest=1; }
                 unsigned int length; stream->read(&length,4); stream->skip(length);
-                m->m_state=g_bundledMeshStateManager->read(g_bundledShadowEffect,m_path,stream,false,skip>0);
+                m->m_state=g_bundledMeshStateManager->read(0,m_path,stream,false,skip>0); //retail passed the deleted shadow Effect; never read [RENDER]
                 if(m->m_state->m_alphaOne) m_hasEnvironmentMap=1; //field name inferred; exact state+3B
                 unsigned int indices;
                 stream->read(&m->m_vertexStart,4); stream->read(&m->m_indexStart,4); stream->read(&indices,4);

@@ -17,13 +17,12 @@
 #include "../Math/Vec3.h"
 #include "../RendDX9/Ra/RaShader.h"           // raObjectParametersConstruct
 #include "../RendDX9/RendDX9Base.h"           // rendererFrameOrdinal, the render view
-#include "../RendDX9/ShaderParameter.h"      // the shadow-state parameters' release
+#include "../RendDX9/ShaderParameter.h"
 #include "../RendDX9/QueueProfiler.h"
 #if defined(__APPLE__)
 #include "../Platform/X87Compat.h"
 #endif
-#include "../../RendDX9Abi/D3dx9Sdk.h"        // ID3DXEffect - the shadow draw's commit
-#include "XpLightManager.h"                   // g_LightManager - the shadow lod
+#include "XpLightManager.h"                   // g_LightManager
 #include "HemiMapManager/HemiMapManager.h"    // g_HemiMapManager - the base hemi map
 #include "MeshTemplate.h"                     // MeshBounds / meshBoundsFinalize
 #include "SkinnedMeshTemplate.h"
@@ -60,9 +59,6 @@ extern void* g_rendererBase;
 extern void* g_renderQueues;    // RenderQueues.cpp - dword_1023E408, the Ra shader table
 extern void* g_shaderManager;   // ShaderManager.cpp  - dword_1023B97C
 
-// declared per-TU, as QuadDrawer.cpp does; Effect.cpp publishes no header for it.
-bool effectSetTechniqueByName(void* effect, const std::string& name);
-void* effectD3dxHandle(void* effect);   // Effect.cpp - the wrapper's +0x08 ID3DXEffect*
 
 // The Renderer console object - a different global from g_rendererBase, and declared in this same
 // namespace by StaticMesh.cpp, StaticMeshStateManager.cpp and StaticMeshTemplate.cpp.
@@ -102,15 +98,6 @@ SkinnedMeshTemplate::GeomMaterials* companionRecord(SkinnedMeshTemplate* t, unsi
 
 // Shared selection and matrix helpers.
 
-
-// LightManager vtable +0x290 - the skinned-mesh shadow lod, the exact counterpart of the attested
-// +0x280 (`getStaticMeshShadowLod`) that StaticMesh::drawShadowMap uses in the same position, the
-// same way. PE 1015BE40 reads the manager's +15C field; the recovered typed method retains that
-// dispatch through the primary table in both host ABI modes.
-int skinnedMeshShadowLod()
-{
-    return g_LightManager->getSkinnedMeshShadowLod();
-}
 
 // Returns the shared zero matrix used to collapse suppressed body parts.
 // The identity matrix is reserved for instances without a skeleton.
@@ -473,155 +460,6 @@ void renderQueueEntryCopyPayload(dx9rend::Ra::RaLightingParameters& d,
     d.shadowCount.value = a.shadowCount.value;                                       // +0xF8
     raAssignParamBytes(d.tail0FC, a.tail0FC);                                        // +0xFC
     d.tail10C = a.tail10C;                                                           // +0x10C
-}
-
-// Shadow effect and parameters retained by SkinnedMeshTemplate::readMaterials.
-struct SkinnedMeshShadowState
-{
-    void* effect;           // ds:1025B230; its +0x08 is the D3DX interface, CommitChanges at 0x104
-    void* lightMat;         // ds:1025B234
-    void* lightTrapezMat;   // ds:1025B238
-    void* texLayer0;        // ds:1025B23C
-    void* geomBones;        // ds:1025B240; set through its vslot +0x28 as (Mat4 palette, count)
-};
-
-
-// Shared shadow effect and parameters initialized by SkinnedMeshTemplate::readMaterials.
-// Later templates retain the existing references.
-
-SkinnedMeshShadowState g_skinnedMeshShadowState = { 0, 0, 0, 0, 0 };
-
-} // anonymous namespace
-
-
-// [CHOSEN, not recovered] Named access to the shared effect read at PE 0x1015C2A6.
-dx9rend::Effect* skinnedMeshShadowEffect()
-{
-    return static_cast<dx9rend::Effect*>(g_skinnedMeshShadowState.effect);
-}
-
-// Creates shared shadow parameters once, otherwise retains each existing reference.
-// Effect loading must succeed before the unguarded parameter lookups.
-
-void skinnedMeshInitShadowState()
-{
-    SkinnedMeshShadowState& state = g_skinnedMeshShadowState;
-
-    if (state.effect)
-    {
-        typedef void(__thiscall * RefFn)(void*);
-        reinterpret_cast<RefFn>(
-            (*reinterpret_cast<void***>(state.effect))[0x00 / 4])(state.effect);
-        void* const params[4] =
-            { state.lightMat, state.lightTrapezMat, state.texLayer0, state.geomBones };
-        for (int i = 0; i < 4; ++i)
-            reinterpret_cast<RefFn>(
-                (*reinterpret_cast<void***>(params[i]))[0x04 / 4])(params[i]);
-        return;
-    }
-
-    // dice.hfe.geom.GeometryTemplate.SkinnedMesh, from ModuleGeom.cpp's class-id census.
-    const unsigned int kSkinnedMeshTemplateClassId = 0x870CA652u;
-
-    std::string effectName("Shaders/");          // *unk_10263DF0, static init at 0x101D5740
-    effectName += "SkinnedMesh";
-    state.effect = ::dice::hfe::dx9rend::shaderManagerGetEffect(
-        ::dice::hfe::dx9rend::g_shaderManager, effectName.c_str());
-
-    {
-        void* const lm = g_LightManager;
-        typedef void(__thiscall * RegisterFn)(void*, unsigned int, void*);
-        reinterpret_cast<RegisterFn>(
-            (*reinterpret_cast<void***>(lm))[0x2F0 / 4])(
-                lm, kSkinnedMeshTemplateClassId, state.effect);
-
-        typedef unsigned char(__thiscall * PredFn)(void*);
-        if (reinterpret_cast<PredFn>(
-                (*reinterpret_cast<void***>(lm))[0xF0 / 4])(lm))
-        {
-            const std::string technique(
-                ::dice::hfe::dx9rend::deviceCapsIsNvidia() ? "DrawShadowMapNV" : "DrawShadowMap");
-            ::dice::hfe::dx9rend::effectSetTechniqueByName(state.effect, technique);
-        }
-    }
-
-    ::dice::hfe::dx9rend::Effect* const effect =
-        static_cast< ::dice::hfe::dx9rend::Effect*>(state.effect);
-    state.lightMat =
-        ::dice::hfe::dx9rend::effectGetShaderParameterTyped(effect, std::string("vpLightMat"));
-    state.lightTrapezMat =
-        ::dice::hfe::dx9rend::effectGetShaderParameterTyped(effect, std::string("vpLightTrapezMat"));
-    state.texLayer0 =
-        ::dice::hfe::dx9rend::effectGetShaderParameterTyped(effect, std::string("TEXLAYER0"));
-    state.geomBones =
-        ::dice::hfe::dx9rend::effectGetShaderParameterTyped(effect, std::string("BoneArray"));
-}
-
-// PE 0x10110875..0x101108C4 (SkinnedMeshTemplate's destructor). Each pointer is tested before
-// its release (slot +0x08); only the effect's result is read.
-void skinnedMeshReleaseShadowState()
-{
-    SkinnedMeshShadowState& state = g_skinnedMeshShadowState;
-    void* const params[4] =
-        { state.lightMat, state.lightTrapezMat, state.texLayer0, state.geomBones };
-    for (int i = 0; i < 4; ++i)
-        if (params[i])
-            static_cast< ::dice::hfe::dx9rend::ShaderParameter*>(params[i])->release();
-    if (state.effect
-        && !::dice::hfe::dx9rend::effectRelease(
-               static_cast< ::dice::hfe::dx9rend::Effect*>(state.effect)))
-        state.effect = 0;
-}
-
-namespace {
-
-SkinnedMeshShadowState* skinnedMeshShadowState()
-{
-    // PE 0x101A86B0 uses these globals without an initialization guard.
-    return &g_skinnedMeshShadowState;
-}
-
-// The four seams the shadow draw drives those five globals through. Each is a single raw vtable
-// dispatch at a measured offset, written here rather than inline so the draw body reads as the
-// shipped sequence it is.
-
-// ShaderParameter vslot +0x18 - `setValue(value, index)`, the same slot StaticMesh's shadow pass
-// reaches through its typed dx9rend::ShaderParameter::setValue.
-void shaderParameterSetValue(void* parameter, const void* value, int index)
-{
-    typedef void(__thiscall * Fn)(void*, const void*, int);
-    reinterpret_cast<Fn>(
-        (*reinterpret_cast<void***>(parameter))[0x18 / 4])(parameter, value, index);
-}
-
-// ShaderParameter vslot +0x28 - the matrix-array upload, `(Mat4 palette, unsigned count)`. This
-// is the GeomBones set: the skinning palette reaching the shader.
-void shaderParameterSetMatrixArray(void* parameter, Mat4* const* palette, unsigned int count)
-{
-    typedef void(__thiscall * Fn)(void*, Mat4* const*, unsigned int);
-    reinterpret_cast<Fn>(
-        (*reinterpret_cast<void***>(parameter))[0x28 / 4])(parameter, palette, count);
-}
-
-// `mov eax, [effect+8]; call [[eax]+104h]` - ID3DXEffect::CommitChanges on the wrapper's D3DX
-// effect. Byte-for-byte the shape StaticMesh.cpp's staticMeshEffectCommitChanges records.
-// The only caller passes skinnedMeshShadowState()->effect, which that accessor has proven non-null.
-void skinnedMeshEffectCommitChanges(void* effect)
-{
-    ID3DXEffect* const d3dx = static_cast<ID3DXEffect*>(dx9rend::effectD3dxHandle(effect));
-    d3dx->CommitChanges();
-}
-
-// The renderer's statistics block, its +0x23C word. Every shadow draw adds the material's primitive
-// count to it. note +0x23C - StaticMesh's shadow draw uses +0x25C, a different counter, and adds
-// the LOD's count rather than the material's. Two classes, two statistics; not unified.
-void skinnedMeshCountShadowPrimitives(unsigned int primitives)
-{
-    void* const base = dx9rend::g_rendererBase;
-    typedef void*(__thiscall * Fn)(void*);
-    void* const stats = reinterpret_cast<Fn>(
-        (*reinterpret_cast<void***>(base))[0x6C / 4])(base);
-    *reinterpret_cast<unsigned int*>(static_cast<unsigned char*>(stats) + 0x23C) += primitives;
 }
 
 // The two Renderer scale factors updateLodSelection multiplies every lod distance by, read off the
@@ -1250,121 +1088,6 @@ void* SkinnedMesh::refreshSelection()
 }
 
 
-// Draws matching alpha-pass materials with the caster's shadow transform.
-// Temporarily applies the shadow LOD, then restores it and invalidates the palette stamp.
-// Both shadow parameters receive the same matrix; only the caster-specific arm commits it.
-
-// PE 0x101A86B0
-void SkinnedMesh::drawShadowMap(void* caster, unsigned int, unsigned int, unsigned int,
-                                bool alphaPass, unsigned int)
-{
-    SkinnedMeshTemplate* const t = m_template;
-    if (!t->m_vertexBuffer)                                              // +0x94
-        return;
-    if (!m_transform)
-        return;
-    if (alphaPass && !m_lodRecord->hasAlphaTest)                         // lod +0x81
-        return;
-
-    updateLodSelection();
-
-    const int shadowLod  = skinnedMeshShadowLod();                       // LightManager +0x290
-    const int currentLod = viewSlot<int>(this, 0x7C);
-    const int lodCount   = viewSlot<int>(this, 0x80);
-    typedef void*(__thiscall* SetLodFn)(void*, int);
-    int selected = shadowLod;
-    if (currentLod > shadowLod)
-    {
-        selected = currentLod;              // already coarser than the shadow lod: leave it alone
-    }
-    else if (currentLod != shadowLod)
-    {
-        int lod = lodCount - 1;
-        if (lod >= shadowLod)
-            lod = shadowLod;
-        reinterpret_cast<SetLodFn>(m_vptr[0x78 / 4])(this, lod);
-    }
-
-    updateBonePalettes();
-
-    static dx9rend::QueueProfiler profiler(std::string("SkinnedMeshDrawShadowMap"));
-    profiler.begin();
-
-    SkinnedMeshShadowState* const state = skinnedMeshShadowState();
-
-    dx9rend::vertexDeclarationBind(t->m_vertexDeclaration);              // +0xA0
-    dx9rend::vertexBufferBindStream(t->m_vertexBuffer, 0);               // +0x94
-    dx9rend::indexBufferBind(t->m_indexBuffer);                          // +0x9C
-
-    // The caster is a LightManager shadow record (XpLightManager.h); the `+0xNN` comments are its
-    // retail offsets.
-    const LightShadowRecord* const casterRecord = static_cast<const LightShadowRecord*>(caster);
-    if (casterRecord && casterRecord->tail494[1])                       // +0x495
-    {
-        Mat4 light;
-        rendmath::constructIdentity(light);                              // 0x101A87D6
-        geometryRendererMatrixProduct(light, *m_transform, casterRecord->matrices[1]);   // +0x238
-        Mat4 scratch;
-        rendmath::constructIdentity(scratch);                            // 0x101A87F4
-        geometryRendererMatrixProduct(scratch, *m_transform, casterRecord->matrices[1]); // +0x238
-        // `light` is recomputed here; the value above is discarded. Shipped.
-        geometryRendererMatrixProduct(light, scratch, casterRecord->matrices[2]);        // +0x278
-        shaderParameterSetValue(state->lightMat, &light, 0);
-        shaderParameterSetValue(state->lightTrapezMat, &light, 0);       // the same matrix
-        skinnedMeshEffectCommitChanges(state->effect);
-    }
-    else
-    {
-        const LightShadowRecord* const own = static_cast<const LightShadowRecord*>(m_dword33C);
-        Mat4 light;
-        rendmath::constructIdentity(light);                              // 0x101A885E
-        geometryRendererMatrixProduct(light, *m_transform, own->matrices[1]);    // +0x238
-        Mat4 trapez;
-        rendmath::constructIdentity(trapez);                             // 0x101A8881
-        geometryRendererMatrixProduct(trapez, *m_transform, own->matrices[2]);   // +0x278
-        shaderParameterSetValue(state->lightMat, &light, 0);
-        shaderParameterSetValue(state->lightTrapezMat, &trapez, 0);
-        // No CommitChanges on this arm.
-    }
-
-    const unsigned int materials = static_cast<unsigned int>(m_lodMaterials->size());
-
-    for (unsigned int i = 0; i < materials; ++i)
-    {
-        const SkinnedMeshMaterial& material = m_lodMaterials->data()[i];
-        const bool materialIsAlpha = material.isAlpha != 0;               // +0x18A
-        if (materialIsAlpha != alphaPass)
-            continue;
-
-        shaderParameterSetMatrixArray(state->geomBones, m_bonePalettes[i], m_boneCounts[i]);
-        if (materialIsAlpha)
-        {
-            // The first texture, through the record's texture vector (+0x04, unguarded).
-            shaderParameterSetValue(state->texLayer0, material.textures.data()[0], 0);
-        }
-
-        const unsigned int primitives = material.primitiveCount;          // +0x20
-        dx9rend::rendererDrawIndexedPrimitive(
-            primitives,
-            t->m_primitiveType,                                          // template +0xAC
-            static_cast<int>(material.vertexStart),                      // +0x18
-            0,
-            material.vertexCount,                                        // +0x24
-            material.indexStart);                                        // +0x1C
-
-        skinnedMeshCountShadowPrimitives(primitives);                    // renderer stats +0x23C
-    }
-
-    dx9rend::QueueProfiler::end();
-
-    if (currentLod != selected)
-    {
-        reinterpret_cast<SetLodFn>(m_vptr[0x78 / 4])(this, -1);
-        --m_paletteFrameStamp;   // forces the next updateBonePalettes to rebuild. Shipped.
-    }
-}
-
-
 // Builds material shader-permutation flags. [RENDER] Retail also added hasshadow (0x40) for a sun
 // shadow caster this frame and, with it, hasshadowocclusion (0x100); the legacy sun shadow and
 // those permutations are gone.
@@ -1426,76 +1149,6 @@ SkinnedHeightFlagPredicator skinnedHeightFlags;
 float SkinnedMesh::getDistanceToCamera() const
 {
     return m_distanceToCamera;
-}
-
-// PE 0x101A6D10: shadow-effect light parameters. The base hemi map's texture is kept at +0x160 (0 without
-// a map) and its info goes to HemiMapInfo; the sun direction is multiplied by the transposed rotation of
-// m_matrix60 (x = m[0]*dx + m[4]*dy + m[8]*dz and so on, w = 1) into SunLightDirection; NormalOffsetScale
-// is 2; SkyColor and AmbientColor are the manager's colours packed with w = 1; SunColor is the sky
-// light's colour packed with w = 1, or four zeros without a sky light.
-// unreachable in 1.50: no code or data references. [INFERRED] name.
-void SkinnedMesh::applyShadowLightParameters()
-{
-    dx9rend::Effect* const effect = skinnedMeshShadowEffect();
-    HemiMap* const map = g_HemiMapManager->getBaseHemiMap();                  // +0x18
-    m_dword160 = 0;
-    if (map)
-    {
-        m_dword160 = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(map->texture));   // HemiMap +0x14
-        const std::string name("HemiMapInfo");
-        dx9rend::ShaderParameter* const parameter =
-            dx9rend::effectGetShaderParameterBorrowedTyped(effect, name);
-        parameter->setValue(&g_HemiMapManager->getHemiMapInfo(map), 0);       // +0x1C
-    }
-
-    float direction4[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    {
-        const Vec3 sun = g_LightManager->getSunDirection();                   // +0x1A4
-        const float* const m = m_matrix60.m;
-        direction4[0] = (m[8] * sun.z + m[4] * sun.y) + sun.x * m[0];
-        direction4[1] = (m[1] * sun.x + m[9] * sun.z) + m[5] * sun.y;
-        direction4[2] = (m[2] * sun.x + m[10] * sun.z) + m[6] * sun.y;
-        direction4[3] = 1.0f;
-    }
-    {
-        const std::string name("SunLightDirection");
-        dx9rend::effectGetShaderParameterBorrowedTyped(effect, name)->setValue(direction4, 0);
-    }
-    {
-        const std::string name("NormalOffsetScale");
-        dx9rend::effectGetShaderParameterBorrowedTyped(effect, name)->setFloat(2.0f);
-    }
-
-    float sky4[4];
-    {
-        const float* const packed = staticMeshPackVec4(&g_LightManager->getSkyColor().x, 1.0f);   // +0x30
-        sky4[0] = packed[0]; sky4[1] = packed[1]; sky4[2] = packed[2]; sky4[3] = packed[3];
-    }
-    {
-        const std::string name("SkyColor");
-        dx9rend::effectGetShaderParameterBorrowedTyped(effect, name)->setValue(sky4, 0);
-    }
-
-    float ambient4[4];
-    {
-        const float* const packed = staticMeshPackVec4(&g_LightManager->getAmbientColor().x, 1.0f);   // +0x38
-        ambient4[0] = packed[0]; ambient4[1] = packed[1]; ambient4[2] = packed[2]; ambient4[3] = packed[3];
-    }
-    {
-        const std::string name("AmbientColor");
-        dx9rend::effectGetShaderParameterBorrowedTyped(effect, name)->setValue(ambient4, 0);
-    }
-
-    float sunColor4[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    if (world::LightSource* const sky = g_LightManager->getSkyLight())        // +0x28
-    {
-        const float* const packed = staticMeshPackVec4(&sky->getColor().x, 1.0f);                 // +0x198
-        sunColor4[0] = packed[0]; sunColor4[1] = packed[1]; sunColor4[2] = packed[2]; sunColor4[3] = packed[3];
-    }
-    {
-        const std::string name("SunColor");
-        dx9rend::effectGetShaderParameterBorrowedTyped(effect, name)->setValue(sunColor4, 0);
-    }
 }
 
 // PE 0x101A6A20. Shared hit buffers persist between probes and between meshes.
@@ -2010,9 +1663,11 @@ float RD9_THUNK skm_getFov(void* self RD9_THUNK_EDX)
 
 void RD9_THUNK skm_draw(void* self RD9_THUNK_EDX, void* a, void* b, void* c)
 { static_cast<SkinnedMesh*>(self)->draw(a, b, c); }
-void RD9_THUNK skm_drawShadowMap(void* self RD9_THUNK_EDX, void* caster, unsigned int a,
-                                  unsigned int b, unsigned int c, bool alphaPass, unsigned int d)
-{ static_cast<SkinnedMesh*>(self)->drawShadowMap(caster, a, b, c, alphaPass, d); }
+// +0x20, the shadow-map draw. [RENDER] Its only caller, the point/spot shadow-map pass, is deleted
+// with the draw (docs/eon64/renderer.md, step 6); the slot keeps the layout.
+void RD9_THUNK skm_drawShadowMap(void* RD9_THUNK_EDX, void*, unsigned int, unsigned int,
+                                  unsigned int, bool, unsigned int)
+{}
 
 void* RD9_THUNK skm_setDword33C(void* self RD9_THUNK_EDX, void* v)
 { return static_cast<SkinnedMesh*>(self)->setDword33C(v); }

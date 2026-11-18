@@ -1129,8 +1129,7 @@ void RD9_THUNK renderer_renderPathActivated(void* listener RD9_THUNK_EDX, int pa
     dx9rend::stateManagerSetRenderTarget(0, self->m_backBuffer);
     dx9rend::stateManagerSetDepthStencilSurface(self->m_depthStencil);
 
-    if (geom::g_LightManager)
-        geom::createShadowResources(geom::g_LightManager);
+    // [RENDER] Retail recreated the LightManager's point/spot shadow maps here; they are deleted.
     createRendererPathResources(self);
 }
 
@@ -2531,12 +2530,9 @@ bool Renderer::renderFrame(double time, float deltaTime)
             // PE 0x1002FE5F: the mode selector's first-frame step (sub_1004DF10).
             postProductionModeSelectorFrameStart(g_renderTargetSystem);
 
-            if (geom::g_LightManager)
-            {
-                geom::g_LightManager->renderShadowMaps();
-            }
-            else
-                noteOnce(64u, "LightManager (shadow-map pass + light constants)");
+            // [RENDER] Retail rendered the LightManager's shadow maps here (+0x19C): the sun maps
+            // (replaced by the sun cascades) and the point/spot maps (deleted; docs/eon64/
+            // renderer.md, step 6).
 
             // sub_100057E0(7, 0, 1.0f, 0, 0, 0) - the frame clear: RT flush + Clear ALL, black.
             flushRenderTargetsSeam();
@@ -5690,7 +5686,8 @@ bool Renderer::renderScene(double time, const RenderFlags* flags, void* drawObje
     }
     m_byte6DC = flags->particles;                                                 // +0x6DC
 
-    geom::g_LightManager->renderShadowMaps();                                     // +0x19C, untested
+    // [RENDER] Retail rendered the LightManager's shadow maps here (+0x19C); deleted, as in the
+    // main frame.
 
     if (flags->field0d && g_OverGrowth)
         static_cast<geom::OverGrowth*>(g_OverGrowth)->render(getRenderView(), timeF);   // +0x34

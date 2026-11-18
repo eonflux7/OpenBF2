@@ -24,7 +24,6 @@ class IGeometryTemplate;
 // recovered record members beyond the observed strides, or source constness.
 struct OverGrowthCell;             // 0x2AC bytes, defined in OverGrowthCell.h (constructor 100D0C90)
 struct OverGrowthPatch;            // 0x98-byte entries at owner +0xE0, defined in OverGrowthCell.h
-struct LightShadowRecord;          // XpLightManager.h - the LightManager's shadow records
 
 
 // Per-material vegetation type, including placement weight and preloaded geometry.
@@ -152,10 +151,9 @@ public:
     // past this frame's camera draws, so the camera's entries are untouched. Non-virtual: the
     // table keeps its shipped slots.
     void submitShadowCasters(IRenderView* view, const Frustum& volume);
-    // +38 the LightManager's directional records (+0x79C), the pulled-back light Frustum it culls
-    // patches with, the caster Frustum whose near plane it grows, and the geometry vector it fills
-    // (LightManager +0x970).
-    virtual void collectShadowGeometry(const std::vector<LightShadowRecord>* records,
+    // +38 [RENDER] Empty slot: it collected vegetation casters for the point/spot shadow records,
+    // which are gone.
+    virtual void collectShadowGeometry(const void* records,
                                        const Frustum* lightFrustum, Frustum* casterFrustum,
                                        std::vector<void*>* geometries);
     virtual void updateCell(OverGrowthCell*, OverGrowthInstanceVector*, bool changed); // +3C 100CB080

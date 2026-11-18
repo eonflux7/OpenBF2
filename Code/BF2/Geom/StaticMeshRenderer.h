@@ -16,14 +16,6 @@ namespace dice {
 namespace hfe {
 namespace geom {
 
-// Retail globals 0x102597E0..0x102597F0. StaticMeshRenderer retains sole creation/release
-// ownership; BundledMesh borrows these for its shadow/highlight draws (0x101064A0..0x101069CE).
-extern dx9rend::Effect* g_bundledShadowEffect;
-extern dx9rend::ShaderParameter* g_bundledShadowAlphaThreshold;
-extern dx9rend::ShaderParameter* g_bundledTexLayer0;
-extern dx9rend::ShaderParameter* g_bundledOneBoneSkinning;
-extern dx9rend::ShaderParameter* g_bundledViewI;
-
 
 // Owns shared mesh-render resources and ten lightmap texture atlases.
 
@@ -44,12 +36,8 @@ struct StaticMeshRenderer
     void*         m_decl38;        // +0x38  FLOAT3 + stream-1 FLOAT2 declaration
     void*         m_decl3C;        // +0x3C  SHORT4 + stream-1 SHORT2 declaration
     void*         m_opaque40;      // +0x40  [UNRESOLVED]
-    dx9rend::Effect*          m_shadowEffect;  // +0x44  mods/xpack/Shaders/StaticMesh
-    dx9rend::ShaderParameter* m_worldViewProj; // +0x48  WorldViewProjection
-    dx9rend::ShaderParameter* m_viewI;         // +0x4C  ViewI
-    dx9rend::ShaderParameter* m_paraboloid;    // +0x50  ParaboloidValues
-    dx9rend::ShaderParameter* m_paraboloidZ;   // +0x54  ParaboloidZValues
-    dx9rend::ShaderParameter* m_parallax;      // +0x58  parallaxscalebias
+    // +0x44..+0x58: retail's shadow Effect "StaticMesh" and five of its parameters. [RENDER]
+    // Deleted with the point/spot shadow maps.
     // +0x5C: the draw's per-material frustum-cull counter (`++[smr+5Ch]` in 0x100FC7D0 and
     // 0x100FB440); the constructor does not write it.
     unsigned int  m_culledMaterials;

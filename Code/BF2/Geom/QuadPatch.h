@@ -20,8 +20,6 @@ namespace geom {
 class Terrain;
 class TerrainRawReader;
 struct TerrainCullerNode;
-struct TerrainShadowRange;
-struct LightShadowRecord;
 
 // sub_101C6750 - the eight corners of an axis-aligned box from its (min, max) pair, in the shipped
 // order: x fixed at min for the first four (z, y, z), then at max.
@@ -115,11 +113,6 @@ public:
     void drawCasterNode(const TerrainCullerNode* node, int lod, int crackMask);
     void draw(TerrainCullerNode**& it);                              // 0x1018BE20  the Hi_/Low_Terrain pass-0 draw (accumulation target)
     void drawFinal(TerrainCullerNode**& it);                         // 0x1018C910  the diffuse detail passes (LOD 0 per layer, then the lower LODs)
-    void drawShadow();                                               // 0x1018DD00  pass 7: this patch's gathered shadow ranges
-    // Appends this record's visible patch ranges and their cracked-grid indices. [INFERRED] name.
-    void gatherShadowRecord(unsigned short* indices, int* cursor, LightShadowRecord* shadow,
-                            std::vector<TerrainShadowRange>& ranges, float extrusionScale,
-                            unsigned char* any);
     void drawWater(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,
                    void* materialParameters, void* objectParameters); // 0x1018D800  the Ra water submit - see the body
 
@@ -128,11 +121,6 @@ public:
                            int passLod0, int passOther);            // 0x10189210  per node: its pass, the morph constants, one uncracked range
     void drawPointLight(TerrainCullerNode**& it);                    // 0x1018C7F0  "TerrainPointLight": drawGatheredNodes, pass 13 / 1
     void drawOccluderShadows(TerrainCullerNode**& it);               // 0x1018BB70  [INFERRED] name; "TerrainOccluderShadows", unreachable in 1.50
-    void drawDynamicLightMap();                                      // 0x1018D5D0  [INFERRED] name; "TerrainMakeDynamicLightMap", unreachable in 1.50
-    void drawSpotLight(TerrainCullerNode**& it);                     // 0x1018C880
-    void drawShadowBatch(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* visible,
-                         const std::vector<TerrainShadowRange>& ranges); // 0x10189720
-    bool intersectsLightSphere(const Vec3& position, float radius) const; // 0x10188B80
     // Draws this patch's uncracked LOD ranges for the selected terrain technique pass.
     void drawTechniquePass(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list);
     // Emits the shipped obsolete-depth-draw error; the iterator and pass are unused.
@@ -352,11 +340,6 @@ public:
     // Replaces the gather list using visible leaves and retains the supplied frustum as the culler's current one.
     void gatherVisibleFrustum(Frustum* source);
     void gatherVisibleFrustumNode(TerrainCullerNode* node);
-    // Unreachable in 1.50 ([INFERRED] names, see QuadPatch.cpp): the shadow-caster variant of
-    // gatherVisibleFrustum. `fitNearPlane`, when set, is pulled back over each gathered node's box;
-    // `unused` is only passed down the recursion.
-    void gatherShadowFrustum(Frustum* source, Frustum* fitNearPlane, int unused);
-    void gatherShadowFrustumNode(TerrainCullerNode* node, Frustum* fitNearPlane, int unused);
 
     int                   lodDistance;          // +0x000  not touched by the constructor; update: the current LOD distance
     Terrain*              terrain;              // +0x004

@@ -14,7 +14,6 @@
 #include "../../RendDX9Abi/Frontier.h"
 #include "../../RendDX9Abi/PluginEntry.h"
 #include "../RendDX9/RendDX9Base.h"
-#include "../RendDX9/QueueProfiler.h"
 #include "../RendDX9/ShaderParameter.h"
 #include "../RendMisc/IRenderView.h"
 #include "../Game/Objects/IObject.h"
@@ -33,12 +32,6 @@ namespace dice { namespace hfe {
 namespace dx9rend {
 extern void* g_rendererBase;
 extern IBase* g_Renderer;
-void vertexBufferBindStream(void*,unsigned int);
-void indexBufferBind(void*);
-void vertexDeclarationBind(void*);
-// Shared 10005820 wrapper. Parameter names follow its actual body, not IDA's glued calls.
-void rendererDrawIndexedPrimitive(unsigned int,unsigned int,int,unsigned int,unsigned int,unsigned int);
-void* effectD3dxHandle(void* effect);   // Effect.cpp - the wrapper's +0x08 ID3DXEffect*
 }
 namespace geom {
 extern LightManager* g_LightManager;
@@ -437,110 +430,6 @@ void BundledMesh::updateLodSelection()
             if(threshold>dx9rend::rendererTailFloat(0x72C+4*i)) { m_shaderLod=i+1; break; }
 }
 
-// PE 0x10106620
-void BundledMesh::drawShadowMap(void* light,void*,void*,void*,void*,void*)
-{
-    // The profiling-only bracket follows the existing mesh policy;
-    // it is [CHOSEN, not recovered] instrumentation debt, not a rendering fallback.
-    if(!m_template->m_loaded || !m_partTransforms)return;
-    updateLodSelection();
-    const int originalGeom=dispatch<int>(this,0x70);
-    int shadowGeom=originalGeom;
-    if(dispatch<int>(this,0x74)==3 && originalGeom==0)shadowGeom=1;
-    const int originalLod=dispatch<int>(this,0x7C);
-    if(originalGeom!=shadowGeom)dispatch<void>(this,0x6C,shadowGeom);
-    int shadowLod=g_LightManager->getBundledMeshShadowLod();
-    const int currentLod=dispatch<int>(this,0x7C);
-    if(shadowLod<currentLod)shadowLod=currentLod;
-    const int lodCount=dispatch<int>(this,0x80);
-    if(currentLod!=shadowLod)dispatch<void>(this,0x78,lodCount-1<shadowLod ? lodCount-1 : shadowLod);
-    Mat4 combined;
-    rendmath::constructIdentity(combined);                           // 0x10106723
-    const unsigned int materialCount=static_cast<unsigned int>(m_lodMaterials->size());
-    dx9rend::vertexDeclarationBind(m_template->m_vertexDeclaration);
-    dx9rend::vertexBufferBindStream(m_template->m_vertexBuffer,0);
-    dx9rend::indexBufferBind(m_template->m_indexBuffer);
-    // 1001E3A0 returns a borrowed parameter, unlike the counted 1001E420 owner.
-    dx9rend::ShaderParameter* unpack=dx9rend::effectGetShaderParameterBorrowedTyped(g_bundledShadowEffect,std::string("POSUNPACK"));
-    const float scale[4]={m_template->m_decompressScale.x,m_template->m_decompressScale.y,m_template->m_decompressScale.z,1};
-    unpack->setValue(scale,0);
-    const LightShadowRecord* const record=static_cast<const LightShadowRecord*>(light);
-    if(light && record->tail494[1])                                  // +0x495
-    {
-        rendmath::constructIdentity(combined);                       // 0x101067DD
-        geometryRendererMatrixProduct(combined,record->matrices[1],record->matrices[2]);  // +0x238, +0x278 (0x10077A30)
-        dx9rend::effectGetShaderParameterBorrowedTyped(g_bundledShadowEffect,std::string("vpLightMat"))->setValue(&combined,0);
-        dx9rend::effectGetShaderParameterBorrowedTyped(g_bundledShadowEffect,std::string("vpLightTrapezMat"))->setValue(&combined,0);
-        // The effect's +0x08 D3DX interface. g_bundledShadowEffect is non-null here: the
-        // POSUNPACK and vpLightMat lookups above already dereferenced it.
-        void* d3dx=dx9rend::effectD3dxHandle(g_bundledShadowEffect);
-        typedef void(__stdcall* Commit)(void*);
-        reinterpret_cast<Commit>((*static_cast<void***>(d3dx))[0x104/4])(d3dx);
-    }
-    else
-    {
-        const LightShadowRecord* const own=static_cast<const LightShadowRecord*>(m_shadowProjection);
-        dx9rend::effectGetShaderParameterBorrowedTyped(g_bundledShadowEffect,std::string("vpLightMat"))->setValue(&own->matrices[1],0);
-        dx9rend::effectGetShaderParameterBorrowedTyped(g_bundledShadowEffect,std::string("vpLightTrapezMat"))->setValue(&own->matrices[2],0);
-    }
-    for(unsigned int i=0;i<materialCount;++i)
-    {
-        BundledMeshMaterial* material=(*m_lodMaterials)[i];
-        if(material->m_kind==1 || material->m_kind==2)continue;
-        g_bundledOneBoneSkinning->setMatrixPointerArray(reinterpret_cast<const void* const*>(m_partTransforms),m_lodRecord->partCount);
-        // Keep the wrapper's declared argument order: primitive count, type, base,
-        // minimum index, vertex count, then start index.
-        dx9rend::rendererDrawIndexedPrimitive(material->m_primitiveCount,m_template->m_primitiveType,
-            material->m_vertexStart,0,material->m_vertexCount,material->m_indexStart);
-        field<unsigned int>(dispatch<void*>(dx9rend::g_rendererBase,0x6C),0x24C)+=material->m_primitiveCount;
-    }
-    if(originalGeom!=shadowGeom)dispatch<void>(this,0x6C,originalGeom);
-    if(originalLod!=shadowLod)dispatch<void>(this,0x78,originalGeom ? -1 : originalLod);
-}
-
-// PE 0x101063B0: unreachable in 1.50: no code or data references
-// [INFERRED] name. Draws the current lod's materials with every part but `part` hidden behind the
-// shared zero matrix, in the effect technique "subPartHighlight". The unused-by-others globals are
-// StaticMeshRenderer's borrowed bundled-mesh parameters (view inverse, one-bone skinning array,
-// texture layer 0). Each material draw rebuilds the view inverse from the camera's inverse view
-// matrix (a copy of a copy, then the orthonormal inverse) and binds the state's second texture.
-void BundledMesh::drawSubPartHighlight(unsigned int part)
-{
-    static dx9rend::QueueProfiler profiler(std::string("BundledMeshSingleSubGeom"));
-    profiler.begin();
-
-    Mat4 hidden(bundledMeshZeroMatrix());
-    const Mat4** const transforms=static_cast<const Mat4**>(
-        ::renddx9abi::engineAlloc(m_template->m_maxPartCount*4));
-    for(unsigned int i=0;i<m_template->m_maxPartCount;++i)
-        transforms[i]=i==part ? m_partTransforms[i] : &hidden;
-
-    const unsigned int materialCount=static_cast<unsigned int>(m_lodMaterials->size());
-    dx9rend::IRenderView* const view=dx9rend::rendererGetRenderViewDup();
-    dx9rend::vertexDeclarationBind(m_template->m_vertexDeclaration);
-    dx9rend::vertexBufferBindStream(m_template->m_vertexBuffer,0);
-    dx9rend::indexBufferBind(m_template->m_indexBuffer);
-    for(unsigned int i=0;i<materialCount;++i)
-    {
-        BundledMeshMaterial* const material=(*m_lodMaterials)[i];
-        BundledMeshState* const state=material->m_state;
-        Mat4 viewInverse(*view->getInverseViewMatrixPtr());
-        const Mat4 viewInverseCopy(viewInverse);
-        viewInverse.setInverse(viewInverseCopy);
-        g_bundledViewI->setValue(&viewInverse,0);
-        g_bundledOneBoneSkinning->setMatrixPointerArray(reinterpret_cast<const void* const*>(transforms),m_lodRecord->partCount);
-        dx9rend::effectSetTechniqueByName(g_bundledShadowEffect,std::string("subPartHighlight"));
-        dx9rend::effectBegin(g_bundledShadowEffect);
-        g_bundledTexLayer0->setValue(state->m_textures[1],0);
-        dx9rend::effectBeginPass(g_bundledShadowEffect,0);
-        dx9rend::rendererDrawIndexedPrimitive(material->m_primitiveCount,m_template->m_primitiveType,
-            material->m_vertexStart,0,material->m_vertexCount,material->m_indexStart);
-        dx9rend::effectEnd(g_bundledShadowEffect);
-    }
-    ::renddx9abi::engineFree(transforms);
-    dx9rend::QueueProfiler::end();
-}
-
 namespace {
 #define BM0(R,name) R RD9_THUNK bm_##name(BundledMesh* s RD9_THUNK_EDX) { return s->name(); }
 #define BM1(R,name,T) R RD9_THUNK bm_##name(BundledMesh* s RD9_THUNK_EDX,T v) { return s->name(v); }
@@ -560,7 +449,9 @@ BM1(void,setTransparency,float)
 #undef BM0
 #undef BM1
 void RD9_THUNK bm_draw(BundledMesh* s RD9_THUNK_EDX,void* a,void* b,void* c) { s->draw(a,b,c); }
-void RD9_THUNK bm_shadow(BundledMesh* s RD9_THUNK_EDX,void* a,void* b,void* c,void* d,void* e,void* f) { s->drawShadowMap(a,b,c,d,e,f); }
+// +0x20, the shadow-map draw. [RENDER] Its only caller, the point/spot shadow-map pass, is deleted
+// with the draw (docs/eon64/renderer.md, step 6); the slot keeps the layout.
+void RD9_THUNK bm_shadow(BundledMesh* RD9_THUNK_EDX,void*,void*,void*,void*,void*,void*) {}
 void* RD9_THUNK bm_destroy(void* s RD9_THUNK_EDX,unsigned char flags) { return bundledMeshDestroyFlags(s,flags); }
 void RD9_THUNK bm_setPart(BundledMesh* s RD9_THUNK_EDX,const Mat4* value,int part) { s->setPartTransformation(value,part); }
 void RD9_THUNK bm_setBones(BundledMesh* s RD9_THUNK_EDX,const Mat4* value,int count) { s->setBoneTransforms(value,count); }

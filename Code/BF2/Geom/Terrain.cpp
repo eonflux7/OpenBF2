@@ -472,7 +472,6 @@ Terrain::Terrain()
     m_drawDebugFlags = 0;
     m_flag364 = 0;
     m_indexBuffer = 0;
-    // m_shadowRanges (+0x36C) default-constructs empty
     m_patches = 0;
     m_renderStyle = 2;
     m_halfFloatSurrounding = 0;
@@ -2531,7 +2530,7 @@ Terrain::~Terrain()
     ::renddx9abi::engineFree(m_waterRecord);                                    // +0x710: delete, no null test
     dx9rend::Ra::raObjectParametersDestroy(m_objectParameters);                 // +0x49C: sub_1004D900
     // The string, vector and map members are destroyed by the compiler after this body, in reverse
-    // declaration order: +0x740, +0x6D0, the vectors +0x470, +0x448, +0x36C, +0x338, the maps
+    // declaration order: +0x740, +0x6D0, the vectors +0x470, +0x448, +0x338, the maps
     // +0x2C8, +0x2BC, +0x2B0, then the strings +0xA8, +0x8C, +0x70, +0x54 - the shipped order among
     // themselves. The shipped teardown interleaves the first two strings with the lines above
     // (+0x740, +0x710, +0x6D0, +0x49C, ...); every block involved is a separate allocation and

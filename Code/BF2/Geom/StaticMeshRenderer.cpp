@@ -54,27 +54,7 @@ extern const unsigned int IID_IStaticMeshRenderer = 820013u;
 // The factory allocation, 0x100B068E (retail 0xA0).
 static const unsigned int kStaticMeshRendererSize = sizeof(StaticMeshRenderer);
 
-// Shared bundled-mesh shadow handles owned by StaticMeshRenderer.
-dx9rend::Effect* g_bundledShadowEffect = 0;
-dx9rend::ShaderParameter* g_bundledShadowAlphaThreshold = 0;
-dx9rend::ShaderParameter* g_bundledTexLayer0 = 0;
-dx9rend::ShaderParameter* g_bundledOneBoneSkinning = 0;
-dx9rend::ShaderParameter* g_bundledViewI = 0;
-
 namespace {
-
-void setShadowTechnique(dx9rend::Effect* effect)
-{
-    dx9rend::effectSetTechniqueByName(
-        effect, std::string(dx9rend::deviceCapsIsNvidia()
-                                ? "DrawShadowMapNV"
-                                : "DrawShadowMap"));
-}
-
-dx9rend::ShaderParameter* getEffectParameter(dx9rend::Effect* effect, const char* semantic)
-{
-    return dx9rend::effectGetShaderParameterTyped(effect, std::string(semantic));
-}
 
 // PE 0x10121A90 (the retail body also stores the two vtable pointers first; the object is freed
 // right after, so nothing observes them)
@@ -85,20 +65,6 @@ void destroyStaticMeshRenderer(StaticMeshRenderer* self)
     dx9rend::vertexDeclarationRelease(self->m_decl34);
     dx9rend::vertexDeclarationRelease(self->m_decl38);
     dx9rend::vertexDeclarationRelease(self->m_decl3C);
-
-    if (self->m_worldViewProj) self->m_worldViewProj->release();
-    if (self->m_viewI) self->m_viewI->release();
-    if (self->m_paraboloid) self->m_paraboloid->release();
-    if (self->m_paraboloidZ) self->m_paraboloidZ->release();
-    if (self->m_parallax) self->m_parallax->release();
-    if (self->m_shadowEffect) dx9rend::effectRelease(self->m_shadowEffect);
-
-    // this non-intuitive order is shipped ordering.
-    if (g_bundledTexLayer0) g_bundledTexLayer0->release();
-    if (g_bundledOneBoneSkinning) g_bundledOneBoneSkinning->release();
-    if (g_bundledShadowAlphaThreshold) g_bundledShadowAlphaThreshold->release();
-    if (g_bundledViewI) g_bundledViewI->release();
-    if (g_bundledShadowEffect) dx9rend::effectRelease(g_bundledShadowEffect);
 
     // PE 0x10121BD8: `mov ecx, dword_102651C0 / test ecx,ecx / call sub_101A9150 / push / engineFree`.
     // The StaticMeshStateManager is torn down directly - its member teardown followed by the raw
@@ -299,40 +265,13 @@ void constructStaticMeshRenderer(StaticMeshRenderer* self)
     self->m_decl38 = dx9rend::vertexDeclarationCreate(kFloatStreamDecl);
     self->m_decl3C = dx9rend::vertexDeclarationCreate(kShortStreamDecl);
 
-    // Register the core-event listener before acquiring shadow effects.
     eventManager->registerEventHandler(
         ECCore, reinterpret_cast<IEventListener*>(&self->m_ehVptr), 0);
 
-    self->m_shadowEffect = static_cast<dx9rend::Effect*>(dx9rend::shaderManagerGetEffect(
-        dx9rend::g_shaderManager, "mods/xpack/Shaders/StaticMesh"));
-    LightManager* const lightManager = g_LightManager;
-    lightManager->registerShadowEffect(
-        static_cast<int>(0x870CA653u),
-        self->m_shadowEffect);
-    if (lightManager->getDynamicShadowsEnabled())
-        setShadowTechnique(self->m_shadowEffect);
-    self->m_worldViewProj = getEffectParameter(self->m_shadowEffect, "WorldViewProjection");
-    self->m_viewI         = getEffectParameter(self->m_shadowEffect, "ViewI");
-    self->m_paraboloid    = getEffectParameter(self->m_shadowEffect, "ParaboloidValues");
-    self->m_paraboloidZ   = getEffectParameter(self->m_shadowEffect, "ParaboloidZValues");
-    self->m_parallax      = getEffectParameter(self->m_shadowEffect, "PARALLAXSCALEBIAS");
-
-    if (!g_bundledShadowEffect)
-    {
-        g_bundledShadowEffect = static_cast<dx9rend::Effect*>(dx9rend::shaderManagerGetEffect(
-            dx9rend::g_shaderManager, "mods/xpack/Shaders/BundledMesh"));
-        lightManager->registerShadowEffect(
-            static_cast<int>(0x870CA651u),
-            g_bundledShadowEffect);
-        if (lightManager->getDynamicShadowsEnabled() && g_bundledShadowEffect)
-            setShadowTechnique(g_bundledShadowEffect);
-        g_bundledShadowAlphaThreshold =
-            getEffectParameter(g_bundledShadowEffect, "SHADOWALPHATHRESHOLD");
-        g_bundledTexLayer0 = getEffectParameter(g_bundledShadowEffect, "TEXLAYER0");
-        g_bundledOneBoneSkinning =
-            getEffectParameter(g_bundledShadowEffect, "matONEBONESKINNING");
-        g_bundledViewI = getEffectParameter(g_bundledShadowEffect, "ViewI");
-    }
+    // [RENDER] Retail then loaded the shadow Effects "StaticMesh" and "BundledMesh" (with their
+    // parameters) and registered them with the LightManager. They drew only the point/spot shadow
+    // maps (and the editor's lightmap silhouette and an unreachable bundled-mesh highlight), all
+    // deleted (docs/eon64/renderer.md, step 6).
 }
 } // anonymous namespace
 

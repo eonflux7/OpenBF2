@@ -126,9 +126,6 @@ public:
     void updateHeightOverTerrain();                          // 0x101A6A20
     // Non-virtual; unreachable in 1.50 (PE 0x101A6A10). [INFERRED] name.
     float getDistanceToCamera() const;
-    // Binds the sun direction (rotated by m_matrix60), sky, ambient and sky-light colours on the shared
-    // shadow effect; non-virtual, unreachable in 1.50 (PE 0x101A6D10). [INFERRED] name.
-    void applyShadowLightParameters();
     // The per-material shader-permutation mask the main draw stamps into every queue
     // entry. A __thiscall with three stack arguments - the draw's decompilation drops the
     // receiver, and the standalone view restores it (it dispatches +0xA8 and +0xB0).
@@ -141,9 +138,6 @@ public:
     // ebx/edi pair is decompiler noise, the three stack slots are real, and a thunk that declared
     // two would corrupt the stack on every retail call (the callee cleans).
     void draw(void*, void*, void*);                          // +0x18
-    // Draws the shadow pass; only caster and alphaPass are consumed.
-    void drawShadowMap(void* caster, unsigned int, unsigned int, unsigned int,
-                       bool alphaPass, unsigned int);        // +0x20
     // the real destructor, reached through the +0x34 scalar deleting destructor.
     // NOT read. It has 104 Mat4 allocations and four vectors to undo, so it is not guessable.
     ~SkinnedMesh();                                          // 0x101A7A10        frontier
@@ -230,21 +224,6 @@ static_assert(sizeof(((SkinnedMesh*)0)->m_bonePalettes) == 0x1A0, "104 Mat4* = 0
 // shader mask vector, and SkinnedMeshTemplate::readMaterials calls it first thing. Declared here
 // because its caller lives in the other translation unit.
 void skinnedMeshInitTechniques();
-
-// 0x1010FD00's one-shot - creates the five shadow-state globals at ds:1025B230..240 (the Effect
-// "Shaders/SkinnedMesh" plus vpLightMat / vpLightTrapezMat / TEXLAYER0 / BoneArray) on the first
-// call and addRefs them on every later one. SkinnedMeshTemplate::readMaterials calls it; the
-// storage lives beside the draw that reads it.
-void skinnedMeshInitShadowState();
-
-// The release half, inlined into the template destructor at PE 0x10110875..0x101108C4: drops one
-// reference on each of the four parameters, then on the effect, and forgets the effect (so the
-// next skinnedMeshInitShadowState creates it again) only when that was its last reference. The
-// parameter globals are not cleared. Called once per destroyed template that had loaded.
-void skinnedMeshReleaseShadowState();
-
-// Borrows the current shadow effect; initialization and lifetime remain with the templates.
-dx9rend::Effect* skinnedMeshShadowEffect();
 
 // 0x101A7650, called on storage the template already allocated.
 SkinnedMesh* skinnedMeshConstruct(void* storage, void* objectTemplate);

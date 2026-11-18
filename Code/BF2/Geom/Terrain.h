@@ -36,7 +36,6 @@ class QuadPatchEditable;
 class SurroundingPatch;
 class TerrainCuller;
 struct TerrainCullerNode;
-struct LightShadowRecord;                                             // XpLightManager.h
 
 // One vertex of the surrounding ring's generated grid (sub_100DE740): position and texture
 // coordinate, 16 bytes.
@@ -48,35 +47,6 @@ struct TerrainSurroundingVertex
     float v;            // +0x0C  z * secondaryWorldScale.z / span
 };
 
-// One gathered dynamic-shadow index range (24 bytes on the retail x86 layout).
-// The pass-7 draw walks these per patch.
-struct TerrainShadowRange
-{
-    unsigned int             start;          // +0x00  first index in the dynamic index buffer
-    unsigned int             count;          // +0x04  index count
-    const unsigned char*     shadowRecord;   // +0x08  the LightManager shadow record (lightviewprojortho at +760, lightviewproj at +952)
-    const TerrainCullerNode* node;           // +0x0C  the node whose LOD selects the morph constants
-    float                    cameraDistance; // +0x10  camera distance to the shadow's xz rectangle; [INFERRED] name
-    int                      patchIndex;     // +0x14  the patch the range belongs to (QuadPatch::patchIndex)
-};
-
-// One LOD record of Terrain::m_lodTables and QuadPatchDetailLayer::lodTables (400 bytes in the
-// retail image): per LOD row, sixteen index starts and sixteen index counts selected by the crack
-// mask, then the four child-record links the loaders store. The links are pointers, so on x64 the
-// record is 416 bytes [CHOSEN, not recovered] (https://github.com/B2BF/OpenBF2/issues/7); every
-// stride, allocation and clear uses kTerrainLodRecordSize. Nothing outside RendDX9 reads a record.
-struct TerrainLodRecord
-{
-    unsigned int   starts[3][16];      // +0x000  row = LOD, column = crack mask
-    unsigned int   counts[3][16];      // +0x0C0
-    unsigned char* children[4];        // +0x180  null on the last level
-};
-
-const int kTerrainLodRecordSize = static_cast<int>(sizeof(TerrainLodRecord));
-
-#if defined(_M_IX86)
-static_assert(sizeof(TerrainShadowRange) == 24, "shadow range record is 24 bytes");
-static_assert(offsetof(TerrainShadowRange, cameraDistance) == 0x10, "shadow distance at +0x10");
 static_assert(sizeof(TerrainLodRecord) == 400, "the LOD records are 400 bytes - see 0x100DA9C0");
 static_assert(offsetof(TerrainLodRecord, counts) == 0xC0, "index counts at +0xC0 (row + 192)");
 static_assert(offsetof(TerrainLodRecord, children) == 0x180, "child links at +0x180..+0x18C");
@@ -464,9 +434,6 @@ public:
     void  reportObsolete();                                          // the "obsolete" error (Terrain.cpp line 4095)
     void  allocateIndexBuffer();                                     // +0x368 from +0x458 when absent
     void  setIndexBufferCount(unsigned int count);                   // +0x458, rebuilding +0x368
-    // The point-light shadow record whose +0x454 word equals this terrain (shipped
-    // comparison of the record's source word with the Terrain itself); null when none.
-    LightShadowRecord* findOwnedShadowRecord();
     Vec3* getWaterColor255(Vec3* out);                               // the +0x710 record's colour x 255
     void  setWaterColor255(Vec3 colour);                             // the colour / 255 into the record
     void  setWaterTransparencyBelow(float value);                    // record +0x14 [INFERRED] name
@@ -675,8 +642,7 @@ public:
     unsigned char  m_flag364;               // +0x364  0
     unsigned char  m_pad365[3];
     void*          m_indexBuffer;           // +0x368  49152 x u16, usage 520, format 101 (load's tail) - the dynamic shadow-range index buffer
-    // +0x36C: the shadow-range records the gather fills; the pass-7 draw walks them per patch.
-    std::vector<TerrainShadowRange> m_shadowRanges;   // +0x36C
+    // [RENDER] +0x36C held the point/spot shadow-range vector; it went with those shadow maps.
     int            m_unresolved37C;         // +0x37C  not touched
     QuadPatch**    m_patches;               // +0x380  patchCount^2 pointers (load)
     SurroundingPatch* m_surrounding[8];     // +0x384..+0x3A0  the eight surrounding patches (load)
@@ -770,7 +736,7 @@ static_assert(offsetof(Terrain, m_minHeight) == 0x034, "min height at +0x34 - se
 static_assert(offsetof(Terrain, m_patchSize) == 0x038, "patchSize at +0x38");
 // Offsets past the first std::string (+0x54) hold only with the image's VC7.1 STL (string 0x1C,
 // vector 0x10, map 0x0C bytes); a current x86 STL is smaller, so a current MSVC x86 build checks
-// the STL-free span from the member after the +0x36C vector instead.
+// the STL-free span from the member after the retired +0x36C vector instead.
 #if defined(_MSC_VER) && _MSC_VER == 1310
 static_assert(offsetof(Terrain, m_streamedPatchCount) == 0x418, "stream preload counter at +0x418");
 #endif
@@ -842,9 +808,6 @@ unsigned int& terrainRendererStat(unsigned int byteOffset);
 // normalised, negated and carried through the transposed inverse of the render view's
 // inverse-view x projection product into `out`.
 void terrainViewClipPlane(float* out, const float* planes, int index);
-// XpLightManager.h's shadow record: the frustum, matrices[4] lightviewprojortho and matrices[7]
-// lightviewproj.
-struct LightShadowRecord;
 // sub_101C7980 - true unless one of the six frustum planes has the box entirely in front of it
 // (the plane's outcode picks the box corner to test).
 bool terrainFrustumIntersectsBox(const Frustum* frustum, const float* minMax);

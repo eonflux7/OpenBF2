@@ -74,7 +74,6 @@ BF2/Geom/BundledMesh.cpp
 BF2/Geom/BundledMeshDraw.cpp
 BF2/Geom/BundledMeshHeight.cpp
 BF2/Geom/StaticMesh.cpp
-BF2/Geom/StaticMeshLightmapGeneration.cpp
 BF2/Geom/StaticMeshMaterial.cpp
 BF2/Geom/StaticMeshStateManager.cpp
 BF2/Geom/SkyDome.cpp

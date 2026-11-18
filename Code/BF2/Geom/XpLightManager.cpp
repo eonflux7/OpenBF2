@@ -22,12 +22,6 @@
 #include "HemiMapManager/HemiMapManager.h"
 #include "MeshTemplate.h"                     // the geometry template's isWater (+0x50)
 #include "StaticMesh.h"                       // staticMeshRootParent - RendDX9's getRootParent
-#include "SkinnedMesh.h"                      // shared skinned shadow effect
-#include "StaticMeshRenderer.h"               // G3: the StaticMesh shadow Effect (+0x44)
-#if defined(_MSC_VER) && !defined(_WIN64)
-#include "StaticMeshTemplate.h"
-#endif
-#include "Overgrowth/OverGrowth.h"            // G3: the level OverGrowth's +0x38 shadow query
 #include "QuadPatch.h"                        // TerrainCuller - the culler slots' +0x0C query object
 #include "BoxCorners.h"                       // the eight-corner object box (0x100CE120)
 
@@ -94,9 +88,6 @@ bool rendererIsExpansionPack();
 IVideoOptions* rendererGetVideoOptions();
 extern void* g_rendererBase;
 extern void* g_shaderManager;
-// G3: BF2Render.cpp, dword_10258F38 - the level-scoped OverGrowth (created by the ECCore CEPreLoad
-// arm, deleted and nulled by CEUnloadLevel). The directional pass calls its +0x38 unguarded.
-extern void* g_OverGrowth;
 }
 
 namespace world {
@@ -120,69 +111,17 @@ namespace geom {
 
 extern LightManager* g_LightManager;
 extern IBase* g_DebugRenderer;
-// G3: ModuleGeom.cpp's singletons the quality-three arm reaches. dword_1024B8F8 is the
-// StaticMeshRenderer (ModuleGeom's getSingletonList registers "StaticMeshRenderer" with that cell,
-// SkinnedMesh.cpp's comment calling it the SkinnedMeshRenderer is stale);
-// dword_1024B930 is the Terrain.
-extern IBase* g_StaticMeshRenderer;
+// dword_1024B930, ModuleGeom.cpp's Terrain singleton.
 extern IBase* g_Terrain;
 
 extern const unsigned int CID_LightManager  = 852417u;
 extern const unsigned int IID_ILightManager = 0xB801DCF9u;
-
-// PE 0x10100CD0. Nine identity matrices, zeroed bounds/pointers and an empty caster set.
-// Atlas placement and flags448 stay uninitialized, as do the last two tail bytes.
-LightShadowRecord::LightShadowRecord()
-    : frustum(), geometry(0), source(0), casters()
-{
-    for (unsigned int i = 0; i < 9; ++i)
-        matrices[i] = Mat4::getIdentity();
-    ::memset(atlasBounds, 0, sizeof(atlasBounds));
-    ::memset(pad458, 0, sizeof(pad458));
-    tail494[0] = tail494[1] = 0;
-}
-
-// Vector growth and the +0x7CC -> +0x7DC range append each copy a record with its own caster set.
-LightShadowRecord::LightShadowRecord(const LightShadowRecord& other)
-    : frustum(other.frustum), geometry(0), source(0), casters()
-{
-    // Frustum has no owned allocation.  Copying the instruction-proven prefix byte-for-byte
-    // preserves all nine matrices and opaque flags.
-    ::memcpy(static_cast<void*>(this), &other, offsetof(LightShadowRecord, casters));
-    for (std::set<world::IObject*>::const_iterator it = other.casters.begin();
-         it != other.casters.end(); ++it)
-        casters.insert(*it);
-    ::memcpy(tail494, other.tail494, sizeof(tail494));
-}
-
-LightShadowRecord::~LightShadowRecord()
-{
-}
-
 namespace {
 
 extern const void* const kPrimaryVtable[189];
-extern const void* const kDeviceLostVtable[3];
 extern const void* const kRenderPathVtable[6];
 
-// One placement of the directional shadow atlas (+0x7BC elements).
-struct ShadowAtlasEntry
-{
-    int x;
-    int y;
-    int width;
-    int height;
-    int tier;
-};
-
-#if defined(_M_IX86)
-static_assert(sizeof(ShadowAtlasEntry) == 0x14, "shadow-atlas entry layout drift");
-#endif
-
-// The PE's four 0x18-byte-node trees (allocator 0x100F5CF0): an unsigned key and a pointer value.
-// +0x964 maps a geometry template's reflection type to its shadow Effect (find-or-insert
-// 0x1015D000 inserts a null value; releases walk the values in key order).
-typedef std::map<unsigned int, dx9rend::Effect*> ShadowEffectMap;
+// The PE's 0x18-byte-node trees (allocator 0x100F5CF0): an unsigned key and a pointer value.
 typedef std::map<unsigned int, void*> ShadowUnresolvedMap;   // [UNRESOLVED] value types
 
 // The shader-parameter handles of "Shaders/LightManager_r3x0", +0x848..+0x8B4 in the PE.
@@ -220,8 +159,9 @@ enum LightShaderParameter
 };
 
 // The LightManager object (0x980 bytes in the PE, RefFactory_geom_LightManager; the `// +0xNN`
-// comments keep the retail offsets). Three hand-built tables sit at its start: the primary
-// interface, the DeviceLostResetListener subobject and the RenderPathListener subobject. The
+// comments keep the retail offsets). Hand-built tables sit at its start: the primary interface and
+// the RenderPathListener subobject ([RENDER] retail's DeviceLostResetListener subobject at +0x004
+// only rebuilt the point/spot shadow maps and is deleted with them). The
 // default constructor builds the containers only; constructLightManager writes every field the
 // PE constructor writes, in its order, and leaves the rest as allocated. Names are [INFERRED]
 // except the console properties'.
@@ -230,7 +170,6 @@ struct LightManagerData
     LightManagerData() {}
 
     const void* const*         primaryVtable;                  // +0x000 kPrimaryVtable
-    const void* const*         deviceLostVtable;               // +0x004 the listener subobject
     const void* const*         renderPathVtable;               // +0x008 the listener subobject
     void*                      renderPathValue;                // +0x00C the render-path listener's
                                                                //        getRenderPath; NOT constructed
@@ -291,14 +230,6 @@ struct LightManagerData
     unsigned int               shadowMapUsage;                 // +0x210
     float                      shadowDistance;                 // +0x214 the camera frustum's far
     float                      unresolved218;                  // +0x218 40; the +0xBC/+0xC0 pair's field
-    dx9rend::EngineTexture*    shadowMap;                      // +0x21C
-    dx9rend::EngineTexture*    shadowMap2;                     // +0x220 the static-occluder map
-    dx9rend::EngineTexture*    shadowDepthTexture;             // +0x224
-    IDirect3DSurface9*         shadowDepthSurface;             // +0x228
-    IDirect3DSurface9*         shadowDepthSurface2;            // +0x22C
-    dx9rend::EngineTexture*    pointShadowMap;                 // +0x230
-    dx9rend::EngineTexture*    pointShadowDepthTexture;        // +0x234
-    IDirect3DSurface9*         pointShadowDepthSurface;        // +0x238
     dx9rend::EngineTexture*    whiteTexture;                   // +0x23C
     dx9rend::EngineTexture*    blackTexture;                   // +0x240
     dx9rend::EngineTexture*    framedTexture;                  // +0x244
@@ -315,11 +246,6 @@ struct LightManagerData
     Frustum                    cameraFrustum;                  // +0x460
     Mat4                       unresolvedMatrices648[5];       // +0x648 identity [UNRESOLVED]
     unsigned char              showFrustums;                   // +0x788 the debug draw byte
-    RECT                       shadowScissor;                  // +0x78C
-    std::vector<LightShadowRecord> secondaryRecords;           // +0x7AC
-    std::vector<ShadowAtlasEntry>  shadowAtlas;                // +0x7BC
-    std::vector<LightShadowRecord> spotRecords;                // +0x7CC
-    std::vector<LightShadowRecord> pointRecords;               // +0x7DC
     unsigned char              dynamicShadowsEnabled;          // +0x7EC
     unsigned char              firstPersonShadows;             // +0x7ED
     unsigned char              dynamicStaticMeshShadowsEnabled;                  // +0x7EE 1
@@ -351,7 +277,6 @@ struct LightManagerData
     dx9rend::EngineTexture*    radialAttenuation;              // +0x8B8 RadialAtt2
     dx9rend::EngineTexture*    conicalAttenuation;             // +0x8BC ConicalAtt
     ShadowUnresolvedMap        unresolvedTree8C0;              // +0x8C0 [UNRESOLVED]
-    ShadowUnresolvedMap        unresolvedTree8CC;              // +0x8CC [UNRESOLVED]; the point pass clears it
     IDirect3DVertexBuffer9*    sphereVertices;                 // +0x8D8 the debug meshes
     IDirect3DIndexBuffer9*     sphereIndices;                  // +0x8DC
     unsigned int               sphereVertexCount;              // +0x8E0
@@ -365,14 +290,12 @@ struct LightManagerData
     unsigned int               boxVertexCount;                 // +0x900
     unsigned int               boxFaceCount;                   // +0x904
     IDirect3DDevice9*          device;                         // +0x908
-    dx9rend::IRenderView*      renderView;                     // +0x90C renderShadowMaps' view
     unsigned int               shadowMapMode;                  // +0x910 0 nvidia depth, 1 colour, 2 none
     std::vector<world::IObject*> shadowCandidates;             // +0x914
     std::vector<void*>         directionalGeometry;            // +0x924
     std::vector<world::IObject*> staticShadowCasters;          // +0x934
     std::vector<void*>         unresolvedGeometry944;          // +0x944 cleared only [UNRESOLVED]
     std::vector<world::IObject*> directionalChildren;          // +0x954
-    ShadowEffectMap            shadowEffects;                  // +0x964
     std::vector<void*>         overGrowthGeometry;             // +0x970
 
 private:
@@ -390,13 +313,8 @@ inline const LightManagerData& lm(const void* self)
     return *static_cast<const LightManagerData*>(self);
 }
 
-// The two listener subobjects hand their own address to the callbacks; the owner is that address
-// less the subobject's position.
-inline void* lmFromDeviceLostListener(void* listener)
-{
-    return static_cast<unsigned char*>(listener) - offsetof(LightManagerData, deviceLostVtable);
-}
-
+// The listener subobject hands its own address to the callbacks; the owner is that address less
+// the subobject's position.
 inline void* lmFromRenderPathListener(void* listener)
 {
     return static_cast<unsigned char*>(listener) - offsetof(LightManagerData, renderPathVtable);
@@ -722,64 +640,6 @@ void createSmallLightTextures(void* self)
 }
 
 
-// +0x964's values are Effect*. Retail walks them in key order and calls release (+0x08) before
-// it tears the nodes down.
-void releaseShadowEffects(ShadowEffectMap& effects)
-{
-    for (ShadowEffectMap::iterator it = effects.begin(); it != effects.end(); ++it)
-    {
-        if (it->second)
-            dx9rend::effectRelease(it->second);
-    }
-}
-
-void releaseSurface(IDirect3DSurface9*& surface)
-{
-    if (surface)
-        surface->Release();
-    surface = 0;
-}
-
-// PE 0x100F2120.
-bool releaseShadowResources(void* self, bool result)
-{
-    dx9rend::textureReleaseRef(lm(self).shadowMap);
-    dx9rend::textureReleaseRef(lm(self).shadowMap2);
-    dx9rend::textureReleaseRef(lm(self).shadowDepthTexture);
-    releaseSurface(lm(self).shadowDepthSurface);
-    releaseSurface(lm(self).shadowDepthSurface2);
-
-    dx9rend::EngineTexture* const secondary =
-        lm(self).pointShadowMap;
-    IDirect3DSurface9* const secondaryDepth =
-        lm(self).pointShadowDepthSurface;
-    if (secondary && secondary->baseTexture && secondaryDepth)
-    {
-        // PE 0x100F21A0's alias-lifetime bracket is deliberately net-zero.  Preserve the exact
-        // AddRef/AddRef/AddRef/Release/Release/Release sequence before owner releases below.
-        secondary->baseTexture->AddRef();
-        secondaryDepth->AddRef();
-        secondary->baseTexture->AddRef();
-        secondary->baseTexture->Release();
-        secondary->baseTexture->Release();
-        secondaryDepth->Release();
-    }
-    dx9rend::textureReleaseRef(lm(self).pointShadowMap);
-    dx9rend::textureReleaseRef(lm(self).pointShadowDepthTexture);
-    releaseSurface(lm(self).pointShadowDepthSurface);
-
-    LightManagerData& d = lm(self);
-    d.shadowMap = 0;                                                        // +0x21C..+0x238
-    d.shadowMap2 = 0;
-    d.shadowDepthTexture = 0;
-    d.shadowDepthSurface = 0;
-    d.shadowDepthSurface2 = 0;
-    d.pointShadowMap = 0;
-    d.pointShadowDepthTexture = 0;
-    d.pointShadowDepthSurface = 0;
-    return result;
-}
-
 // PE 0x100057A0: substitutes Renderer +0x770 when passed null (this is not equivalent to handing a
 // literal null to StateManager +0x64), then calls StateManager +0x64 and returns true (al = 1);
 // every caller discards the result.
@@ -800,79 +660,6 @@ void restoreRendererTarget0()
     // the generic 0x10005920 back-buffer fallback of lightManagerSelectRenderTarget.
     dx9rend::EngineTexture* const texture = dx9rend::rendererPathTarget(0x7D4);
     lightManagerSetRenderTargetTexture(0, texture);
-}
-
-// PE 0x100F2350.
-// shipped defect: allocation failures leave the texture manager's managed flag cleared.
-// [RENDER] Retail also created the two directional (sun) maps (+0x21C, +0x220) and their depth,
-// which the point/spot atlas shared when the sizes matched (always: both are the clamped size).
-// The sun cascades replace those maps, so only the point/spot atlas and its depth are created.
-bool createShadowResourcesBody(void* self)
-{
-    if (!lm(self).dynamicShadowsEnabled)
-        return false;
-
-    releaseShadowResources(self, true);
-    const int oldManaged = dx9rend::textureManagerSwapManaged(0);
-    const int requested = lm(self).shadowMapSize;
-    // PE uses signed `jl`: negative configured sizes survive this clamp and are passed onward as
-    // their raw dword bit pattern. Do not turn them into the unsigned minimum's 2048.
-    const int clampedSize = requested < 2048 ? requested : 2048;
-    const unsigned int size = static_cast<unsigned int>(clampedSize);
-
-    lm(self).pointShadowMap =
-        static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
-            size, size, lm(self).shadowMapFormat, 1, lm(self).shadowMapUsage, 0));
-    if (!lm(self).pointShadowMap)
-        return releaseShadowResources(self, false);
-
-    if (lm(self).shadowMapMode == 0)
-    {
-        // Depth-texture maps: the atlas is the depth target, beside a colour target it never
-        // writes (format 23, R5G6B5).
-        lm(self).pointShadowDepthTexture =
-            static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerCreateEmpty(
-                size, size, 23, 1, D3DUSAGE_RENDERTARGET, 0));
-        if (!lm(self).pointShadowDepthTexture)
-            return releaseShadowResources(self, false);
-        lm(self).pointShadowDepthSurface =
-            dx9rend::textureGetLevelSurface(lm(self).pointShadowMap, 0, 0x7FFFFFFFu);
-    }
-    else
-    {
-        // Colour maps: the atlas is the colour target, over its own D16 depth.
-        IDirect3DDevice9* const device = lm(self).device;
-        device->CreateDepthStencilSurface(
-            size, size, D3DFMT_D16, D3DMULTISAMPLE_NONE, 0, TRUE,
-            &lm(self).pointShadowDepthSurface, 0);
-        if (!lm(self).pointShadowDepthSurface)
-            return releaseShadowResources(self, false);
-    }
-
-    dx9rend::textureManagerSwapManaged(oldManaged);
-    dx9rend::raShaderConstantsSetTexture(
-        0x278, lm(g_LightManager).pointShadowMap->baseTexture);
-    dx9rend::raShaderConstantsSetTexture(
-        0x288, lm(g_LightManager).framedTexture->baseTexture);
-
-    // byte_102395B0 is initialised true and has no writer.  Every successful
-    // resource rebuild binds and clears the shadow target before restoring the back buffer.
-    lightManagerSetRenderTargetTexture(0, lm(self).shadowMapMode != 0
-        ? lm(self).pointShadowMap : lm(self).pointShadowDepthTexture);
-    setLightManagerDepthStencil(
-        lm(self).pointShadowDepthSurface);
-    dx9rend::stateManagerClear(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
-                               0xFFFFFFFFu, 1.0f, 0);
-
-    setLightManagerDepthStencil(0);
-    lightManagerSetRenderTargetTexture(0, 0);
-    dx9rend::flushRenderTargetsSeam();
-
-    RECT& rectangle = lm(self).shadowScissor;
-    rectangle.left = rectangle.top = 0;
-    rectangle.right = rectangle.bottom = lm(self).shadowMapSize;
-    ::InflateRect(&rectangle, -3, -3);
-    return true;
 }
 
 // Calls into BF2.exe use the recovered source interfaces themselves.  HostString is VC7.1's
@@ -899,85 +686,6 @@ inline const world::IObjectTemplate* objectTemplatePointer(const world::IObject*
     return object->getTemplate();
 }
 
-
-// PE 0x10239350..0x10239580, consumed by 0x100F3160 in this exact order.
-const ShadowAtlasEntry kShadowAtlas2048x1024[28] =
-{
-    {   0,    0, 1024, 1024, 0 }, { 1024,    0, 1024, 1024, 0 },
-    {   0, 1024,  512,  512, 1 }, {  512, 1024,  512,  512, 1 },
-    {   0, 1536,  512,  512, 1 }, {  512, 1536,  256,  256, 2 },
-    { 768, 1536,  256,  256, 2 }, {  512, 1792,  256,  256, 2 },
-    { 768, 1792,  256,  256, 2 }, { 1024, 1024,  256,  256, 2 },
-    {1280, 1024,  256,  256, 2 }, { 1536, 1024,  256,  256, 2 },
-    {1792, 1024,  256,  256, 2 }, { 1024, 1280,  256,  256, 2 },
-    {1280, 1280,  256,  256, 2 }, { 1536, 1280,  256,  256, 2 },
-    {1792, 1280,  256,  256, 2 }, { 1024, 1536,  256,  256, 2 },
-    {1280, 1536,  256,  256, 2 }, { 1536, 1536,  256,  256, 2 },
-    {1792, 1536,  256,  256, 2 }, { 1024, 1792,  256,  256, 2 },
-    {1280, 1792,  256,  256, 2 }, { 1536, 1792,  256,  256, 2 },
-    {1792, 1792,  128,  128, 3 }, { 1920, 1792,  128,  128, 3 },
-    {1792, 1920,  128,  128, 3 }, { 1920, 1920,  128,  128, 3 }
-};
-
-// PE BSS the same 28 placements materialised as Win32 RECTs for the shadow renderer.
-// The square fallback arm does not touch this table; only the two 28-entry atlas layouts do.
-RECT g_shadowAtlasRectangles[28];
-unsigned int g_shadowRecordOrdinal;
-
-void publishShadowAtlasRectangle(unsigned int index, const ShadowAtlasEntry& entry)
-{
-    RECT& rectangle = g_shadowAtlasRectangles[index];
-    rectangle.left = entry.x;
-    rectangle.top = entry.y;
-    rectangle.right = entry.x + entry.width;
-    rectangle.bottom = entry.y + entry.height;
-}
-
-// The atlas vector is destroyed and rebuilt, rather than merely cleared.  The
-// 1024x512 arm halves only the rectangle coordinates/sizes; the tier survives unchanged. Both
-// 28-entry arms also publish the parallel global rect table at PE 0x10259EE0.
-// PE 0x100F3160.
-void rebuildShadowAtlas(void* self)
-{
-    std::vector<ShadowAtlasEntry>& output = lm(self).shadowAtlas;
-    std::vector<ShadowAtlasEntry>().swap(output);
-    const int width = lm(self).shadowMapSize;
-    const int height = lm(self).shadowTileSize;
-
-    if (width == 2048 && height == 1024)
-    {
-        for (unsigned int i = 0; i < 28; ++i)
-        {
-            output.push_back(kShadowAtlas2048x1024[i]);
-            publishShadowAtlasRectangle(i, kShadowAtlas2048x1024[i]);
-        }
-    }
-    else if (width == 1024 && height == 512)
-    {
-        for (unsigned int i = 0; i < 28; ++i)
-        {
-            ShadowAtlasEntry entry = kShadowAtlas2048x1024[i];
-            entry.x /= 2;
-            entry.y /= 2;
-            entry.width /= 2;
-            entry.height /= 2;
-            output.push_back(entry);
-            publishShadowAtlasRectangle(i, entry);
-        }
-    }
-    else if (width == height)
-    {
-        // Retail performs this division without a zero guard.
-        const int divisor = 2048 / width;
-        ShadowAtlasEntry entry = kShadowAtlas2048x1024[0];
-        entry.x /= divisor;
-        entry.y /= divisor;
-        entry.width /= divisor;
-        entry.height /= divisor;
-        output.push_back(entry);
-    }
-}
-
 void* getEffectParameter(void* effect, const char* semantic)
 {
     std::string name(semantic);
@@ -989,44 +697,6 @@ dx9rend::EngineTexture* loadManagerTexture(const char* path)
 {
     std::string name(path);
     return static_cast<dx9rend::EngineTexture*>(dx9rend::textureManagerGetTexture(name));
-}
-
-// PE 0x10160D50.
-void bindAndClearShadowTarget(void* self)
-{
-    // byte_10260A08 is false in the shipped data image.  Performance flag 3 is the live bypass.
-    if (dx9rend::rendererPerformanceFlag(3))
-        return;
-
-    setLightManagerDepthStencil(
-        lm(self).pointShadowDepthSurface);
-    if (lm(self).shadowMapMode != 0)
-    {
-        lightManagerSetRenderTargetTexture(0, lm(self).pointShadowMap);
-        dx9rend::stateManagerClear(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
-                                   0xFFFFFFFFu, 1.0f, 0);
-    }
-    else
-    {
-        lightManagerSetRenderTargetTexture(0, lm(self).pointShadowDepthTexture);
-        dx9rend::stateManagerClear(D3DCLEAR_ZBUFFER, 0xFFFFFFFFu, 1.0f, 0);
-        dx9rend::stateManagerSetRenderState(195, 0);
-    }
-}
-
-inline float dot3(const Vec3& a, const Vec3& b)
-{
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-inline const Vec3& objectAbsolutePosition(world::IObject* object)
-{
-    return object->getAbsolutePosition();
-}
-
-inline float objectVisualRadius(world::IObject* object)
-{
-    return object->getVisualBoundingRadius();
 }
 
 
@@ -1066,260 +736,6 @@ int shadowNormalizeInPlace(Vec3& v)
 }
 
 
-// One plane of the five fits (see the block comment above). 0x1016AFA0 alone sums corner 0's dot
-// as (x + z) + y; every other corner of every fit sums (z + y) + x, and the re-seat's d is
-// -((y + z) + x) - the PE's order (g3v_core). The re-seat
-// also stores the normal back unchanged (`plane = Plane3(normal, corner)`), which is not repeated.
-void fitShadowPlaneToCorners(Plane3& plane, const Vec3* corners, bool firstCornerXzy)
-{
-    const Vec3 normal = plane.normal;
-    float maximum = -FLT_MAX;
-    float maximumPlusD = -FLT_MAX;
-    int best = -1;
-    for (int i = 0; i < 8; ++i)
-    {
-        const Vec3& corner = corners[i];
-        const float dot = (i == 0 && firstCornerXzy)
-            ? normal.x * corner.x + corner.z * normal.z + normal.y * corner.y
-            : corner.z * normal.z + corner.y * normal.y + normal.x * corner.x;
-        if (dot > maximum)
-        {
-            best = i;
-            maximumPlusD = dot + plane.d;
-            maximum = dot;
-        }
-    }
-    if (maximumPlusD >= 0.0f)                                              // `test ah, 1; jne`
-    {
-        const Vec3& corner = corners[best];
-        plane.d = -(normal.y * corner.y + normal.z * corner.z + normal.x * corner.x);
-    }
-}
-
-// sqrt((dz*dz + dy*dy) + dx*dx) with d = a - b - the shipped association of every extent below.
-float shadowCornerDistance(const Vec3& a, const Vec3& b)
-{
-    const float dx = a.x - b.x;
-    const float dy = a.y - b.y;
-    const float dz = a.z - b.z;
-    return std::sqrt(dz * dz + dy * dy + dx * dx);
-}
-
-// The extents tail every fit shares: the corners from the planes (rendmath::frustumRecalcCorners,
-// RendDX9's copy of Frustum::recalcCorners), width |c2 - c0| and height |c1 - c0| (the all-plane fits only), far
-// |c4 - c0| - near, and the transformation re-seated at the near face's centre (c0 + c3) / 2 and
-// re-applied through Frustum::transform (copy, then reSetup - setOrtho for these).
-void refitShadowFrustumExtents(Frustum& frustum, bool widthAndHeight)
-{
-    rendmath::frustumRecalcCorners(frustum);                          // PE 0x10079E50
-    const Vec3* const corner = frustum.m_corners;
-    if (widthAndHeight)
-    {
-        frustum.m_dword1D4 = shadowCornerDistance(corner[2], corner[0]);   // +0x1D4 width
-        frustum.m_dword1D8 = shadowCornerDistance(corner[1], corner[0]);   // +0x1D8 height
-    }
-    frustum.m_farDist = shadowCornerDistance(corner[4], corner[0]) - frustum.m_nearDist;
-    Mat4 transformation = frustum.m_transformation;
-    transformation.m[12] = (corner[0].x + corner[3].x) * 0.5f;
-    transformation.m[13] = (corner[3].y + corner[0].y) * 0.5f;
-    transformation.m[14] = (corner[3].z + corner[0].z) * 0.5f;
-    rendmath::frustumTransform(frustum, transformation);
-}
-
-
-// PE 0x10160E20: unreachable in 1.50: no code or data references. [INFERRED] name. The single-point
-// counterpart of fitShadowFrustumAllPlanes (ecx = the point, edx = the frustum): every plane is fitted
-// to the one point exactly as corner 0 of the all-plane fits, then width, height and far are re-derived.
-// The native build rounds every step to float, as the fits above.
-inline void fitShadowFrustumToPoint(Frustum& frustum, const Vec3& point)
-{
-    for (unsigned int index = 0; index < 6; ++index)
-    {
-        Plane3& plane = frustum.m_planes[index];
-        const Vec3 normal = plane.normal;
-        const float dot = normal.x * point.x + point.z * normal.z + normal.y * point.y;
-        if (dot > -FLT_MAX && dot + plane.d >= 0.0f)
-            plane.d = -(normal.y * point.y + normal.z * point.z + normal.x * point.x);
-    }
-    refitShadowFrustumExtents(frustum, true);
-}
-
-// PE 0x10168FD0: unreachable in 1.50 except through 0x10161C60 (itself unreachable). [INFERRED] name.
-// The point of the segment (segment[0], segment[1]) closest to `point` (ecx = the result, edx = the
-// segment, one stack argument, retn 4): the segment direction is normalised, the projection t of
-// point - start on it clamps to the start when negative and to the end when beyond the segment length;
-// otherwise start + direction * t, with the direction normalised a second time as shipped. The native
-// build rounds every step to float, as the fits above.
-inline Vec3 shadowSegmentClosestPoint(const Vec3* segment, const Vec3& point)
-{
-    const Vec3& start = segment[0];
-    const Vec3& end = segment[1];
-    const float dx = point.x - start.x;
-    const float dy = point.y - start.y;
-    const float dz = point.z - start.z;
-    Vec3 direction;
-    direction.x = end.x - start.x;
-    direction.y = end.y - start.y;
-    direction.z = end.z - start.z;
-    shadowNormalizeInPlace(direction);
-    const float t = direction.z * dz + direction.y * dy + direction.x * dx;
-    if (t < 0.0f)
-        return start;
-    if (shadowCornerDistance(start, end) < t)
-        return end;
-    shadowNormalizeInPlace(direction);
-    Vec3 result;
-    result.z = direction.z * t + start.z;
-    result.y = direction.y * t + start.y;
-    result.x = direction.x * t + start.x;
-    return result;
-}
-
-// PE 0x10161C60: unreachable in 1.50: no code or data references. [INFERRED] name. For each of the
-// terrain node's eight bounds corners (node +0x8C): a corner inside `source` extends `target` directly
-// (fitShadowFrustumToPoint); otherwise the corner is projected along the line to the source's centre
-// onto its far plane (plane 5; a line that misses the plane skips the corner), and a projected point that
-// is still outside is replaced by the nearest point of the far face's four edges (corners 5-7, 7-6, 6-4,
-// 4-5, the first of equal distances). [CHOSEN, not recovered] The segment-hit flag is zero-initialised:
-// the image reads it uninitialised when the line is parallel to the plane (memory-safety omission).
-// The native build rounds every step to float, as the fits above.
-inline void fitFrustumToNodeCorners(const TerrainCullerNode& node, Frustum& target, const Frustum& source)
-{
-    const Vec3* const nodeCorners = reinterpret_cast<const Vec3*>(node.corners);
-    Vec3 edges[8];
-    {
-        const Vec3* const c = source.m_corners;
-        edges[0] = c[5]; edges[1] = c[7];
-        edges[2] = c[7]; edges[3] = c[6];
-        edges[4] = c[6]; edges[5] = c[4];
-        edges[6] = c[4]; edges[7] = c[5];
-    }
-    for (unsigned int corner = 0; corner < 8; ++corner)
-    {
-        Vec3 point = nodeCorners[corner];
-        if (!source.inside(point))
-        {
-            Plane3 plane = source.m_planes[5];
-            Vec3 hitPoint;
-            hitPoint.x = 0.0f;
-            hitPoint.y = 0.0f;
-            hitPoint.z = 0.0f;
-            bool hit = false;
-            plane.intersectLine(point, source.m_center, hitPoint, hit);   // result unused, as shipped
-            if (!hit)
-                continue;
-            point = hitPoint;
-            if (!source.inside(point))
-            {
-                Vec3 candidate[4];
-                float distance[4];
-                for (unsigned int edge = 0; edge < 4; ++edge)
-                {
-                    candidate[edge] = shadowSegmentClosestPoint(&edges[edge * 2], hitPoint);
-                    distance[edge] = shadowCornerDistance(candidate[edge], point);
-                }
-                unsigned int nearest = 0;
-                for (unsigned int edge = 1; edge < 4; ++edge)
-                {
-                    if (distance[edge] < distance[nearest])
-                        nearest = edge;
-                }
-                point = candidate[nearest];
-            }
-        }
-        fitShadowFrustumToPoint(target, point);
-    }
-}
-
-// PE 0x1016B820
-// The near plane (4) only, pulled back toward the light; width and height stay, far is re-derived.
-// 0x1016B820 is this body with the corners in ecx and the frustum in edx (its listing: the corner of
-// largest dot, the re-seated d, then the shared extents tail). The native build rounds every step to float: the five shipped fits keep the dot
-// products, the running maximum plus d and the corner distances on the x87 stack, each copy
-// storing different intermediates (0x1016AB10 keeps corner 0's sum, 0x1016B3C0 / 0x1016B660
-// store maximum + d), so one shared helper cannot carry an exact x87 arm.
-void fitShadowFrustumNearPlane(Frustum& frustum, const Vec3* corners)
-{
-    fitShadowPlaneToCorners(frustum.m_planes[4], corners, false);
-    refitShadowFrustumExtents(frustum, false);
-}
-
-// sub_100E7180 - an axis-aligned box's corner i: x from max when bit 2, y when bit 1, z when bit 0
-// (an index past 7 answers zero; nothing here asks one). 0x1016B3C0 / 0x1016B660 ask it twice per
-// corner and once more for the re-seat; the answers cannot differ, so the eight are taken once.
-void shadowAabbCorners(const LocalBoundingBox& box, Vec3* corners)
-{
-    for (unsigned int i = 0; i < 8; ++i)
-    {
-        corners[i].x = (i & 4u) ? box.m_max.x : box.m_min.x;
-        corners[i].y = (i & 2u) ? box.m_max.y : box.m_min.y;
-        corners[i].z = (i & 1u) ? box.m_max.z : box.m_min.z;
-    }
-}
-
-
-// sub_1016B660 - a frustum's near plane pulled back over an axis-aligned box: the box's corners
-// (shadowAabbCorners), then the corner fit 0x1016B820 inlined.
-void fitShadowFrustumNearPlaneToAabb(Frustum& frustum, const LocalBoundingBox& box)
-{
-    Vec3 corners[8];
-    shadowAabbCorners(box, corners);
-    fitShadowFrustumNearPlane(frustum, corners);
-}
-
-// The pass's 96-byte eight-corner object box is Geom/BoxCorners.h's BoxCorners.
-
-
-// Layout equivalence, not a retail offset: finalizeShadowBounds depends on it on every target.
-static_assert(sizeof(LocalBoundingBox) == sizeof(MeshBounds), "LocalBoundingBox is MeshBounds");
-static_assert(offsetof(LocalBoundingBox, m_max) == offsetof(MeshBounds, max), "max");
-static_assert(offsetof(LocalBoundingBox, m_derivedDataDirty) == offsetof(MeshBounds, dirty),
-              "dirty");
-static_assert(offsetof(LocalBoundingBox, m_centre) == offsetof(MeshBounds, center), "centre");
-
-// RendDX9 this image's Frustum view matrix (the ELF body is empty [PLATFORM]):
-// D3DXMatrixLookAtLH from the transformation's translation (+0x1A4), towards that point plus its
-// z row (+0x194, summed into float stores), with its y row (+0x184) as up.
-void shadowFrustumViewMatrix(const Frustum& frustum, Mat4& output)
-{
-    const Mat4& t = frustum.m_transformation;
-    const Vec3 at = { t.m[8] + t.m[12], t.m[9] + t.m[13], t.m[10] + t.m[14] };
-    ::D3DXMatrixLookAtLH(reinterpret_cast<D3DXMATRIX*>(&output),
-                         reinterpret_cast<const D3DXVECTOR3*>(&t.m[12]),
-                         reinterpret_cast<const D3DXVECTOR3*>(&at),
-                         reinterpret_cast<const D3DXVECTOR3*>(&t.m[4]));
-}
-
-
-// The directional pass's pull toward the light (0x10166419..0x101664B9 for the followers,
-// 0x10166A66..0x10166AFD per record in the quality-three map): the translation moves by d along the
-// near plane's outward normal (planes[4] at +0x40, which setOrtho makes the negated z row, i.e.
-// toward the light) and the far distance grows by d, stored straight into +0x1E0 before
-// RendDX9's Frustum::transform copy (rendmath::frustumTransform) re-runs the ortho set-up.
-void shiftShadowFrustumTowardLight(Frustum& frustum, float distance)
-{
-    Mat4 transformation = frustum.m_transformation;
-    const Vec3 normal = frustum.m_planes[4].normal;
-    const float x = normal.x * distance;
-    const float y = normal.y * distance;                                   // [ebp-0x1C]
-    const float z = normal.z * distance;                                   // [ebp-0x18]
-#if defined(__APPLE__)
-    // [CHOSEN, not recovered] the x product stays on the x87 stack for the m[12] add
-    // (0x10166419..0x101664B9); only y and z are stored first.
-    transformation.m[12] = bf2x87::store(bf2x87::add(
-        bf2x87::wide(transformation.m[12]),
-        bf2x87::mul(bf2x87::wide(normal.x), bf2x87::wide(distance))));
-    (void)x;
-#else
-    transformation.m[12] = transformation.m[12] + x;
-#endif
-    transformation.m[13] = y + transformation.m[13];
-    transformation.m[14] = z + transformation.m[14];
-    frustum.m_farDist = frustum.m_farDist + distance;
-    rendmath::frustumTransform(frustum, transformation);
-}
-
-
 struct XpCuller
 {
     const void** vtable;
@@ -1344,32 +760,20 @@ struct XpSpotCuller
 struct XpLight
 {
     XpLight()
-        : records(), releaseWarning(0), candidates(), source(0), active(0), policy(0),
+        : releaseWarning(0), candidates(), source(0), active(0),
           cameraDistance(0.0f), category(0), culler(0)
     {
-        pad11[0] = pad11[1] = pad11[2] = 0;
-        pad2A[0] = pad2A[1] = 0;
     }
 
-    /* +0x00 */ std::vector<LightShadowRecord> records;
+    // The retail offsets. [RENDER] The shadow records at +0x00 and the policy byte at +0x29 that
+    // gated them are deleted with the point/spot shadow maps.
     /* +0x10 */ unsigned char       releaseWarning;
-    /* +0x11 */ unsigned char       pad11[3];
     /* +0x14 */ std::vector<world::IObject*> candidates;
     /* +0x24 */ world::LightSource* source;
     /* +0x28 */ unsigned char       active;
-    /* +0x29 */ unsigned char       policy;
-    /* +0x2A */ unsigned char       pad2A[2];
     /* +0x2C */ float               cameraDistance;
     /* +0x30 */ int                 category;       // 0 dynamic, 1 static
     /* +0x34 */ XpCuller*           culler;
-
-    // PE 0x10190090 (thiscall, `retn 4`): the record is kept only under a non-zero policy byte,
-    // then push_back (0x10169990, a tail jump). [INFERRED] name.
-    void addRecord(const LightShadowRecord& record)
-    {
-        if (policy)
-            records.push_back(record);
-    }
 
 private:
     XpLight(const XpLight&);
@@ -1385,19 +789,6 @@ namespace {
 #if defined(_M_IX86)
 static_assert(sizeof(XpCuller) == 0x08, "retail Point culler layout drift");
 static_assert(sizeof(XpSpotCuller) == 0x0C, "retail Spot culler layout drift");
-// The record prefix the mesh and decal draws still read by offset.
-static_assert(offsetof(LightShadowRecord, frustum) == 0x10,
-              "Xp render-record Frustum offset drift");
-static_assert(offsetof(LightShadowRecord, matrices) == 0x1F8,
-              "Xp render-record matrix offset drift");
-static_assert(offsetof(LightShadowRecord, atlasBounds) == 0x438,
-              "Xp render-record atlas bounds offset drift");
-static_assert(offsetof(LightShadowRecord, geometry) == 0x450,
-              "Xp render-record geometry offset drift");
-static_assert(offsetof(LightShadowRecord, source) == 0x454,
-              "Xp render-record source offset drift");
-static_assert(offsetof(LightShadowRecord, casters) == 0x488,
-              "Xp render-record caster-set offset drift");
 #endif
 
 // PE 0x1018FAA0. Local accessor spellings are [INFERRED].
@@ -1417,484 +808,6 @@ std::vector<world::IObject*>& xpLightCandidates(XpLight* light)
 {
     return light->candidates;
 }
-
-// PE 0x1000ED40, the shared inline clamp: the high bound is tested first and an unordered value
-// lands on the low bound.
-float shadowClampValue(float value, float low, float high)
-{
-    float result = value;
-    if (result >= high)
-        result = high;
-    if (!(result >= low))
-        result = low;
-    return result;
-}
-
-// Sign selector shared by the angular-limit setters: 1 above zero, -1 below, 0 for zero/NaN.
-inline float shadowAngleSign(float value)
-{
-    if (value > 0.0f)
-        return 1.0f;
-    if (value < 0.0f)
-        return -1.0f;
-    return 0.0f;
-}
-
-// Angular shadow volume around a transform: four sine limits (left, right, bottom, top) and
-// squared near/far distances. `current` grows as casters are included, `saved` bounds that
-// growth and `fallback` replaces limits that never grew. Method spellings are [INFERRED].
-struct ShadowProjectionLayout
-{
-    /* +0x000 */ Mat4    transform;
-    /* +0x040 */ float   current[6];
-    /* +0x058 */ float   saved[6];
-    /* +0x070 */ float   fallback[6];
-    /* +0x088 */ Plane3  axisZ;
-    /* +0x098 */ Plane3  axisY;
-    /* +0x0A8 */ Plane3  axisX;
-    /* +0x0B8 */ unsigned char perspectiveAdjust;
-    /* +0x0B9 */ unsigned char dirty;
-    /* +0x0BA */ unsigned char padBA[2];
-    /* +0x0BC */ Frustum cachedFrustum;
-
-    // PE 0x101BAFE0.
-    ShadowProjectionLayout(const Mat4& value, bool adjust)
-        : transform(Mat4::getIdentity())
-    {
-        // [CHOSEN, not recovered] Memory safety: retail leaves current/saved and the three plane
-        // distances uninitialised here (setTransform then writes current); zero them instead.
-        ::memset(current, 0, sizeof(current));
-        ::memset(saved, 0, sizeof(saved));
-        ::memset(&axisZ, 0, sizeof(axisZ));
-        ::memset(&axisY, 0, sizeof(axisY));
-        ::memset(&axisX, 0, sizeof(axisX));
-        padBA[0] = padBA[1] = 0;
-        perspectiveAdjust = adjust ? 1 : 0;
-        setAngularLimits(0.0f, 0.0f, 0.0f, 0.0f, 0.1f, 1.0f, fallback);
-        dirty = 1;
-        setTransform(value);
-    }
-
-    // PE 0x101BA720.
-    const Mat4& getTransform() const
-    {
-        return transform;
-    }
-
-    // PE 0x101BAA60: unreachable in 1.50: no code or data references. [INFERRED] name. Copies the
-    // translation row (+0x30..+0x38) of the transform out.
-    void getPosition(Vec3* out) const
-    {
-        out->x = transform.m[12];
-        out->y = transform.m[13];
-        out->z = transform.m[14];
-    }
-
-    // PE 0x101BAA80, on the six-float limit block at `destination`.
-    static void setAngularLimits(float left, float right, float bottom, float top,
-                                 float nearDistance, float farDistance, float* destination)
-    {
-        const float angles[4] = { left, right, bottom, top };
-        for (unsigned int i = 0; i < 4; ++i)
-        {
-            const float sign = shadowAngleSign(angles[i]);
-            const float magnitude = std::fabs(angles[i]);
-#if defined(__APPLE__)
-            // [CHOSEN, not recovered] FSIN result multiplied before the single store.
-            destination[i] = bf2x87::store(bf2x87::sinValue(bf2x87::wide(magnitude)) * sign);
-#else
-            destination[i] = std::sin(magnitude) * sign;
-#endif
-        }
-        destination[4] = nearDistance * nearDistance;
-        destination[5] = farDistance * farDistance;
-    }
-
-    // PE 0x101BA7D0. Each unit axis is normalized, then transformed as a plane through the
-    // origin; the transformed normals are not renormalized.
-    void setTransform(const Mat4& value)
-    {
-        axisZ.normal.x = 0.0f;
-        axisZ.normal.y = 0.0f;
-        axisZ.normal.z = 1.0f;
-        shadowNormalizeInPlace(axisZ.normal);
-        axisZ.d = 0.0f;
-        rendmath::planeTransform(axisZ, axisZ, value);              // PE 0x1007C530
-        axisY.normal.x = 0.0f;
-        axisY.normal.y = 1.0f;
-        axisY.normal.z = 0.0f;
-        shadowNormalizeInPlace(axisY.normal);
-        axisY.d = 0.0f;
-        rendmath::planeTransform(axisY, axisY, value);              // PE 0x1007C530
-        axisX.normal.x = 1.0f;
-        axisX.normal.y = 0.0f;
-        axisX.normal.z = 0.0f;
-        shadowNormalizeInPlace(axisX.normal);
-        axisX.d = 0.0f;
-        rendmath::planeTransform(axisX, axisX, value);              // PE 0x1007C530
-        transform = value;
-        current[0] = 2.0f;
-        current[1] = -2.0f;
-        current[2] = 2.0f;
-        current[3] = -2.0f;
-        current[4] = FLT_MAX;
-        current[5] = 0.0f;
-        dirty = 1;
-    }
-
-    // PE 0x101BABD0. Each angle becomes sign(a) * sqrt(2a^2) * 0.75 before the saved limits are
-    // written; the dirty byte is left unchanged.
-    void setPerspectiveLimits(float left, float right, float bottom, float top,
-                              float nearDistance, float farDistance)
-    {
-        const float angles[4] = { left, right, bottom, top };
-        float scaled[4];
-        for (unsigned int i = 0; i < 4; ++i)
-        {
-            const float sign = shadowAngleSign(angles[i]);
-#if defined(__APPLE__)
-            // [CHOSEN, not recovered] The doubled square, root and both products stay on the stack.
-            const bf2x87::Real square = bf2x87::wide(angles[i]) * angles[i];
-            scaled[i] = bf2x87::store(bf2x87::squareRoot(square + square) * 0.75f * sign);
-#else
-            const float square = angles[i] * angles[i];
-            scaled[i] = std::sqrt(square + square) * 0.75f * sign;
-#endif
-        }
-        setAngularLimits(scaled[0], scaled[1], scaled[2], scaled[3],
-                         nearDistance, farDistance, saved);
-    }
-
-    // PE 0x101BA640.
-    void copyCurrentToSaved(const ShadowProjectionLayout& other)
-    {
-        ::memcpy(saved, other.current, sizeof(saved));
-    }
-
-    // PE 0x101BA680.
-    void restoreAll()
-    {
-        ::memcpy(current, saved, sizeof(current));
-        dirty = 1;
-    }
-
-    // PE 0x101BA6C0.
-    void restoreSelected(bool left, bool right, bool bottom, bool top,
-                         bool nearDistance, bool farDistance)
-    {
-        if (left)
-            current[0] = saved[0];
-        if (right)
-            current[1] = saved[1];
-        if (bottom)
-            current[2] = saved[2];
-        if (top)
-            current[3] = saved[3];
-        if (nearDistance)
-            current[4] = saved[4];
-        dirty = 1;
-        if (farDistance)
-            current[5] = saved[5];
-    }
-
-    // PE 0x101BAD30: unreachable in 1.50: no code or data references. [INFERRED] name. Rewrites the
-    // fallback limit block (+0x70) through setAngularLimits and marks the layout dirty.
-    void setFallbackLimits(float left, float right, float bottom, float top,
-                           float nearDistance, float farDistance)
-    {
-        setAngularLimits(left, right, bottom, top, nearDistance, farDistance, fallback);
-        dirty = 1;
-    }
-
-    // PE 0x101BAD60. Grows the current limits to include `point` and reports whether the point
-    // already lay within the saved limits. Unordered comparisons keep the shipped outcomes.
-    bool includePoint(const Vec3& point)
-    {
-        const float originX = transform.m[12];
-        const float originY = transform.m[13];
-        const float originZ = transform.m[14];
-        bool inside = true;
-        Vec3 delta;
-        delta.x = point.x - originX;
-        delta.y = point.y - originY;
-        delta.z = point.z - originZ;
-        Vec3 horizontal = { 0.0f, 0.0f, 0.0f };
-        Vec3 vertical = { 0.0f, 0.0f, 0.0f };
-        rendmath::projectVector(axisY, delta, horizontal);            // PE 0x1007C620
-        rendmath::projectVector(axisX, delta, vertical);
-
-        float nearScale = 1.0f;
-        if (perspectiveAdjust)
-        {
-            float maximum = saved[0] < saved[1] ? saved[1] : saved[0];
-            if (maximum < saved[2])
-                maximum = saved[2];
-            if (maximum < saved[3])
-                maximum = saved[3];
-            nearScale = maximum * maximum;
-        }
-
-#if defined(__APPLE__)
-        // [CHOSEN, not recovered] The near test compares the unstored squared distance.
-        const bf2x87::Real distanceWide = bf2x87::wide(delta.z) * delta.z
-            + bf2x87::wide(delta.y) * delta.y + bf2x87::wide(delta.x) * delta.x;
-        const float distanceSquared = bf2x87::store(distanceWide);
-        if (bf2x87::less(distanceWide, bf2x87::wide(saved[4])))
-            inside = false;
-#else
-        const float distanceSquared = delta.z * delta.z + delta.y * delta.y + delta.x * delta.x;
-        if (distanceSquared < saved[4])
-            inside = false;
-#endif
-        else if (distanceSquared > saved[5])
-            inside = false;
-
-        const float clampedDistance = shadowClampValue(distanceSquared, saved[4], saved[5]);
-#if defined(__APPLE__)
-        // [CHOSEN, not recovered] The unstored product is compared; its stored value is kept.
-        const bf2x87::Real scaledWide = bf2x87::wide(clampedDistance) * nearScale;
-        const float scaledDistance = bf2x87::store(scaledWide);
-        if (bf2x87::less(scaledWide, bf2x87::wide(current[4])))
-            current[4] = scaledDistance;
-#else
-        const float scaledDistance = clampedDistance * nearScale;
-        if (scaledDistance < current[4])
-            current[4] = scaledDistance;
-#endif
-        if (!(clampedDistance < current[5]))
-            current[5] = clampedDistance;
-
-        shadowNormalizeInPlace(horizontal);
-        shadowNormalizeInPlace(vertical);
-#if defined(__APPLE__)
-        float horizontalValue = bf2x87::store(bf2x87::wide(horizontal.z) * axisX.normal.z
-            + bf2x87::wide(horizontal.y) * axisX.normal.y
-            + bf2x87::wide(horizontal.x) * axisX.normal.x);
-        float verticalValue = bf2x87::store(bf2x87::wide(vertical.z) * axisY.normal.z
-            + bf2x87::wide(vertical.y) * axisY.normal.y
-            + bf2x87::wide(vertical.x) * axisY.normal.x);
-#else
-        float horizontalValue = horizontal.z * axisX.normal.z + horizontal.y * axisX.normal.y
-                              + horizontal.x * axisX.normal.x;
-        float verticalValue = vertical.z * axisY.normal.z + vertical.y * axisY.normal.y
-                            + vertical.x * axisY.normal.x;
-#endif
-        if (horizontalValue < saved[0] || horizontalValue > saved[1]
-            || verticalValue < saved[2] || verticalValue > saved[3])
-            inside = false;
-
-        horizontalValue = shadowClampValue(horizontalValue, saved[0], saved[1]);
-        verticalValue = shadowClampValue(verticalValue, saved[2], saved[3]);
-        if (horizontalValue < current[0])
-            current[0] = horizontalValue;
-        if (!(horizontalValue < current[1]))
-            current[1] = horizontalValue;
-        if (verticalValue < current[2])
-            current[2] = verticalValue;
-        if (!(verticalValue < current[3]))
-            current[3] = verticalValue;
-        dirty = 1;
-        return inside;
-    }
-
-    // PE 0x101BA730, applied in place to a copied six-float limit block.
-    static void sanitizeLimits(float* bounds, const float* fallbackLimits)
-    {
-        if (bounds[0] > 1.0f)
-            bounds[0] = fallbackLimits[0];
-        if (bounds[1] < -1.0f)
-            bounds[1] = fallbackLimits[1];
-        if (bounds[2] > 1.0f)
-            bounds[2] = fallbackLimits[2];
-        if (bounds[3] < -1.0f)
-            bounds[3] = fallbackLimits[3];
-        if (bounds[4] >= FLT_MAX)
-            bounds[4] = fallbackLimits[4];
-        if (bounds[5] < bounds[4])
-        {
-#if defined(__APPLE__)
-            // [CHOSEN, not recovered] The root sum is squared before the single store.
-            const bf2x87::Real farRoot = bf2x87::squareRoot(bf2x87::wide(fallbackLimits[5]))
-                                   + bf2x87::squareRoot(bf2x87::wide(bounds[4]));
-            bounds[5] = bf2x87::store(farRoot * farRoot);
-#else
-            const float farRoot = std::sqrt(fallbackLimits[5]) + std::sqrt(bounds[4]);
-            bounds[5] = farRoot * farRoot;
-#endif
-        }
-    }
-
-    // PE 0x101BA8A0. Writes the four limit angles, then horizontal span, vertical span, near and
-    // far distances. The receiver is unused.
-    static void limitExtents(const float* bounds, float& left, float& right, float& bottom,
-                             float& top, float* extents, bool adjust)
-    {
-        left = std::acos(shadowClampValue(bounds[0], -1.0f, 1.0f));
-        right = std::acos(shadowClampValue(bounds[1], -1.0f, 1.0f));
-        bottom = std::acos(shadowClampValue(bounds[2], -1.0f, 1.0f));
-#if defined(__APPLE__)
-        // [CHOSEN, not recovered] The vertical span subtracts from the unstored top angle.
-        const bf2x87::Real topWide =
-            bf2x87::wide(std::acos(static_cast<double>(shadowClampValue(bounds[3], -1.0f, 1.0f))));
-        top = bf2x87::store(topWide);
-        extents[1] = bf2x87::store(bf2x87::abs(topWide - bottom));
-#else
-        top = std::acos(shadowClampValue(bounds[3], -1.0f, 1.0f));
-        extents[1] = std::fabs(top - bottom);
-#endif
-        extents[0] = std::fabs(right - left);
-        extents[2] = std::sqrt(bounds[4]);
-        extents[3] = std::sqrt(bounds[5]);
-        if (!adjust)
-        {
-            const float widest = extents[1] < extents[0] ? extents[0] : extents[1];
-#if defined(__APPLE__)
-            extents[2] = bf2x87::store(
-                bf2x87::cosValue(bf2x87::wide(widest) * 0.5f) * extents[2]);
-#else
-            extents[2] = std::cos(widest * 0.5f) * extents[2];
-#endif
-        }
-        if (1.0f < extents[2])
-            extents[2] = 1.0f;
-        // PE byte 0x10267438 is loader-zero and has no writer; its arm forcing near 1 and far
-        // 100 is never taken.
-        extents[3] = extents[3] + 3.0f;
-    }
-
-    // PE 0x101BA9D0.
-    void getExtents(float* output) const
-    {
-        float bounds[6];
-        ::memcpy(bounds, current, sizeof(bounds));
-        sanitizeLimits(bounds, fallback);
-        float left, right, bottom, top;
-        float extents[4];
-        limitExtents(bounds, left, right, bottom, top, extents, perspectiveAdjust != 0);
-        ::memcpy(output, extents, sizeof(extents));
-    }
-
-    static Mat4 yawPitchRoll(float yaw, float pitch, float roll)
-    {
-        Mat4 result = Mat4::getIdentity();
-#if defined(__APPLE__) || defined(RENDDX9ABI_D3DX9FALLBACK_H)
-        // [CHOSEN, not recovered] These D3DX subsets omit D3DXMatrixRotationYawPitchRoll.
-        const float sy = std::sin(yaw),   cy = std::cos(yaw);
-        const float sp = std::sin(pitch), cp = std::cos(pitch);
-        const float sr = std::sin(roll),  cr = std::cos(roll);
-        result.m[0]  = sr * sp * sy + cr * cy;
-        result.m[1]  = sr * cp;
-        result.m[2]  = sr * sp * cy - cr * sy;
-        result.m[4]  = cr * sp * sy - sr * cy;
-        result.m[5]  = cr * cp;
-        result.m[6]  = cr * sp * cy + sr * sy;
-        result.m[8]  = cp * sy;
-        result.m[9]  = -sp;
-        result.m[10] = cp * cy;
-#else
-        ::D3DXMatrixRotationYawPitchRoll(reinterpret_cast<D3DXMATRIX*>(&result),
-                                         yaw, pitch, roll);
-#endif
-        return result;
-    }
-
-    // PE 0x101BB0B0. Builds a perspective (or, for a flat vertical span, orthographic) frustum
-    // from one limit block, aimed by the centre of its angles.
-    Frustum buildFrustum(const float* limits, const float* fallbackLimits) const
-    {
-        Frustum frustum;
-        float bounds[6];
-        ::memcpy(bounds, limits, sizeof(bounds));
-        sanitizeLimits(bounds, fallbackLimits);
-        float left, right, bottom, top;
-        float extents[4];
-        limitExtents(bounds, left, right, bottom, top, extents, perspectiveAdjust != 0);
-        float aspect = 1.0f;
-        if (extents[0] > FLT_EPSILON)
-            aspect = extents[1] / extents[0];
-#if defined(__APPLE__)
-        // [CHOSEN, not recovered] Both aim angles are stored once.
-        const float pitch = bf2x87::store((bf2x87::wide(bottom) + top) * 0.5f - 1.5707964f);
-        const float yaw = bf2x87::store((bf2x87::wide(left) + right) * -0.5f + 1.5707964f);
-#else
-        const float pitch = (bottom + top) * 0.5f - 1.5707964f;
-        const float yaw = (left + right) * -0.5f + 1.5707964f;
-#endif
-        const Mat4 rotation = yawPitchRoll(yaw, pitch, 0.0f);
-        Mat4 composed = Mat4::getIdentity();
-        composed.fullMult(rotation, transform);
-        if (extents[1] > FLT_EPSILON)
-            rendmath::frustumSetPerspective(frustum, extents[1], aspect, extents[2], extents[3],
-                                            composed);                // PE 0x1007A460
-        else
-            rendmath::frustumSetOrtho(frustum, 1.0f, 1.0f, extents[2], extents[3], composed);
-        return frustum;
-    }
-
-    // PE 0x101BB370: unreachable in 1.50: no code or data references. [INFERRED] name. Builds a
-    // frustum from the saved limit block (+0x58) with the fallback block (+0x70).
-    Frustum buildSavedFrustum() const
-    {
-        return buildFrustum(saved, fallback);
-    }
-
-    // PE 0x101BB3C0: unreachable in 1.50: no code or data references. [INFERRED] name. Whether the
-    // point lies inside the frustum built from the saved limits.
-    bool savedFrustumContains(const Vec3& point) const
-    {
-        const Frustum frustum = buildFrustum(saved, fallback);
-        return frustum.inside(point);
-    }
-
-    // PE 0x101BB310. Rebuilds the cached frustum from the current limits when dirty and returns
-    // a copy.
-    Frustum getFrustum()
-    {
-        if (dirty)
-            rendmath::frustumAssign(cachedFrustum, buildFrustum(current, fallback));
-        dirty = 0;
-        return cachedFrustum;
-    }
-
-    // PE 0x101BB390: unreachable in 1.50: no code or data references. [INFERRED] name. Whether the
-    // point lies inside the (rebuilt when dirty) current frustum.
-    bool currentFrustumContains(const Vec3* point)
-    {
-        const Frustum frustum = getFrustum();
-        return frustum.inside(*point);
-    }
-
-    // PE 0x101BB400: unreachable in 1.50: no code or data references. [INFERRED] name. Copies one
-    // corner (index * 12 + 0x60) of the current frustum to `out`; the index is not range-checked.
-    void getFrustumCorner(Vec3* out, int index)
-    {
-        const Frustum frustum = getFrustum();
-        *out = frustum.m_corners[index];
-    }
-};
-
-struct XpTemporaryRecord
-{
-    LightShadowRecord record;
-    ShadowProjectionLayout projection;
-
-    XpTemporaryRecord(const Mat4& transform, bool adjust)
-        : record(), projection(transform, adjust)
-    {
-    }
-
-    explicit XpTemporaryRecord(const ShadowProjectionLayout& value)
-        : record(), projection(value)
-    {
-    }
-};
-
-#if defined(_M_IX86)
-static_assert(sizeof(ShadowProjectionLayout) == 0x2A4,
-              "retail ShadowProjection layout drift");
-static_assert(offsetof(ShadowProjectionLayout, cachedFrustum) == 0xBC,
-              "ShadowProjection Frustum offset drift");
-#endif
 
 // The retail coordinator is the static object at PE 0x10259B20, built by a dynamic initializer
 // (PE 0x101CD240 -> 0x100EF100) and destroyed at exit by an atexit thunk (PE 0x101D9240 ->
@@ -2288,23 +1201,6 @@ const void* const kSpotCullerVtable[6] =
     reinterpret_cast<void*>(&spotDebugSlot)
 };
 
-// PE 0x1018FB10. Only clears policy; the caller supplies its initial value.
-void computeXpPolicy(XpLight* light)
-{
-    const world::LightSourceTemplate* const objectTemplate =
-        lightSourceTemplatePointer(light->source);
-    if (!dx9rend::rendererIsExpansionPack())
-    {
-        light->policy = 0;
-        return;
-    }
-
-    if (((!(objectTemplate->getFlags() & 0x800u) && objectTemplate->getIsDynamic())
-         || ((objectTemplate->getFlags() & 0x800u) && !objectTemplate->getIsDynamic()))
-        && dx9rend::rendererGetVideoOptions()->getQuality(4) < 3)
-        light->policy = 0;
-}
-
 // PE 0x101BCDC0.
 XpCuller* constructPointCuller(XpCuller* culler, XpLight* light)
 {
@@ -2360,23 +1256,21 @@ void setXpLightCategory(XpLight* light)
 
 // PE 0x1018FDE0 (also 0x1018FEA0): the tail the XpLight constructor (PE 0x1018FF40) shares with
 // two standalone copies - the category from the template's dynamic flag (dynamic 0, static 1), the
-// culler, then the policy. Unreachable in 1.50: no code or data references.
+// culler, then the shadow-record policy ([RENDER] deleted with the point/spot shadow maps).
+// Unreachable in 1.50: no code or data references.
 void refreshXpLightCategory(XpLight* light)
 {
     setXpLightCategory(light);
 
     createXpCuller(light);
-
-    computeXpPolicy(light);
 }
 
-// PE 0x1018FF40: the XpLight constructor. It publishes the initial category/policy before the
-// source's addRef callback.
+// PE 0x1018FF40: the XpLight constructor. It publishes the initial category before the source's
+// addRef callback.
 void constructXpLight(XpLight* light, world::LightSource* source)
 {
     ::new (light) XpLight();
     light->source = source;
-    light->policy = 1;
     light->cameraDistance = 1000000.0f; // exact 0x49742400 constructor constant
     light->category = 2;
     source->addRef();
@@ -2487,58 +1381,23 @@ void xpEraseRegistration(XpLight* light)
 
 // PE 0x100EF2B0, reached by manager +0x94 for Point/Spot lights. Eligibility, duplicate handling,
 // 0x38-byte construction, collector classification and map publication preserve shipped order.
-// [DEV] BF2_LIGHT_SHADOW_TRACE: where point/spot lights drop out of the shadow-map path. Logs each
-// registration attempt (first three per light template) and, every 300 shadow frames, the collector and record counts.
-bool lightShadowTraceOn()
-{
-    static const bool on = std::getenv("BF2_LIGHT_SHADOW_TRACE") != 0;
-    return on;
-}
-
-void lightShadowTraceRegister(world::LightSource* light, const char* outcome)
-{
-    if (!lightShadowTraceOn())
-        return;
-    const world::LightSourceTemplate* const t = lightSourceTemplatePointer(light);
-    static std::map<std::string, int> loggedPerTemplate;   // the first three per template
-    if (++loggedPerTemplate[t->getName()] > 3)
-        return;
-    std::fprintf(stderr, "[LSHADOW] register %s: %s (type %d enabled %d dynamic %d flags 0x%X "
-                 "castsDynamicShadow %d xpack %d)\n",
-                 t->getName().c_str(), outcome, t->getLightTypeEnum(), t->getEnabled() ? 1 : 0,
-                 t->getIsDynamic() ? 1 : 0, t->getFlags(), (t->getFlags() & 0x800u) ? 1 : 0,
-                 dx9rend::rendererIsExpansionPack() ? 1 : 0);
-}
-
 void lmRegisterXpLight(world::LightSource* light)
 {
     const world::LightSourceTemplate* const objectTemplate =
         lightSourceTemplatePointer(light);
 
     if (!objectTemplate->getEnabled() && !objectTemplate->getIsDynamic())
-    {
-        lightShadowTraceRegister(light, "rejected, neither enabled nor dynamic");   // [DEV]
         return;
-    }
 
     const int firstType = objectTemplate->getLightTypeEnum();
     if (firstType != 1 && objectTemplate->getLightTypeEnum() != 2)
-    {
-        lightShadowTraceRegister(light, "rejected, not point or spot");   // [DEV]
         return;
-    }
 
     if ((objectTemplate->getFlags() & 0x800u) == 0 && !objectTemplate->getIsDynamic())
-    {
-        lightShadowTraceRegister(light, "rejected, static without flag 0x800");   // [DEV]
         return;
-    }
 
     if (!dx9rend::rendererIsExpansionPack() && !objectTemplate->getIsDynamic())
-    {
-        lightShadowTraceRegister(light, "rejected, static outside the expansion pack");   // [DEV]
         return;
-    }
 
     // Reject a source whose registration count is nonzero.
     if (xpSourceIsRegistered(light))
@@ -2549,7 +1408,6 @@ void lmRegisterXpLight(world::LightSource* light)
     registerWithCollector(xp);
     g_xpCoordinator.bySource.insert(std::make_pair(light, xp));
     g_xpCoordinator.iterationOrder.push_back(xp);
-    lightShadowTraceRegister(light, "registered");   // [DEV]
 }
 
 // PE 0x100EF940 / 0x100EEE90: source lookup, then removal of the registered wrapper.
@@ -2588,16 +1446,6 @@ void updateXpLightDistance(XpLight* light)
     light->cameraDistance = std::sqrt(sum);
 }
 
-// [DEV] BF2_LIGHT_SHADOW_TRACE: why each light was inactive this frame (reset per traced frame).
-struct LightShadowDropCounts
-{
-    unsigned int disabled, tooFar, culled, noCandidates;                 // lights
-    unsigned int records, casters, noGeometry, localView, noEffect, outside, draws;   // casters
-    unsigned int built, candidates, predFlags, predGeometry, predType, predEffect, predStaticSource,
-                 predStaticFeature, predAccepts, accepted, tempRecords, tempNoCasters, tempDegenerate;
-};
-LightShadowDropCounts g_lightShadowDrops = LightShadowDropCounts();
-
 // PE 0x1018FE10
 void updateXpLight(XpLight* light)
 {
@@ -2608,8 +1456,6 @@ void updateXpLight(XpLight* light)
         && !light->source->getEnabled()
         && light->category != 1)
     {
-        if (lightShadowTraceOn())   // [DEV]
-            ++g_lightShadowDrops.disabled;
         setXpLightActive(light, false);
         return;
     }
@@ -2639,29 +1485,21 @@ void updateXpLight(XpLight* light)
     static const bool forceVisible = false;
     if (!visible && forceVisible)
         visible = true;
-    if (!visible && lightShadowTraceOn())   // [DEV] BF2_LIGHT_SHADOW_TRACE
-        ++((light->cameraDistance > 100.0f) ? g_lightShadowDrops.tooFar : g_lightShadowDrops.culled);
     setXpLightActive(light, visible);
 }
 
-void clearXpRecords(XpLight* light)
-{
-    light->records.clear();
-}
-
 // PE 0x101900B0: empties the candidate list (the pointer-vector clear, PE 0x10032330 with
-// 0, 0) and resizes the records to zero with a default LightShadowRecord. prepareXpCandidates
-// carries the same two steps inline. Unreachable in 1.50: no code or data references.
-void clearXpCandidatesAndRecords(XpLight* light)
+// 0, 0); retail also emptied the shadow records ([RENDER] deleted). prepareXpCandidates
+// carries the same step inline. Unreachable in 1.50: no code or data references.
+void clearXpCandidates(XpLight* light)
 {
     light->candidates.clear();
-    clearXpRecords(light);
 }
 
 // PE 0x101900E0
 void prepareXpCandidates(XpLight* light, double time, int flag)
 {
-    clearXpCandidatesAndRecords(light);
+    clearXpCandidates(light);
     if (light->active)
     {
         const int type = lightSourceTemplatePointer(light->source)->getLightTypeEnum();
@@ -2671,8 +1509,6 @@ void prepareXpCandidates(XpLight* light, double time, int flag)
             spotCollect(reinterpret_cast<XpSpotCuller*>(light->culler),
                         time, light->candidates, flag);
     }
-    if (light->active && light->candidates.size() == 0 && lightShadowTraceOn())   // [DEV]
-        ++g_lightShadowDrops.noCandidates;
     if (light->candidates.size() == 0)
         setXpLightActive(light, false);
 }
@@ -2810,10 +1646,6 @@ void* candidateGeometry(world::IObject* candidate)
     return world::object_detail::LayoutAccess::geometry(candidate);
 }
 
-static const unsigned int kBundledMeshReflectionType = 0x870CA651u;
-static const unsigned int kSkinnedMeshReflectionType = 0x870CA652u;
-static const unsigned int kStaticMeshReflectionType  = 0x870CA653u;
-
 
 // Geometry instance dispatch uses fixed primary-table offsets until a shared typed view exists.
 // All supported mesh classes must keep identical arity at these callee-cleanup slots.
@@ -2823,19 +1655,6 @@ inline void* geometrySlot(void* geometry, unsigned int offset)
     return (*reinterpret_cast<void***>(geometry))[offset / 4];
 }
 
-inline IGeometryTemplate* geometryTemplate(void* geometry)
-{
-    typedef void* (__thiscall* GetTemplateFn)(void*);
-    return static_cast<IGeometryTemplate*>(
-        reinterpret_cast<GetTemplateFn>(geometrySlot(geometry, 0x38))(geometry));
-}
-
-// The PE never caches this pair: every caller asks +0x38 and then the template's +0x10 again.
-inline unsigned int geometryReflectionType(void* geometry)
-{
-    return geometryTemplate(geometry)->getClassId();                     // template +0x10
-}
-
 inline const LocalBoundingBox& geometryLocalBounds(void* geometry)
 {
     typedef const void* (__thiscall* GetLocalBoundsFn)(void*);
@@ -2843,608 +1662,9 @@ inline const LocalBoundingBox& geometryLocalBounds(void* geometry)
         reinterpret_cast<GetLocalBoundsFn>(geometrySlot(geometry, 0x40))(geometry));
 }
 
-inline bool geometryAcceptsXpShadow(void* geometry)
-{
-    typedef bool (__thiscall* AcceptsFn)(void*);
-    return reinterpret_cast<AcceptsFn>(geometrySlot(geometry, 0xA8))(geometry);
-}
-
 inline const Mat4& candidateAbsoluteTransformation(world::IObject* candidate)
 {
     return candidate->getAbsoluteTransformation();
-}
-
-inline unsigned int candidateFlags(world::IObject* candidate)
-{
-    return candidate->getFlags();
-}
-
-bool supportedShadowGeometry(unsigned int type)
-{
-    return type == kStaticMeshReflectionType
-        || type == kSkinnedMeshReflectionType
-        || type == kBundledMeshReflectionType;
-}
-
-// PE 0x10161FA0, 0x101620A0
-// The point arm is 0x10161FA0 and the spot arm 0x101620A0.
-bool xpShadowPredicate(void* manager, world::LightSource* source,
-                       world::IObject* candidate, bool point)
-{
-    // [DEV] BF2_LIGHT_SHADOW_TRACE counts which test rejects a candidate.
-    const bool trace = lightShadowTraceOn();
-    void* geometry = point ? 0 : candidateGeometry(candidate);
-    if (!point && !geometry)
-    {
-        if (trace) ++g_lightShadowDrops.predGeometry;
-        return false;
-    }
-    const unsigned int flags = candidateFlags(candidate);
-    if ((flags & 2u) == 0 || (flags & 0x0A000000u) != 0)
-    {
-        if (trace) ++g_lightShadowDrops.predFlags;
-        return false;
-    }
-    if (point)
-        geometry = candidateGeometry(candidate);
-    if (!geometry)
-    {
-        if (trace) ++g_lightShadowDrops.predGeometry;
-        return false;
-    }
-    const unsigned int type = geometryReflectionType(geometry);
-    if (!supportedShadowGeometry(type))
-    {
-        if (trace) ++g_lightShadowDrops.predType;
-        return false;
-    }
-    const ShadowEffectMap& effects = lm(manager).shadowEffects;
-    if (effects.find(type) == effects.end())
-    {
-        if (trace) ++g_lightShadowDrops.predEffect;
-        return false;
-    }
-
-    // PE globals 0x1023A09C/0x1023A0A0 both ship as mode 2. Point adds the
-    // manager +0xC8 feature test; Spot deliberately does not.
-    const bool dynamicSource = lightSourceTemplatePointer(source)->getIsDynamic();
-    if (type == kStaticMeshReflectionType && !dynamicSource)
-    {
-        if (trace) ++g_lightShadowDrops.predStaticSource;
-        return false;
-    }
-    if (point && !g_LightManager->getShadowStaticFeature())
-    {
-        if (trace) ++g_lightShadowDrops.predStaticFeature;
-        return false;
-    }
-    if (type == kStaticMeshReflectionType)
-    {
-        if (trace) ++g_lightShadowDrops.accepted;
-        return true;
-    }
-    const bool accepts = geometryAcceptsXpShadow(geometry);
-    if (trace) ++(accepts ? g_lightShadowDrops.accepted : g_lightShadowDrops.predAccepts);
-    return accepts;
-}
-
-Vec3 transformPoint(const Mat4& matrix, const Vec3& point)
-{
-    Vec3 result;
-    result.x = matrix.m[0] * point.x + matrix.m[4] * point.y
-             + matrix.m[8] * point.z + matrix.m[12];
-    result.y = matrix.m[1] * point.x + matrix.m[5] * point.y
-             + matrix.m[9] * point.z + matrix.m[13];
-    result.z = matrix.m[2] * point.x + matrix.m[6] * point.y
-             + matrix.m[10] * point.z + matrix.m[14];
-    return result;
-}
-
-// PE 0x101613A0.
-bool candidateShadowCorners(world::IObject* candidate, BoxCorners& corners)
-{
-    void* const geometry = candidateGeometry(candidate);
-    if (!geometry)
-        return false;
-
-    // PE 0x101613A0 extends only the lower world-Y side by one unit: move
-    // the object transform down one and raise the copied local max-Y by one.
-    Mat4 transform = candidateAbsoluteTransformation(candidate);
-    transform.m[13] -= 1.0f;
-    LocalBoundingBox box = geometryLocalBounds(geometry);
-    box.m_max.y += 1.0f;
-    box.m_derivedDataDirty = true;
-
-    corners = BoxCorners(box, transform);
-    return true;
-}
-
-// PE 0x10161240.
-bool includeShadowCorners(ShadowProjectionLayout& projection, const BoxCorners& corners)
-{
-    bool inside = true;
-    for (unsigned int i = 0; i < 8; ++i)
-    {
-        // Retail uses bitwise-and assignment and therefore visits all corners.
-        inside = projection.includePoint(corners.corner[i]) & inside;
-    }
-    return inside;
-}
-
-// PE 0x101614D0.
-bool fitProjectionToCandidates(const std::vector<world::IObject*>& candidates,
-                               ShadowProjectionLayout& projection)
-{
-    bool inside = true;
-    for (std::vector<world::IObject*>::const_iterator it = candidates.begin();
-         it != candidates.end(); ++it)
-    {
-        BoxCorners corners;
-        if (candidateShadowCorners(*it, corners))
-            inside = includeShadowCorners(projection, corners) & inside;
-    }
-    return inside;
-}
-
-bool fitProjectionToCandidate(ShadowProjectionLayout& projection,
-                              world::IObject* candidate)
-{
-    std::vector<world::IObject*> candidates(1, candidate);
-    return fitProjectionToCandidates(candidates, projection);
-}
-
-// PE 0x101611F0: unreachable in 1.50: no code or data references. [INFERRED] name. Whether any of the
-// eight corners lies inside the projection's saved frustum; all eight are tested (the results are
-// combined with a bitwise or), unlike includeShadowCorners, which keeps a running and.
-inline bool anyShadowCornerInsideSaved(const ShadowProjectionLayout& projection,
-                                       const BoxCorners& corners)
-{
-    bool inside = false;
-    for (unsigned int i = 0; i < 8; ++i)
-        inside = projection.savedFrustumContains(corners.corner[i]) | inside;
-    return inside;
-}
-
-// PE 0x10161440: unreachable in 1.50: no code or data references. [INFERRED] name. Gathers the terrain
-// nodes inside the projection's saved frustum, then extends the projection over each node's eight bounds
-// corners (node +0x8C). Answers false, without touching the projection, when no node was gathered.
-inline bool fitProjectionToTerrain(ShadowProjectionLayout& projection)
-{
-    Frustum frustum = projection.buildSavedFrustum();
-    terrain()->m_culler->gatherVisibleFrustum(&frustum);
-    const std::vector<TerrainCullerNode*>& nodes = *terrain()->m_culler->gatheredPatches();
-    if (nodes.empty())
-        return false;
-    for (std::vector<TerrainCullerNode*>::const_iterator it = nodes.begin(); it != nodes.end(); ++it)
-        (void)includeShadowCorners(projection,
-                                   *reinterpret_cast<const BoxCorners*>((*it)->corners));
-    return true;
-}
-
-// PE 0x101615D0: unreachable in 1.50: no code or data references. [INFERRED] name. Builds the
-// candidate's shadow corners (the shared 0x101613A0 box, grown one unit down) and answers whether any
-// lies inside the record projection's saved frustum (record +0x498); false without a geometry.
-inline bool candidateInsideRecordFrustum(const XpTemporaryRecord& record, world::IObject* candidate)
-{
-    BoxCorners corners;
-    if (!candidateShadowCorners(candidate, corners))
-        return false;
-    return anyShadowCornerInsideSaved(record.projection, corners);
-}
-
-// PE 0x101623E0.
-void attachShadowCandidate(XpTemporaryRecord& record, world::IObject* candidate)
-{
-    (void)fitProjectionToCandidate(record.projection, candidate);
-    record.record.casters.insert(candidate);
-}
-
-struct ShadowBuildContext
-{
-    world::LightSource* source;
-    std::list<XpTemporaryRecord> records;
-    float farDistance;
-
-    ShadowBuildContext(world::LightSource* value, float distance)
-        : source(value), records(), farDistance(distance)
-    {
-    }
-};
-
-// PE 0x101642F0.
-XpTemporaryRecord* appendTemporaryProjection(ShadowBuildContext& context,
-                                            const ShadowProjectionLayout& projection)
-{
-    const XpTemporaryRecord value(projection);
-    context.records.push_back(value);
-    return &context.records.back();
-}
-
-void appendPointProjection(ShadowBuildContext& context, const Mat4& transform,
-                           float left, float right, float bottom, float top,
-                           bool restoreSides)
-{
-    ShadowProjectionLayout limits(transform, false);
-    ShadowProjectionLayout projection(transform, false);
-    limits.setPerspectiveLimits(left, right, bottom, top, 0.1f, context.farDistance);
-    limits.restoreAll();
-    projection.copyCurrentToSaved(limits);
-    projection.restoreSelected(false, false, false, false, true, false);
-    if (restoreSides)
-        projection.restoreSelected(true, true, true, false, true, false);
-    appendTemporaryProjection(context, projection);
-}
-
-// PE 0x10164540.
-void buildPointFan(void* manager, ShadowBuildContext& context,
-                   const std::vector<world::IObject*>& candidates)
-{
-    static const float degreesToRadians = 0.017444445f;
-    static const float azimuthDegrees = 90.0f;
-    static const float verticalDegrees = 90.0f;
-    const float azimuth = azimuthDegrees * degreesToRadians;
-    const float vertical = verticalDegrees * degreesToRadians;
-
-    Mat4 base = Mat4::getIdentity();
-    const Vec3& sourcePosition = context.source->getAbsolutePosition();
-    base.m[12] += sourcePosition.x;
-    base.m[13] += sourcePosition.y;
-    base.m[14] += sourcePosition.z;
-    Mat4 yaw;
-    setRotateYDeg(yaw, azimuthDegrees);
-    const int sideCount = static_cast<int>(360.0f / azimuthDegrees);
-    for (int i = 0; i < sideCount; ++i)
-    {
-        const Mat4 previous = base;
-        rendmath::rotMult(base, previous, yaw);                       // PE 0x10078180, 3x3 only
-        appendPointProjection(context, base,
-                              -azimuth * 0.5f, azimuth * 0.5f,
-                              -vertical * 0.5f, vertical * 0.5f, true);
-    }
-
-    base = Mat4::getIdentity();
-    const Vec3& capPosition = context.source->getAbsolutePosition();
-    base.m[12] += capPosition.x;
-    base.m[13] += capPosition.y;
-    base.m[14] += capPosition.z;
-    Mat4 pitch;
-    setRotateXDeg(pitch, 90.0f);
-    const Mat4 untranslated = base;
-    rendmath::rotMult(base, untranslated, pitch);                     // PE 0x10078180, 3x3 only
-    const float cap = 3.1400001f - vertical;
-    appendPointProjection(context, base, -cap * 0.5f, cap * 0.5f,
-                          -cap * 0.5f, cap * 0.5f, false);
-
-    world::IObject* const* const begin = candidates.data();
-    const unsigned int count = static_cast<unsigned int>(candidates.size());
-    for (unsigned int i = 0; i < count; ++i)
-    {
-        if (!xpShadowPredicate(manager, context.source, begin[i], true))
-            continue;
-        for (std::list<XpTemporaryRecord>::iterator record = context.records.begin();
-             record != context.records.end(); ++record)
-            attachShadowCandidate(*record, begin[i]);
-    }
-}
-
-// PE 0x10162180; selector 4 at 0x1023A0A4 has no writer in the shipped image.
-float scoreProjection(const XpTemporaryRecord* record, world::IObject* candidate,
-                      float& growth)
-{
-    if (!record)
-        return FLT_MAX;
-    ShadowProjectionLayout projection(record->projection);
-    float oldExtents[4];
-    projection.getExtents(oldExtents);
-    if (!fitProjectionToCandidate(projection, candidate))
-        return FLT_MAX;
-    float newExtents[4];
-    projection.getExtents(newExtents);
-    const float horizontalGrowth = (std::max)(newExtents[0] - oldExtents[0], 0.0f);
-    growth = horizontalGrowth;
-    // PE 0x1023A0A4 ships as selector 4: minimize final horizontal span.
-    return newExtents[0];
-}
-
-// PE 0x101623C0. scoreProjection with the growth output discarded (the callee's pointer argument
-// is an unused stack local, never read). Unreachable in 1.50: no code or data references. The name
-// is [CHOSEN, not recovered].
-float scoreProjectionIgnoringGrowth(const XpTemporaryRecord* record, world::IObject* candidate)
-{
-    float ignoredGrowth;
-    return scoreProjection(record, candidate, ignoredGrowth);
-}
-
-// PE 0x101640D0.
-XpTemporaryRecord* appendAdaptiveProjection(ShadowBuildContext& context,
-                                            world::IObject* candidate)
-{
-    const Vec3 source = matrixTranslation(
-        context.source->getAbsoluteTransformation());
-    const Vec3 target = matrixTranslation(candidateAbsoluteTransformation(candidate));
-    const Vec3 delta = { target.x - source.x, target.y - source.y, target.z - source.z };
-    Vec3 up = { -1.0f * delta.z, delta.y * 0.0f, delta.x };
-    if (dot3(delta, delta) <= FLT_EPSILON)
-    {
-        up.x = delta.x * 0.0f;
-        up.y = -1.0f * delta.z;
-        up.z = delta.y;
-    }
-    shadowNormalizeInPlace(up);
-    Mat4 look;
-    rendmath::calcLookAtMatrix(look, source, target, up);             // PE 0x10078DE0
-
-    ShadowProjectionLayout limits(look, false);
-    ShadowProjectionLayout projection(look, false);
-    limits.setPerspectiveLimits(-0.78500003f, 0.78500003f,
-                                -0.78500003f, 0.78500003f,
-                                0.1f, context.farDistance);
-    limits.restoreAll();
-    projection.copyCurrentToSaved(limits);
-    return appendTemporaryProjection(context, projection);
-}
-
-// The adaptive point pass's threshold selector, 0x10260A14: a zero-initialised dword that nothing writes.
-static int s_adaptiveSelector = 0;
-
-// PE 0x101612C0 (ecx = the build context, two stack floats, retn 8): whether the adaptive point pass
-// adds another projection. At most five records exist; the best candidate must have positive (or NaN)
-// growth; a best score of at least FLT_MAX always adds, otherwise the selector at 0x10260A14 picks the
-// threshold the score must exceed: 0 pi/4, 1 pi/2, 2 size * pi/2 * 0.75, 3 pi/2 (a once-initialised
-// static, 0x10260A0C), any other value never adds. The selector has no writer in the image (loader-zero),
-// so the stock mode 0 is the only one a run reaches; it is kept as a constant, not a recovered setting.
-// [CHOSEN, not recovered] type and storage of the selector (a zero-initialised int with no writer).
-bool shouldAddAdaptiveRecord(const ShadowBuildContext& context, float bestScore, float bestGrowth)
-{
-    const int size = static_cast<int>(context.records.size());
-    if (size >= 5)
-        return false;
-    if (bestGrowth <= 0.0f)                                            // `test ah, 41h; jnp`
-        return false;
-    if (!(bestScore < FLT_MAX) && bestScore == bestScore)              // `test ah, 1; je`
-        return true;
-    switch (s_adaptiveSelector)
-    {
-    case 0:
-        return bestScore > 0.78539819f;                                // 0x3F490FDB
-    case 1:
-    case 3:
-        return bestScore > 1.5707964f;                                 // 0x3FC90FDB (mode 3: a static copy)
-    case 2:
-        return static_cast<double>(size) * 1.5707964f * 0.75 < bestScore;
-    default:
-        return false;
-    }
-}
-
-// PE 0x10164370; the stock policy is the call to PE 0x101612C0 above.
-void buildAdaptivePoint(void* manager, ShadowBuildContext& context,
-                        const std::vector<world::IObject*>& candidates)
-{
-    world::IObject* const* const begin = candidates.data();
-    const unsigned int count = static_cast<unsigned int>(candidates.size());
-    for (unsigned int i = 0; i < count; ++i)
-    {
-        world::IObject* const candidate = begin[i];
-        if (!xpShadowPredicate(manager, context.source, candidate, true))
-            continue;
-
-        XpTemporaryRecord* best = 0;
-        float bestScore = FLT_MAX;
-        float bestGrowth = FLT_MAX;
-        for (std::list<XpTemporaryRecord>::iterator it = context.records.begin();
-             it != context.records.end(); ++it)
-        {
-            float growth = 0.0f;
-            const float score = scoreProjection(&*it, candidate, growth);
-            if (!(score >= bestScore))
-            {
-                best = &*it;
-                bestScore = score;
-                bestGrowth = growth;
-            }
-        }
-
-        // PE selector byte 0x10260A14 is loader-zero.  With the stock scoring
-        // mode this adds a record when horizontal growth exceeds pi/4.
-        if (shouldAddAdaptiveRecord(context, bestScore, bestGrowth))
-        {
-            XpTemporaryRecord* const added = appendAdaptiveProjection(context, candidate);
-            float ignoredGrowth = 0.0f;
-            const float newScore = scoreProjection(added, candidate, ignoredGrowth);
-            if (newScore >= bestGrowth && best)
-                context.records.pop_back();
-            else
-                best = added;
-        }
-
-        if (!dx9rend::rendererPerformanceFlag(2) && best)
-            attachShadowCandidate(*best, candidate);
-    }
-}
-
-// PE 0x10163FC0.
-XpTemporaryRecord* appendSpotProjection(ShadowBuildContext& context)
-{
-    const Mat4 transform = context.source->getAbsoluteTransformation();
-    const float fullAngle = context.source->getConeAngleRads2() * 2.0f;
-    ShadowProjectionLayout limits(transform, false);
-    ShadowProjectionLayout projection(transform, false);
-    const float positive = fullAngle * 0.5f;
-    const float negative = fullAngle * -0.5f;
-    limits.setPerspectiveLimits(negative, positive, negative, positive,
-                                0.1f, context.farDistance);
-    limits.restoreAll();
-    projection.copyCurrentToSaved(limits);
-    return appendTemporaryProjection(context, projection);
-}
-
-// PE 0x101644C0.
-void buildSpotProjection(void* manager, ShadowBuildContext& context,
-                         const std::vector<world::IObject*>& candidates)
-{
-    world::IObject* const* const begin = candidates.data();
-    const unsigned int count = static_cast<unsigned int>(candidates.size());
-    for (unsigned int i = 0; i < count; ++i)
-    {
-        world::IObject* const candidate = begin[i];
-        if (!xpShadowPredicate(manager, context.source, candidate, false))
-            continue;
-        if (context.records.empty())
-        {
-            XpTemporaryRecord* const record = appendSpotProjection(context);
-            float ignoredGrowth;
-            (void)scoreProjection(record, candidate, ignoredGrowth);
-        }
-        attachShadowCandidate(context.records.front(), candidate);
-    }
-}
-
-// PE 0x10079720.
-void makeFrustumPerspectiveMatrix(const Frustum& frustum, Mat4& output)
-{
-#if defined(__APPLE__) || defined(RENDDX9ABI_D3DX9FALLBACK_H)
-    // [CHOSEN, not recovered] These D3DX subsets omit the perspective helper.
-    const float aspect = 1.0f / frustum.m_aspect;
-    const float halfFov = frustum.m_fov * 0.5f;
-    const float scale = std::cos(halfFov) / std::sin(halfFov);
-    output = Mat4::getZero();
-    output.m[0] = scale / aspect;
-    output.m[5] = scale;
-    output.m[10] = frustum.m_farDist / (frustum.m_farDist - frustum.m_nearDist);
-    output.m[11] = 1.0f;
-    output.m[14] = -frustum.m_nearDist * output.m[10];
-#else
-    ::D3DXMatrixPerspectiveFovLH(reinterpret_cast<D3DXMATRIX*>(&output),
-        frustum.m_fov, 1.0f / frustum.m_aspect, frustum.m_nearDist, frustum.m_farDist);
-#endif
-}
-
-// PE 0x10162460, 0x10162660
-// 0x10162460 is the body for one temporary record; 0x10162660 is the range loop that walks the list
-// and passes the manager's +0x788 byte and +0x208 dword to it. This function is the loop with the
-// per-record body in line, and reads those two manager fields inside.
-void materializeShadowRecords(void* manager, XpLight* light, ShadowBuildContext& context)
-{
-    const auto degenerate = [](const float* extents) {
-        if (extents[0] <= FLT_EPSILON || extents[1] <= FLT_EPSILON)
-            return true;
-#if defined(__APPLE__)
-        // [CHOSEN, not recovered] PE 0x1016252F / 0x1016259B compare the retained depth difference.
-        return bf2x87::wide(extents[3]) - extents[2] <= bf2x87::wide(FLT_EPSILON);
-#else
-        return extents[3] - extents[2] <= FLT_EPSILON;
-#endif
-    };
-    for (std::list<XpTemporaryRecord>::iterator it = context.records.begin();
-         it != context.records.end(); ++it)
-    {
-        const bool showFrustum = lm(manager).showFrustums != 0;
-        if (it->record.casters.size() == 0)
-        {
-            if (lightShadowTraceOn())   // [DEV]
-                ++g_lightShadowDrops.tempNoCasters;
-            continue;
-        }
-        ShadowProjectionLayout projection(it->projection.getTransform(), false);
-        projection.copyCurrentToSaved(it->projection);
-        // PE data dword 0x1023A0AC ships as policy 1: restore all fitted bounds.
-        projection.restoreAll();
-        float extents[4];
-        projection.getExtents(extents);
-        if (degenerate(extents))
-        {
-            projection.restoreAll();
-        }
-        projection.getExtents(extents);
-        if (degenerate(extents))
-        {
-            if (lightShadowTraceOn())   // [DEV]
-                ++g_lightShadowDrops.tempDegenerate;
-            continue;
-        }
-
-        LightShadowRecord record;
-        record.source = light->source;
-        for (std::set<world::IObject*>::const_iterator node = it->record.casters.begin();
-             node != it->record.casters.end(); ++node)
-            record.casters.insert(*node);
-        rendmath::frustumAssign(record.frustum, projection.getFrustum());
-        shadowFrustumViewMatrix(record.frustum, record.matrices[1]);
-        makeFrustumPerspectiveMatrix(record.frustum, record.matrices[2]);
-        record.tail494[1] = 1;
-        light->addRecord(record);
-        if (showFrustum)
-            static_cast<IDebugRenderer*>(g_DebugRenderer)->queueFrustum(record.frustum, 0, 0);
-    }
-}
-
-// PE 0x10164980, per light; its range loop and separate flag-0 test are in renderPointShadowMaps
-// (the static-light arm, PE 0x10164CC0, is cited there).
-void buildPointLightRecords(void* manager, XpLight* light, bool adaptive)
-{
-    if (lightSourceTemplatePointer(light->source)->getLightTypeEnum() != 1)
-        return;
-    ShadowBuildContext context(light->source, xpEffectiveRadius(light) + 3.0f);
-    if (adaptive)
-        buildAdaptivePoint(manager, context, xpLightCandidates(light));
-    else
-        buildPointFan(manager, context, xpLightCandidates(light));
-    if (lightShadowTraceOn())   // [DEV] BF2_LIGHT_SHADOW_TRACE
-    {
-        ++g_lightShadowDrops.built;
-        g_lightShadowDrops.candidates += static_cast<unsigned int>(xpLightCandidates(light).size());
-        g_lightShadowDrops.tempRecords += static_cast<unsigned int>(context.records.size());
-    }
-    materializeShadowRecords(manager, light, context);
-}
-
-void buildSpotLightRecords(void* manager, XpLight* light)
-{
-    if (lightSourceTemplatePointer(light->source)->getLightTypeEnum() != 2)
-        return;
-    // PE 0x10167580 calls the source +0x90 radius slot directly here.  Unlike
-    // the point builder it does not apply dynamicLightRangeScale.
-    ShadowBuildContext context(light->source,
-                               light->source->getVisualBoundingRadius() + 3.0f);
-    buildSpotProjection(manager, context, xpLightCandidates(light));
-    materializeShadowRecords(manager, light, context);
-}
-
-// PE 0x10164A80. The point-shadow arm of the light-source tree at manager +0x8CC: for at most the first
-// three entries it queries the objects around the light source, builds the point records (the five-face
-// fan for a dynamic template, otherwise the adaptive builder unless the skip byte or performance flag 1
-// is set) and materializes them. PE 0x10166E69 calls it from renderPointShadowMaps only while the
-// selector dword 0x1023A0CC is neither 2 nor 0; that dword ships as 2 and has no writer, and the tree
-// is never filled, so the call is not wired here. [CHOSEN, not recovered] the tree's mapped type is
-// world::LightSource* (node +0x10 is passed as the source, the key at +0x0C is never read): the tree
-// is empty on every path, so the choice cannot be observed. Unreachable in 1.50 by data: the selector
-// is never different. The name is [CHOSEN, not recovered].
-void buildTreePointRecords(void* manager)
-{
-    // PE data dword 0x1023A0BC ships as 3.0 and has no writer; the byte 0x10260A28 ships as 0 and has none.
-    static const float treeDynamicPointScale = 3.0f;
-    static const bool treeSkipBuild = false;
-    ShadowUnresolvedMap& tree = lm(manager).unresolvedTree8CC;
-    int remaining = 3;
-    for (ShadowUnresolvedMap::iterator it = tree.begin(); it != tree.end() && remaining > 0; ++it, --remaining)
-    {
-        world::LightSource* const source = static_cast<world::LightSource*>(it->second);
-        const world::LightSourceTemplate* const sourceTemplate = lightSourceTemplatePointer(source);
-        float radius = source->getVisualBoundingRadius();
-        if (sourceTemplate->getIsDynamic() && sourceTemplate->getLightTypeEnum() == 1)
-            radius *= treeDynamicPointScale;
-        std::vector<world::IObject*> candidates;
-        pointQueryObjects(matrixTranslation(source->getAbsoluteTransformation()), radius, candidates);
-        ShadowBuildContext context(source, 3.0f + radius);
-        if (sourceTemplate->getIsDynamic())
-            buildPointFan(manager, context, candidates);
-        else if (treeSkipBuild || dx9rend::rendererPerformanceFlag(1))
-            continue;
-        else
-            buildAdaptivePoint(manager, context, candidates);
-        materializeShadowRecords(manager, xpLightForSource(source), context);
-    }
 }
 
 // PE 0x100EED10.
@@ -3474,680 +1694,16 @@ void buildXpGeometryPairs()
     }
 }
 
-// resize(0, Record()): every record destroyed, the storage kept.
-void clearShadowRecordVector(std::vector<LightShadowRecord>& vector)
-{
-    vector.clear();
-}
-
-// clear, then the storage released.
-void destroyShadowRecordVector(std::vector<LightShadowRecord>& vector)
-{
-    std::vector<LightShadowRecord>().swap(vector);
-}
-
-inline world::IObject* objectParent(world::IObject* object)
-{
-    // IObject's parent is an inline field in both shipped images.  The client PE
-    // places it at +0x28 and the shadow pass reads it directly.
-    // (RW-266): ObjectLayoutAccess names it, at the same offset in both flavours.
-    return object ? world::object_detail::LayoutAccess::parent(object) : 0;
-}
-
-inline void* localHumanPlayerRaw()
-{
-    return reinterpret_cast<world::PlayerManager*>(playerManager)->getLocalHumanPlayer();
-}
-
-inline world::IObject* playerVehicleRaw(void* player)
-{
-    return static_cast<world::IPlayer*>(player)->getVehicle();
-}
-
-inline bool playerHasFirstPersonViewRaw(void* player)
-{
-    return static_cast<world::IPlayer*>(player)->hasFirstPersonView();
-}
-
-inline void* queryPlayerControlObject(world::IObject* object)
-{
-    return object->queryInterface(50373u);
-}
-
-void* findPlayerControlObject(world::IObject* object)
-{
-    while (object)
-    {
-        void* const control = queryPlayerControlObject(object);
-        if (control)
-            return control;
-        object = objectParent(object);
-    }
-    return 0;
-}
-
-inline world::IObject* controlOccupyingObject(void* control)
-{
-    return static_cast<world::IPlayerControlObject*>(control)->getOccupingObject();
-}
-
-inline bool controlChildSoldierActive(void* control)
-{
-    return static_cast<world::IPlayerControlObject*>(control)->isChildSoldierActive();
-}
-
-// Reads the host's weapon vector for first-person shadow exclusions.
-// Requires a valid control object; native and VC7.1 hosts have different vector layouts.
-inline world::IObject* const* controlFirstPersonObjectsEnd(void* control)
-{
-    void* const weapons = static_cast<world::IPlayerControlObject*>(control)->getWeapons();
-    std::vector<world::IObject*>& host = *static_cast<std::vector<world::IObject*>*>(weapons);
-    return host.data() + host.size();
-}
-
-inline world::IObject* const* controlFirstPersonObjectsBegin(void* control)
-{
-    void* const weapons = static_cast<world::IPlayerControlObject*>(control)->getWeapons();
-    return static_cast<std::vector<world::IObject*>*>(weapons)->data();
-}
-
-// +0xA0, no arguments: the geometry's owner object (StaticMesh answers the shared const-0 body).
-inline world::IObject* geometryObject(void* geometry)
-{
-    typedef void* (__thiscall* OwnerFn)(void*);
-    return static_cast<world::IObject*>(
-        reinterpret_cast<OwnerFn>(geometrySlot(geometry, 0xA0))(geometry));
-}
-
-bool pointCasterPassesLocalView(void* localPlayer, world::IObject* candidate,
-                                void* geometry, unsigned int reflectionType)
-{
-    // PE data dword 0x1023A0C4 ships as mode 1.  A missing local player or a
-    // value below one rejects the caster rather than disabling only the 1P
-    // exclusions.
-    static const int localFilterMode = 1;
-    if (!localPlayer || localFilterMode < 1)
-        return false;
-
-    world::IObject* const vehicle = playerVehicleRaw(localPlayer);
-    void* const control = findPlayerControlObject(vehicle);
-    world::IObject* const geometryOwner = geometryObject(geometry);
-
-    if (localFilterMode == 1)
-    {
-        if (playerHasFirstPersonViewRaw(localPlayer) && control
-            && controlChildSoldierActive(control)
-            && objectParent(candidate) == controlOccupyingObject(control))
-            return false;
-        if (playerHasFirstPersonViewRaw(localPlayer) && geometryOwner
-            && playerVehicleRaw(localPlayer) == objectParent(geometryOwner))
-            return false;
-        if (playerHasFirstPersonViewRaw(localPlayer)
-            && playerVehicleRaw(localPlayer) == candidate)
-            return false;
-    }
-    else if (localFilterMode == 2
-             && playerHasFirstPersonViewRaw(localPlayer) && control
-             && controlChildSoldierActive(control)
-             && controlOccupyingObject(control) == geometryOwner)
-    {
-        return false;
-    }
-
-    if (reflectionType != kStaticMeshReflectionType)
-    {
-        // Preserve the three shipped virtual calls and its missing null guard.
-        world::IObject* const* const originalEnd = controlFirstPersonObjectsEnd(control);
-        world::IObject* const* const end = controlFirstPersonObjectsEnd(control);
-        world::IObject* const* cursor = controlFirstPersonObjectsBegin(control);
-        while (cursor != end && *cursor != candidate)
-            ++cursor;
-        if (playerHasFirstPersonViewRaw(localPlayer) && cursor != originalEnd)
-            return false;
-    }
-
-    if (playerHasFirstPersonViewRaw(localPlayer) && (candidateFlags(candidate) & 2u) == 0)
-        return false;
-    return true;
-}
-
-// PE 0x10167AD0; includes the caller's following ordinal increment (0x10166F28).
-void assignPointShadowAtlas(void* manager, LightShadowRecord& record)
-{
-    // Point/spot records use an equal-tile square atlas rather
-    // than the directional 28-entry placement table.  There is intentionally
-    // no zero/divisibility guard around the retail integer division.
-    const int atlasSize = lm(manager).shadowMapSize;
-    const int tileSize = lm(manager).shadowTileSize;
-    const int columns = atlasSize / tileSize;
-    const int ordinal = static_cast<int>(g_shadowRecordOrdinal);
-    const int x = tileSize * (ordinal % columns);
-    const int y = tileSize * (ordinal / columns);
-
-    D3DVIEWPORT9 viewport;
-    viewport.X = static_cast<DWORD>(x + 3);
-    viewport.Y = static_cast<DWORD>(y + 3);
-    viewport.Width = static_cast<DWORD>(tileSize - 6);
-    viewport.Height = static_cast<DWORD>(tileSize - 6);
-    viewport.MinZ = 0.0f;
-    viewport.MaxZ = 1.0f;
-    IDirect3DDevice9* const device =
-        lm(manager).device;
-    device->SetViewport(&viewport);
-    RECT scissor = { x + 3, y + 3, x + tileSize - 3, y + tileSize - 3 };
-    device->SetScissorRect(&scissor);
-
-    const float inverseAtlas = 1.0f / static_cast<float>(atlasSize);
-#if defined(__APPLE__)
-    // [CHOSEN, not recovered] FILD keeps signed sizes and unsigned coordinates exact until stores.
-    const float scale = bf2x87::store(bf2x87::wide(tileSize) / bf2x87::wide(atlasSize));
-    const float u = bf2x87::store(bf2x87::wide(static_cast<unsigned int>(x)) * inverseAtlas);
-    const float v = bf2x87::store(bf2x87::wide(static_cast<unsigned int>(y)) * inverseAtlas);
-#else
-    const float scale = static_cast<float>(tileSize) / static_cast<float>(atlasSize);
-    const float u = static_cast<float>(static_cast<unsigned int>(x)) * inverseAtlas;
-    const float v = static_cast<float>(static_cast<unsigned int>(y)) * inverseAtlas;
-#endif
-    record.atlasScaleOffset[0] = u;
-    record.atlasScaleOffset[1] = v;
-    record.atlasScaleOffset[2] = scale;
-    record.atlasScaleOffset[3] = scale;
-    record.matrices[8] = Mat4::getIdentity();
-    record.matrices[8].m[0] = scale;
-    record.matrices[8].m[5] = scale;
-    record.matrices[8].m[12] = u;
-    record.matrices[8].m[13] = v;
-    record.atlasBounds[0] = u;
-    record.atlasBounds[1] = v;
-    record.atlasBounds[2] = u + scale;
-    record.atlasBounds[3] = v + scale;
-    ++g_shadowRecordOrdinal;
-}
-
-// +0x20, the shadow-map draw, as the point/spot path calls it (0x10167462..0x10167479):
-// `push 0; push 0; push &rec+10h; push &rec+278h; push &rec+238h; push rec`. So the six stack
-// arguments are the record, its matrices[1] (+0x238) and matrices[2] (+0x278), its frustum (+0x10),
-// and the two zeros the directional arm fills with (secondPass, reflectionChanged) instead.
-inline void geometryDrawShadow(void* geometry, LightShadowRecord* record,
-                               int secondPass, int effectChanged)
-{
-    typedef void (__thiscall* DrawShadowMapFn)(void*, void*, const void*, const void*,
-                                               const void*, unsigned int, unsigned int);
-    reinterpret_cast<DrawShadowMapFn>(geometrySlot(geometry, 0x20))(
-        geometry, record, &record->matrices[1], &record->matrices[2], &record->frustum,
-        static_cast<unsigned int>(secondPass), static_cast<unsigned int>(effectChanged));
-}
-
-void submitShadowCaster(void* manager, LightShadowRecord& record,
-                        world::IObject* candidate, void* localPlayer,
-                        bool applyPointFilter)
-{
-    const bool trace = lightShadowTraceOn();   // [DEV] BF2_LIGHT_SHADOW_TRACE
-    if (trace)
-        ++g_lightShadowDrops.casters;
-    void* const geometry = candidateGeometry(candidate);
-    if (!geometry)
-    {
-        if (trace)
-            ++g_lightShadowDrops.noGeometry;
-        return;
-    }
-
-    // The PE asks the geometry for its template and reflection id twice.
-    const unsigned int filterType = geometryReflectionType(geometry);
-    const unsigned int effectType = geometryReflectionType(geometry);
-    if (applyPointFilter
-        && !pointCasterPassesLocalView(localPlayer, candidate, geometry, filterType))
-    {
-        if (trace)
-            ++g_lightShadowDrops.localView;
-        return;
-    }
-
-    const ShadowEffectMap& effects = lm(manager).shadowEffects;
-    const ShadowEffectMap::const_iterator effectNode = effects.find(effectType);
-    if (effectNode == effects.end())
-    {
-        if (trace)
-            ++g_lightShadowDrops.noEffect;
-        return;
-    }
-
-    if (applyPointFilter)
-    {
-        // The loader-zero debug bytes bypassing this cull and filtering dynamic
-        // sources are deliberately absent here; the stock arm performs the
-        // Frustum test and only performance flag 4 suppresses the draw.
-        if (!rendmath::frustumInside(record.frustum, objectAbsolutePosition(candidate),
-                                      objectVisualRadius(candidate))
-            || dx9rend::rendererPerformanceFlag(4))
-        {
-            if (trace)
-                ++g_lightShadowDrops.outside;
-            return;
-        }
-    }
-
-    if (trace)
-        ++g_lightShadowDrops.draws;
-    dx9rend::stateManagerPush();
-    dx9rend::effectBegin(effectNode->second);
-    dx9rend::effectBeginPass(effectNode->second, 1);
-    geometryDrawShadow(geometry, &record, 0, 0);
-    dx9rend::effectEnd(effectNode->second);
-    dx9rend::stateManagerPop();
-}
-
-void renderXpLightRecords(void* manager, XpLight* light, void* localPlayer,
-                          bool applyPointFilter)
-{
-    LightShadowRecord* const records = light->records.data();
-    const unsigned int count = static_cast<unsigned int>(light->records.size());
-    if (lightShadowTraceOn())   // [DEV] BF2_LIGHT_SHADOW_TRACE
-        g_lightShadowDrops.records += count;
-    for (unsigned int i = 0; i < count; ++i)
-    {
-        LightShadowRecord& record = records[i];
-        record.flags448[0] = 0;
-        assignPointShadowAtlas(manager, record);
-        for (std::set<world::IObject*>::const_iterator node = record.casters.begin();
-             node != record.casters.end(); ++node)
-        {
-            submitShadowCaster(manager, record, *node, localPlayer, applyPointFilter);
-        }
-    }
-}
-
-// PE 0x10166DB0, 0x10164CC0
-// 0x10164CC0 is the flag-0-guarded loop over one light vector (the static lights here) that builds the
-// adaptive point records per light and materializes them; it is in line below.
-void renderPointShadowMaps(void* manager)
-{
-    // PE 0x10166DB0 stock selector 2: dynamic lights use the five-face fan,
-    // static lights use the adaptive builder, and submission orders static
-    // records before dynamic records.  +0x7DC remains empty in this mode.
-    clearShadowRecordVector(lm(manager).pointRecords);
-    if (!dx9rend::rendererPerformanceFlag(0))
-    {
-        for (std::vector<XpLight*>::iterator it = g_xpCoordinator.dynamicFrame.begin();
-             it != g_xpCoordinator.dynamicFrame.end(); ++it)
-            buildPointLightRecords(manager, *it, false);
-    }
-    if (!dx9rend::rendererPerformanceFlag(0))
-    {
-        for (std::vector<XpLight*>::iterator it = g_xpCoordinator.staticFrame.begin();
-             it != g_xpCoordinator.staticFrame.end(); ++it)
-            buildPointLightRecords(manager, *it, true);
-    }
-
-    void* const localPlayer = localHumanPlayerRaw();
-    if (dx9rend::rendererPerformanceFlag(5))
-        destroyShadowRecordVector(lm(manager).pointRecords);
-
-    for (std::vector<XpLight*>::iterator it = g_xpCoordinator.staticFrame.begin();
-         it != g_xpCoordinator.staticFrame.end(); ++it)
-        renderXpLightRecords(manager, *it, localPlayer, true);
-    for (std::vector<XpLight*>::iterator it = g_xpCoordinator.dynamicFrame.begin();
-         it != g_xpCoordinator.dynamicFrame.end(); ++it)
-        renderXpLightRecords(manager, *it, localPlayer, true);
-
-    if (dx9rend::rendererPerformanceFlag(6))
-        destroyShadowRecordVector(lm(manager).pointRecords);
-    lm(manager).unresolvedTree8CC.clear();
-}
-
-void appendShadowRecords(std::vector<LightShadowRecord>& destination,
-                         const std::vector<LightShadowRecord>& source)
-{
-    const LightShadowRecord* const records = source.data();
-    const unsigned int count = static_cast<unsigned int>(source.size());
-    for (unsigned int i = 0; i < count; ++i)
-        destination.push_back(records[i]);
-}
-
-// PE 0x10167580.
-void renderSpotShadowMaps(void* manager)
-{
-    // PE 0x10167580 is gated by signed BSS dword 0x10260A74 <= 0; its
-    // loader-zero stock value enters this arm.
-    static const int skipSpotPass = 0;
-    if (skipSpotPass > 0)
-        return;
-
-    std::vector<LightShadowRecord>& spotRecords = lm(manager).spotRecords;
-    clearShadowRecordVector(spotRecords);
-    if (!g_xpCoordinator.dynamicFrame.empty())
-    {
-        // Retail never advances the selected iterator: it builds the first
-        // dynamic XpLight three times, regardless of the vector's length.
-        XpLight* const first = g_xpCoordinator.dynamicFrame.front();
-        for (int remaining = 3; remaining > 0; --remaining)
-            buildSpotLightRecords(manager, first);
-    }
-
-    (void)localHumanPlayerRaw(); // shipped side-effect call; result is discarded
-    LightShadowRecord* const records = spotRecords.data();
-    const unsigned int count = static_cast<unsigned int>(spotRecords.size());
-    for (unsigned int i = 0; i < count; ++i)
-    {
-        records[i].flags448[0] = 0;
-        assignPointShadowAtlas(manager, records[i]);
-        for (std::set<world::IObject*>::const_iterator node = records[i].casters.begin();
-             node != records[i].casters.end(); ++node)
-        {
-            submitShadowCaster(manager, records[i], *node, 0, false);
-        }
-    }
-
-    // In the observed stock path +0x7CC has no producer, so this appends an
-    // empty range.  Keep the range operation rather than synthesising spot
-    // records into the manager vector.
-    appendShadowRecords(lm(manager).pointRecords, spotRecords);
-}
-
-// The directional path below is PE 0x10164DC0 and its TSM fitter at 0x101626B0.  Keep the
-// projective multiply local: Mat4::mult is deliberately the affine fast path and therefore cannot
-// represent the trapezoid projection's m[3] term.
-Mat4 multiplyShadowMatrices(const Mat4& lhs, const Mat4& rhs)
-{
-    Mat4 result;
-    ::D3DXMatrixMultiply(reinterpret_cast<D3DXMATRIX*>(&result),
-        reinterpret_cast<const D3DXMATRIX*>(&lhs), reinterpret_cast<const D3DXMATRIX*>(&rhs));
-    return result;
-}
-
-
-float shadowProductDifference(float a, float b, float c, float d)
-{
-#if defined(__APPLE__)
-    // [CHOSEN, not recovered] Both x87 products survive until the single difference store.
-    return bf2x87::store(bf2x87::wide(a) * b - bf2x87::wide(c) * d);
-#else
-    return a * b - c * d;
-#endif
-}
-
-// PE 0x10169A90. Leaves the destination untouched for a degenerate intersection.
-bool intersectShadowPlanes(const Plane3& a, const Plane3& b, const Plane3& c, Vec3& output)
-{
-    const Vec3 ab = { shadowProductDifference(a.normal.z, b.normal.y, a.normal.y, b.normal.z),
-                      shadowProductDifference(a.normal.x, b.normal.z, a.normal.z, b.normal.x),
-                      shadowProductDifference(a.normal.y, b.normal.x, b.normal.y, a.normal.x) };
-    const Vec3 ac = { shadowProductDifference(a.normal.y, c.normal.z, a.normal.z, c.normal.y),
-                      shadowProductDifference(a.normal.z, c.normal.x, c.normal.z, a.normal.x),
-                      shadowProductDifference(c.normal.y, a.normal.x, a.normal.y, c.normal.x) };
-    const Vec3 cb = { shadowProductDifference(b.normal.z, c.normal.y, b.normal.y, c.normal.z),
-                      shadowProductDifference(b.normal.x, c.normal.z, b.normal.z, c.normal.x),
-                      shadowProductDifference(b.normal.y, c.normal.x, c.normal.y, b.normal.x) };
-#if defined(__APPLE__)
-    // [CHOSEN, not recovered] The determinant has one final single-precision store.
-    const float determinant = bf2x87::store(bf2x87::wide(ab.z) * c.normal.z
-        + bf2x87::wide(ab.y) * c.normal.y + bf2x87::wide(ab.x) * c.normal.x);
-#else
-    const float determinant = ab.z * c.normal.z + ab.y * c.normal.y + ab.x * c.normal.x;
-#endif
-    unsigned int bits;
-    ::memcpy(&bits, &determinant, sizeof(bits));
-    bits &= 0x7F800000u;
-    if (bits == 0 || bits == 0x7F800000u)
-        return false;
-
-    const Vec3 dAB = { ab.x * c.d, ab.y * c.d, ab.z * c.d };
-    const Vec3 dAC = { ac.x * b.d, ac.y * b.d, ac.z * b.d };
-    const Vec3 dCB = { cb.x * a.d, cb.y * a.d, cb.z * a.d };
-#if defined(__APPLE__)
-    // [CHOSEN, not recovered] Keep the reciprocal in x87 precision until the output stores.
-    const bf2x87::Real inverse = bf2x87::div(bf2x87::wide(1.0f), bf2x87::wide(determinant));
-    const float sumX = bf2x87::store((bf2x87::wide(dAC.x) + dAB.x) + dCB.x);
-    const float sumY = bf2x87::store(-((bf2x87::wide(dAC.y) + dAB.y) + dCB.y));
-    output.x = bf2x87::store(bf2x87::wide(-sumX) * inverse);
-    output.y = bf2x87::store(bf2x87::wide(sumY) * inverse);
-    const float sumZ = dAC.z + dAB.z;
-    output.z = bf2x87::store(-(bf2x87::wide(sumZ) + dCB.z) * inverse);
-#else
-    const float inverse = 1.0f / determinant;
-    output.x = -((dAC.x + dAB.x) + dCB.x) * inverse;
-    output.y = -((dAC.y + dAB.y) + dCB.y) * inverse;
-    const float sumZ = dAC.z + dAB.z;
-    output.z = -(sumZ + dCB.z) * inverse;
-#endif
-    return true;
-}
-
-// Shadow-fit math helpers that nothing calls or references in 1.50: unreachable in 1.50: no code or
-// data references. Each body is the listing's own, in float (RendDX9 runs its x87 at 24-bit
-// precision, so every step rounds to float). The names, and the owner types of the pointer
-// arguments, are [CHOSEN, not recovered]: no caller exposes them.
-
-// PE 0x10169D40: the adjugate (transposed cofactors) of a row-major 3x3 matrix, ecx = input and
-// edx = output.
-void shadowAdjugate3(const float* m, float* out)
-{
-    out[0] = m[4] * m[8] - m[7] * m[5];
-    out[3] = m[6] * m[5] - m[3] * m[8];
-    out[6] = m[7] * m[3] - m[6] * m[4];
-    out[1] = m[7] * m[2] - m[1] * m[8];
-    out[4] = m[0] * m[8] - m[2] * m[6];
-    out[7] = m[1] * m[6] - m[7] * m[0];
-    out[2] = m[1] * m[5] - m[2] * m[4];
-    out[5] = m[2] * m[3] - m[0] * m[5];
-    out[8] = m[4] * m[0] - m[1] * m[3];
-}
-
-// PE 0x10169DE0: the row-major 3x3 projective matrix of the unit square onto the quad of 2D points
-// a, b, c, d (ecx, edx and two stack arguments; the output is the third stack argument, retn 0xC).
-// Row 2 is (a.x, a.y, 1).
-void shadowSquareToQuad(const float* a, const float* b, const float* c, const float* d, float* out)
-{
-    const float sumX = (c[0] - d[0]) + (a[0] - b[0]);
-    const float sumY = (a[1] - b[1]) + (c[1] - d[1]);
-    const float u1 = b[0] - c[0];
-    const float u2 = d[0] - c[0];
-    const float v1 = b[1] - c[1];
-    const float v2 = d[1] - c[1];
-    const float inverse = 1.0f / (v2 * u1 - v1 * u2);
-    out[2] = (v2 * sumX - u2 * sumY) * inverse;
-    out[5] = (u1 * sumY - v1 * sumX) * inverse;
-    out[8] = 1.0f;
-    out[0] = (b[0] - a[0]) + b[0] * out[2];
-    out[3] = (d[0] - a[0]) + out[5] * d[0];
-    out[6] = a[0];
-    out[1] = b[1] * out[2] + (b[1] - a[1]);
-    out[4] = out[5] * d[1] + (d[1] - a[1]);
-    out[7] = a[1];
-}
-
-// PE 0x10169EB0: the intersection of two 2D lines, each four floats (point x, y, direction x, y): the
-// parameter along the first line is computed against the second line's reciprocal y direction, and
-// the point is written to out (two floats). Always answers true (eax = 1); a parallel pair divides
-// by zero, as shipped.
-bool shadowIntersectLines2(float* out, const float* first, const float* second)
-{
-    const float reciprocal = 1.0f / second[3];
-    const float numerator = (first[0] - second[0]) - reciprocal * second[2] * (first[1] - second[1]);
-    const float denominator = reciprocal * first[3] * second[2] - first[2];
-    const float parameter = numerator / denominator;
-    out[0] = parameter * first[2] + first[0];
-    out[1] = parameter * first[3] + first[1];
-    return true;
-}
-
-// PE 0x10169F50: zero-fills the six planes at the start of an object and answers the object (the
-// constructor of a six-plane set).
-Plane3* shadowPlaneSetConstruct(Plane3* planes)
-{
-    for (int i = 0; i < 6; ++i)
-    {
-        planes[i].normal.x = 0.0f;
-        planes[i].normal.y = 0.0f;
-        planes[i].normal.z = 0.0f;
-        planes[i].d = 0.0f;
-    }
-    return planes;
-}
-
-// PE 0x1016A7A0: classifies an axis-aligned box (min x, y, z, max x, y, z) against six planes
-// ({nx, ny, nz, d}, stride four floats) whose octant masks follow at +0x60 of the owning object: 0 when
-// the mask-selected corner is behind a plane, 2 when only the opposite corner is behind a plane, 1
-// when neither is behind any. A NaN distance counts as not behind.
-unsigned int shadowClassifyBox(const float* planes, const unsigned int* masks, const float* box)
-{
-    bool straddles = false;
-    for (int i = 0; i < 6; ++i)
-    {
-        const float* const plane = planes + 4 * i;
-        const unsigned int mask = masks[i];
-        const float nearX = (mask & 1u) ? box[0] : box[3];
-        const float nearY = (mask & 2u) ? box[1] : box[4];
-        const float nearZ = (mask & 4u) ? box[2] : box[5];
-        const float farX = (mask & 1u) ? box[3] : box[0];
-        const float farY = (mask & 2u) ? box[4] : box[1];
-        const float farZ = (mask & 4u) ? box[5] : box[2];
-        if (((nearX * plane[0] + nearZ * plane[2]) + nearY * plane[1]) + plane[3] < 0.0f)
-            return 0;
-        if (((farX * plane[0] + farZ * plane[2]) + farY * plane[1]) + plane[3] < 0.0f)
-            straddles = true;
-    }
-    return straddles ? 2u : 1u;
-}
-
-// PE 0x1016BEB0: the square-to-quad matrix of a, b, c, d (shadowSquareToQuad) with its first two rows
-// halved and the third row shifted by the sums of the halved columns, then adjugated into out.
-void shadowQuadToClipMatrix(const float* a, const float* b, const float* c, const float* d, float* out)
-{
-    float m[9] = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f };
-    shadowSquareToQuad(a, b, c, d, m);
-    m[0] = m[0] * 0.5f;
-    m[3] = m[3] * 0.5f;
-    m[6] = m[6] - (m[3] + m[0]) * -1.0f;
-    m[1] = m[1] * 0.5f;
-    m[4] = m[4] * 0.5f;
-    m[7] = m[7] - (m[1] + m[4]) * -1.0f;
-    m[2] = m[2] * 0.5f;
-    m[5] = m[5] * 0.5f;
-    m[8] = m[8] - (m[2] + m[5]) * -1.0f;
-    shadowAdjugate3(m, out);
-}
-
-// [INFERRED] Local name for the projection-derived six-plane record (+0x78 corners).
-struct ShadowReceiverFrustum
-{
-    Plane3 planes[6];
-    unsigned int outcodes[6];
-    Vec3 corners[8];
-
-    // PE 0x1016A0C0. Uses column 3 +/- columns 0, 1, 2, including the shipped near-plane rule.
-    explicit ShadowReceiverFrustum(const Mat4& projection)
-    {
-        for (unsigned int column = 0; column < 3; ++column)
-        {
-            Plane3& minus = planes[column * 2];
-            Plane3& plus = planes[column * 2 + 1];
-            minus.normal = { projection.m[3] - projection.m[column],
-                             projection.m[7] - projection.m[column + 4],
-                             projection.m[11] - projection.m[column + 8] };
-            minus.d = projection.m[15] - projection.m[column + 12];
-            plus.normal = { projection.m[column] + projection.m[3],
-                            projection.m[column + 4] + projection.m[7],
-                            projection.m[column + 8] + projection.m[11] };
-            plus.d = projection.m[column + 12] + projection.m[15];
-        }
-        for (unsigned int i = 0; i < 6; ++i)
-        {
-            Plane3& p = planes[i];
-#if defined(__APPLE__)
-            // [CHOSEN, not recovered] Preserve the x87 reciprocal through the four stores.
-            const bf2x87::Real length = bf2x87::squareRoot(
-                bf2x87::wide(p.normal.x) * p.normal.x
-                + bf2x87::wide(p.normal.y) * p.normal.y
-                + bf2x87::wide(p.normal.z) * p.normal.z);
-            const bf2x87::Real inverse = bf2x87::wide(1.0f) / length;
-            p.normal.x = bf2x87::store(inverse * p.normal.x);
-            p.normal.y = bf2x87::store(inverse * p.normal.y);
-            p.normal.z = bf2x87::store(inverse * p.normal.z);
-            p.d = bf2x87::store(inverse * p.d);
-#else
-            const float inverse = 1.0f / std::sqrt(p.normal.x * p.normal.x
-                + p.normal.y * p.normal.y + p.normal.z * p.normal.z);
-            p.normal.x *= inverse;
-            p.normal.y *= inverse;
-            p.normal.z *= inverse;
-            p.d *= inverse;
-#endif
-            outcodes[i] = (p.normal.x < 0.0f ? 1u : 0u)
-                        | (p.normal.y < 0.0f ? 2u : 0u)
-                        | (p.normal.z < 0.0f ? 4u : 0u);
-        }
-        for (unsigned int i = 0; i < 8; ++i)
-            intersectShadowPlanes(planes[(i & 4u) ? 0 : 1],
-                planes[(i & 2u) ? 3 : 2], planes[(i & 1u) ? 4 : 5], corners[i]);
-    }
-};
-
-
-// Builds directional-shadow candidates, transforms, records, and TSM draws, then attaches
-// followers and renders the quality-three static map. Resets viewport/scissor afterward.
-
-
-Mat4 shadowClipBias()
-{
-    Mat4 result = Mat4::getIdentity();
-    result.m[0] = 0.5f;
-    result.m[5] = -0.5f;
-    result.m[12] = 0.5f;
-    result.m[13] = 0.5f;
-    return result;
-}
-
-void rebuildRecordAtlasMatrix(LightShadowRecord& record)
-{
-    record.matrices[8] = Mat4::getIdentity();
-    record.matrices[8].m[0] = record.atlasScaleOffset[2];
-    record.matrices[8].m[5] = record.atlasScaleOffset[3];
-    record.matrices[8].m[12] = record.atlasScaleOffset[0];
-    record.matrices[8].m[13] = record.atlasScaleOffset[1];
-}
-
-// The two object-transform dispatches in the directional arm are deliberately
-// repeated; retail does not cache the first result.
-// PE 0x101617E0.
-void finalizeShadowRecords(void* manager)
-{
-    const Mat4 bias = shadowClipBias();
-    // [RENDER] Retail finalised the directional (sun) records first; none are built any more.
-    std::vector<LightShadowRecord>& secondary = lm(manager).secondaryRecords;
-    LightShadowRecord* records = secondary.data();
-    unsigned int count = static_cast<unsigned int>(secondary.size());
-    for (unsigned int i = 0; i < count; ++i)
-    {
-        LightShadowRecord& record = records[i];
-        rebuildRecordAtlasMatrix(record);
-        record.matrices[4] = multiplyShadowMatrices(
-            record.matrices[1], record.matrices[2]);
-        // PE dword 0x1023A098 ships as one and has no writer.
-        record.matrices[4] = multiplyShadowMatrices(record.matrices[4], bias);
-        record.matrices[4] = multiplyShadowMatrices(
-            record.matrices[4], record.matrices[8]);
-        record.atlasBounds[0] = record.atlasScaleOffset[0];
-        record.atlasBounds[1] = record.atlasScaleOffset[1];
-        record.atlasBounds[2] = record.atlasScaleOffset[0] + record.atlasScaleOffset[2];
-        record.atlasBounds[3] = record.atlasScaleOffset[1] + record.atlasScaleOffset[3];
-    }
-}
-
 // PE 0x100F3FB0.
 void destroyLightManager(void* self)
 {
     LightManagerData& d = lm(self);
     // Restore all three most-derived tables before touching any owned state.
     d.primaryVtable = kPrimaryVtable;
-    d.deviceLostVtable = kDeviceLostVtable;
     d.renderPathVtable = kRenderPathVtable;
 
     if (d.simpleShadowMap)
         ::renddx9abi::engineFree(d.simpleShadowMap);
-
-    releaseShadowEffects(d.shadowEffects);
 
     dx9rend::textureReleaseRef(d.normalCubeTexture);
     dx9rend::textureReleaseRef(d.whiteTexture);
@@ -4184,7 +1740,6 @@ void destroyLightManager(void* self)
         dx9rend::textureReleaseRef(d.specularLuts[i]);
     d.currentSpecularLut = 0;
 
-    releaseShadowResources(self, true);
     if (d.skyLight)
         d.skyLight->release();
 
@@ -4204,8 +1759,6 @@ void destroyLightManager(void* self)
     }
 
     d.device->Release();
-    dx9rend::unregisterDeviceLostResetListener(
-        reinterpret_cast<dx9rend::DeviceLostResetListener*>(&d.deviceLostVtable));
     dx9rend::unregisterRenderPathListener(
         reinterpret_cast<dx9rend::RenderPathListener*>(&d.renderPathVtable));
 
@@ -5152,29 +2705,12 @@ float sampleSimpleShadowMapFiltered(void* self, float x, float z)
 #endif
 }
 
-// +0xEC, PE 0x1015CEC0. Enabling publishes the byte before resource creation, then replaces it with
-// the creation result. Disabling clears the three render-record vectors before invoking the device-
-// lost listener on the secondary this pointer.
+// +0xEC, PE 0x1015CEC0. [RENDER] Retail created the point/spot shadow maps on enabling (the byte
+// became the creation result) and cleared their records and released them on disabling; with those
+// maps deleted the byte is only stored.
 void RD9_THUNK lm_setDynamicShadowsEnabled(void* self RD9_THUNK_EDX, bool enabled)
 {
-    unsigned char& current = lm(self).dynamicShadowsEnabled;
-    if (enabled)
-    {
-        if (!current)
-        {
-            current = 1;
-            current = createShadowResourcesBody(self) ? 1 : 0;
-        }
-        return;
-    }
-
-    if (current)
-    {
-        clearShadowRecordVector(lm(self).spotRecords);
-        clearShadowRecordVector(lm(self).pointRecords);
-        current = 0;
-        releaseShadowResources(self, true);
-    }
+    lm(self).dynamicShadowsEnabled = enabled ? 1 : 0;
 }
 bool RD9_THUNK lm_getDynamicShadowsEnabled(void* self RD9_THUNK_EDX)
 {
@@ -5244,68 +2780,13 @@ bool RD9_THUNK lm_getShadowStaticFeature(void* self RD9_THUNK_EDX)
     return lm(self).shadowStaticFeature != 0;
 }
 
-// +0x19C, PE 0x101679A0.  Profiler counters and the loader-zero diagnostic flush are nonfunctional
-// instrumentation; the renderer state, target, point/spot and finalizer ordering is otherwise the
-// shipped transaction.  [RENDER] Retail rendered the directional (sun) shadow maps first
-// (unless performance flag 20); the sun cascades (RendDX9/SunShadows.cpp) replace them, and the
-// directional pass, its records and every receiver of them are deleted (docs/eon64/renderer.md,
-// step 6).
-void RD9_THUNK lm_renderShadowMaps(void* self RD9_THUNK_EDX)
+// +0x19C, PE 0x101679A0. [RENDER] Retail rendered the directional (sun) shadow maps, then the
+// point/spot maps, here. The sun cascades (RendDX9/SunShadows.cpp) replace the first; the second
+// never drew outside the expansion pack (retail kept a light's records only under its policy
+// byte, which PE 0x1018FB10 cleared there), so its pass, atlas and receivers are deleted
+// (docs/eon64/renderer.md, step 6). The slot stays for the interface layout.
+void RD9_THUNK lm_renderShadowMaps(void* RD9_THUNK_EDX)
 {
-    if (lightShadowTraceOn())   // [DEV] BF2_LIGHT_SHADOW_TRACE; record counts are last frame's
-    {
-        static unsigned int frames = 0;
-        if (frames++ % 300 == 0)
-            std::fprintf(stderr, "[LSHADOW] frame %u: skyLight %d dynamicShadows %d updates %d | "
-                         "registered %u (static %u, dynamic %u) | this frame static %u dynamic %u | "
-                         "spot records %u | inactive: disabled %u far %u culled %u no candidates %u | "
-                         "point records %u casters %u: no geometry %u local view %u no effect %u "
-                         "outside %u drawn %u\n",
-                         frames - 1, lm(self).skyLight ? 1 : 0, lm(self).dynamicShadowsEnabled,
-                         lm(self).shadowUpdatesEnabled,
-                         static_cast<unsigned int>(g_xpCoordinator.bySource.size()),
-                         static_cast<unsigned int>(g_xpCoordinator.staticLights.size()),
-                         static_cast<unsigned int>(g_xpCoordinator.dynamicLights.size()),
-                         static_cast<unsigned int>(g_xpCoordinator.staticFrame.size()),
-                         static_cast<unsigned int>(g_xpCoordinator.dynamicFrame.size()),
-                         static_cast<unsigned int>(lm(self).spotRecords.size()),
-                         g_lightShadowDrops.disabled, g_lightShadowDrops.tooFar,
-                         g_lightShadowDrops.culled, g_lightShadowDrops.noCandidates,
-                         g_lightShadowDrops.records, g_lightShadowDrops.casters,
-                         g_lightShadowDrops.noGeometry, g_lightShadowDrops.localView,
-                         g_lightShadowDrops.noEffect, g_lightShadowDrops.outside,
-                         g_lightShadowDrops.draws);
-        if ((frames - 1) % 300 == 0)
-            std::fprintf(stderr, "[LSHADOW]   build: lights %u candidates %u | rejected: flags %u "
-                         "geometry %u type %u effect %u static-source %u static-feature %u accepts %u | "
-                         "accepted %u | temp records %u: no casters %u degenerate %u\n",
-                         g_lightShadowDrops.built, g_lightShadowDrops.candidates,
-                         g_lightShadowDrops.predFlags, g_lightShadowDrops.predGeometry,
-                         g_lightShadowDrops.predType, g_lightShadowDrops.predEffect,
-                         g_lightShadowDrops.predStaticSource, g_lightShadowDrops.predStaticFeature,
-                         g_lightShadowDrops.predAccepts, g_lightShadowDrops.accepted,
-                         g_lightShadowDrops.tempRecords, g_lightShadowDrops.tempNoCasters,
-                         g_lightShadowDrops.tempDegenerate);
-        g_lightShadowDrops = LightShadowDropCounts();   // counts cover the frame just prepared
-    }
-    if (!lm(self).skyLight
-        || !lm(self).dynamicShadowsEnabled
-        || !lm(self).shadowUpdatesEnabled)
-        return;
-
-    lm(self).renderView = dx9rend::rendererGetRenderView();
-    dx9rend::stateManagerPush();
-    dx9rend::stateManagerSetRenderState(161, 0);
-    g_shadowRecordOrdinal = 0;
-
-    bindAndClearShadowTarget(self);
-    renderPointShadowMaps(self);
-    renderSpotShadowMaps(self);
-
-    setLightManagerDepthStencil(0);
-    restoreRendererTarget0();
-    dx9rend::stateManagerPop();
-    finalizeShadowRecords(self);
 }
 
 // The stock Sky.con color surface.  Each setter is the same three-dword copy and each getter
@@ -5464,19 +2945,11 @@ float RD9_THUNK lm_getOccludedSkyNightIntensity(void* self RD9_THUNK_EDX)
     return lm(self).occludedSkyNightIntensity;
 }
 
-// PE 0x1015CE30, primary vtable +0x2F0. Mesh renderers publish the shadow Effect associated
-// with their GeometryTemplate reflection type. Replacement releases the previous map value,
-// stores the new pointer, then unconditionally retains it; retail has no null guard here.
-void RD9_THUNK lm_registerShadowEffect(void* self RD9_THUNK_EDX, int reflectionTypeId,
-                                        dx9rend::Effect* effect)
+// PE 0x1015CE30, primary vtable +0x2F0. [RENDER] Retail kept the mesh renderers' shadow Effects
+// here, per GeometryTemplate reflection type, for the point/spot shadow maps. Those maps and the
+// registrations are deleted; the slot stays for the interface layout.
+void RD9_THUNK lm_registerShadowEffect(void* RD9_THUNK_EDX, int, dx9rend::Effect*)
 {
-    // find-or-insert (0x1015D000): a new key starts with a null value.
-    dx9rend::Effect*& value =
-        lm(self).shadowEffects[static_cast<unsigned int>(reflectionTypeId)];
-    if (value)
-        dx9rend::effectRelease(value);
-    value = effect;
-    dx9rend::effectAddRef(effect);
 }
 
 // PE 0x1015CE80 (also 0x1015CEA0, a second identical body): hands back an empty vector through the
@@ -5497,28 +2970,6 @@ std::vector<const void*> lightManagerEmptyList(const void* receiver, int argumen
 } // anonymous namespace
 
 
-// PE 0x1015C570: answers the address of the +0x7DC vector (the point records). [INFERRED] name; callers
-// 0x100DB610 and 0x100FBFA0 are themselves unreachable in 1.50. Terrain::findOwnedShadowRecord walks them.
-std::vector<LightShadowRecord>& lightManagerPointShadowRecords(LightManager* manager)
-{
-    return lm(manager).pointRecords;
-}
-
-// The terrain culler's shadow gather (TerrainCuller::gatherShadowFrustumNode) hands a node's
-// bounds to the near-plane fit; only the box's minimum and maximum take part in the fit.
-void fitShadowFrustumNearPlaneToBounds(Frustum& frustum, const Vec3& boxMin, const Vec3& boxMax)
-{
-    LocalBoundingBox box;
-    box.m_min = boxMin;
-    box.m_max = boxMax;
-    fitShadowFrustumNearPlaneToAabb(frustum, box);
-}
-
-
-dx9rend::EngineTexture* lightManagerPointShadowMapTexture(const LightManager* manager)
-{
-    return lm(manager).pointShadowMap;
-}
 
 dx9rend::EngineTexture* lightManagerBlackCubeTexture(const LightManager* manager)
 {
@@ -6081,31 +3532,11 @@ LightDistanceMap* LightManager::getVisibleLightsByDistance(unsigned int required
     return &output;
 }
 
-// PE 0x1015C280. Both effects must be initialized; the parameter lookup borrows its reference.
+// PE 0x1015C280. [RENDER] Retail also set SHADOWALPHATHRESHOLD on the skinned and bundled shadow
+// Effects, deleted with the point/spot shadow maps; the threshold is only stored.
 void LightManager::setAlphaShadowThreshold(float threshold)
 {
     lm(this).alphaShadowThreshold = threshold;
-    // Each parameter's table is captured before the virtual getter, while the bundled
-    // receiver is read again afterward. ParameterOwner has nine slots before setFloat and
-    // no destructor slots on either ABI; pointer-sized fields also describe its native table.
-    struct FloatDispatch
-    {
-        void* precedingSlots[9];
-        void (__thiscall* setFloat)(dx9rend::ParameterOwner*, float);
-    };
-    {
-        const std::string semantic("SHADOWALPHATHRESHOLD");
-        dx9rend::ShaderParameter* const parameter =
-            dx9rend::effectGetShaderParameterBorrowedTyped(skinnedMeshShadowEffect(), semantic);
-        const FloatDispatch* const dispatch = *reinterpret_cast<const FloatDispatch* const*>(parameter);
-        const float skinnedThreshold = getAlphaShadowThreshold();
-        dispatch->setFloat(parameter, skinnedThreshold);
-    }
-    // The semantic's lifetime ends before the second, fresh virtual threshold query.
-    const FloatDispatch* const dispatch =
-        *reinterpret_cast<const FloatDispatch* const*>(g_bundledShadowAlphaThreshold);
-    const float bundledThreshold = getAlphaShadowThreshold();
-    dispatch->setFloat(g_bundledShadowAlphaThreshold, bundledThreshold);
 }
 
 // PE 0x1015C300.
@@ -6114,15 +3545,11 @@ float LightManager::getAlphaShadowThreshold() const
     return lm(this).alphaShadowThreshold;
 }
 
-// PE 0x1015BFC0. Resource failure restores the size but does not recreate the old resources.
+// PE 0x1015BFC0. [RENDER] Retail recreated the point/spot shadow maps and their atlas at the new
+// size (restoring the old size on failure); with those maps deleted the size is only stored.
 void LightManager::setShadowMapSize(int size)
 {
-    const int previous = lm(this).shadowMapSize;
     lm(this).shadowMapSize = size;
-    if (!createShadowResourcesBody(this))
-        lm(this).shadowMapSize = previous;
-    else
-        rebuildShadowAtlas(this);
 }
 
 // PE 0x1015C000.
@@ -6131,14 +3558,12 @@ int LightManager::getShadowMapSize() const
     return lm(this).shadowMapSize;
 }
 
-// PE 0x1015C010. The comparison is signed and there is no lower bound.
+// PE 0x1015C010. The comparison is signed and there is no lower bound. [RENDER] Retail then
+// rebuilt the point/spot shadow atlas, which is deleted.
 void LightManager::setShadowMapObjectSize(int size)
 {
     if (size <= lm(this).shadowMapSize)
-    {
         lm(this).shadowTileSize = size;
-        rebuildShadowAtlas(this);
-    }
 }
 
 // PE 0x1015C030.
@@ -6147,18 +3572,16 @@ int LightManager::getShadowMapObjectSize() const
     return lm(this).shadowTileSize;
 }
 
-// PE 0x1015C040. Unrecognized depths still attempt resource creation with the previous format.
+// PE 0x1015C040. [RENDER] Retail recreated the point/spot shadow maps in the new format (restoring
+// the old one on failure); with those maps deleted the format is only stored.
 void LightManager::setShadowMapBitDepth(int depth)
 {
-    const unsigned int previous = lm(this).shadowMapFormat;
     switch (depth)
     {
     case 16: lm(this).shadowMapFormat = 0x50; break;
     case 24: lm(this).shadowMapFormat = 0x4D; break;
     case 32: lm(this).shadowMapFormat = 0x72; break;
     }
-    if (!createShadowResourcesBody(this))
-        lm(this).shadowMapFormat = previous;
 }
 
 // PE 0x1015C0A0.
@@ -6886,21 +4309,10 @@ struct LightManager::HostAbi
 
 namespace {
 
-void RD9_THUNK lm_deviceLost(void* self RD9_THUNK_EDX)
-{
-    releaseShadowResources(lmFromDeviceLostListener(self), true);
-}
-void RD9_THUNK lm_deviceReset(void* self RD9_THUNK_EDX)
-{
-    createShadowResourcesBody(lmFromDeviceLostListener(self));
-}
-void RD9_THUNK lm_deviceNull(void* RD9_THUNK_EDX) {}
-
 // PE 0x100F3310.
 void RD9_THUNK lm_renderPathActivated(void* self RD9_THUNK_EDX, int path)
 {
     void* const base = lmFromRenderPathListener(self);
-    rebuildShadowAtlas(base);
     if (path == 2)
     {
         void* const effect = dx9rend::shaderManagerGetEffect(
@@ -6965,13 +4377,6 @@ renddx9abi::HostString* RD9_THUNK lm_getRenderPathName(void* RD9_THUNK_EDX, rend
     new (out) renddx9abi::HostString("aLightManager");
     return out;
 }
-
-const void* const kDeviceLostVtable[3] =
-{
-    reinterpret_cast<void*>(&lm_deviceLost),
-    reinterpret_cast<void*>(&lm_deviceReset),
-    reinterpret_cast<void*>(&lm_deviceNull)
-};
 
 #if !defined(_MSC_VER)
 // [CHOSEN, not recovered] Match the shared consumer interface under the native ABI.
@@ -7394,7 +4799,6 @@ void constructLightManager(void* self)
     // written here in the PE's order.
     LightManagerData& d = *::new (self) LightManagerData;
     d.primaryVtable = kPrimaryVtable;
-    d.deviceLostVtable = kDeviceLostVtable;
     d.renderPathVtable = kRenderPathVtable;
     d.refCount = 1;
     d.skyLight = 0;
@@ -7479,14 +4883,6 @@ void constructLightManager(void* self)
     d.shadowTileSize = 256;
     d.shadowDistance = 40.0f;
     d.unresolved218 = 40.0f;
-    d.shadowMap = 0;                                            // +0x21C..+0x238 0
-    d.shadowMap2 = 0;
-    d.shadowDepthTexture = 0;
-    d.shadowDepthSurface = 0;
-    d.shadowDepthSurface2 = 0;
-    d.pointShadowMap = 0;
-    d.pointShadowDepthTexture = 0;
-    d.pointShadowDepthSurface = 0;
     d.normalCubeTexture = 0;
     d.currentSpecularLut = 0;
     d.specularLutIndex = 0;
@@ -7545,7 +4941,6 @@ void constructLightManager(void* self)
     d.boxIndices = 0;
     d.boxVertexCount = 0;
     d.boxFaceCount = 0;
-    d.renderView = 0;
     d.shadowMapMode = 2;
 
     IDirect3DDevice9* const device =
@@ -7584,8 +4979,6 @@ void constructLightManager(void* self)
     d.specularLuts[3] = createPowerLut(256, white, 64.0f, false);
     d.dynamicShadowsEnabled = d.shadowMapMode != 2 ? 1 : 0;
 
-    dx9rend::registerDeviceLostResetListener(
-        reinterpret_cast<dx9rend::DeviceLostResetListener*>(&d.deviceLostVtable), 4);
     dx9rend::registerRenderPathListener(
         reinterpret_cast<dx9rend::RenderPathListener*>(&d.renderPathVtable));
     createSmallLightTextures(self);
@@ -7596,11 +4989,6 @@ void constructLightManager(void* self)
 }
 
 } // anonymous namespace
-
-bool createShadowResources(LightManager* manager)
-{
-    return createShadowResourcesBody(manager);
-}
 
 namespace {
 // [INFERRED] Source spelling of the inlined expansion-color arithmetic.
@@ -8569,12 +5957,6 @@ int xpLightCategory(const XpLight* light)
 {
     // PE 0x1018FB90. Named native-layout access to the retail +0x30 field.
     return light->category;
-}
-
-const std::vector<LightShadowRecord>& xpLightShadowRecords(const XpLight* light)
-{
-    // PE 0x1018F9F0. The leading member is the render-record vector.
-    return light->records;
 }
 
 int xpLightType(const XpLight* light)

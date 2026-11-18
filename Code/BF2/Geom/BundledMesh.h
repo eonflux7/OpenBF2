@@ -32,7 +32,6 @@ public:
     void setFov(float value);
     float getFov() const;
     void draw(void*,void*,void*);
-    void drawShadowMap(void* light,void*,void*,void*,void*,void*);
     void* setShadowProjection(void* value);
     void* getShadowProjection() const;
     int getGeometryType() const;                          // +2C,10103FE0 (selected lod)
@@ -70,7 +69,6 @@ public:
     void allocatePartTransforms();
     void initializeFromTemplate();
     void updateHeightOverTerrain();
-    void drawSubPartHighlight(unsigned int part);          // 101063B0, no callers in 1.50
     float animationPhase(const Vec3& camera);
     unsigned int animationIndex(const Vec3& camera);
     unsigned int materialFeatures(BundledMeshMaterial* material,bool additive,unsigned int caps);

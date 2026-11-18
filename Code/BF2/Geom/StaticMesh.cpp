@@ -106,17 +106,18 @@ namespace {
 
 // The primary table has 63 slots; ILightSampleable has seven.
 // Explicit tables preserve the ABI while remaining interface signatures are unknown.
-void RD9_THUNK sm_drawSilhouette(void* self RD9_THUNK_EDX, void* unused, int legacyArm)
+// +0x1C, the silhouette draw of the editor's lightmap generation (no caller in this client).
+// [RENDER] It drew through the "StaticMesh" shadow effect's lightmapGeneration technique, which is
+// no longer loaded (PR's StaticMesh.fx never had the technique); the slot keeps the layout.
+void RD9_THUNK sm_drawSilhouette(void* RD9_THUNK_EDX, void*, int)
 {
-    static_cast<StaticMesh*>(self)->drawSilhouette(unused, legacyArm);
 }
 
-// +0x20, the shadow-map draw.  `retn 18h`.
-void RD9_THUNK sm_drawShadowMap(void* self RD9_THUNK_EDX, void* caster, unsigned int a2,
-                                 unsigned int a3, unsigned int a4, unsigned int a5,
-                                 unsigned int a6)
+// +0x20, the shadow-map draw.  `retn 18h`. [RENDER] Its only caller, the point/spot shadow-map
+// pass, is deleted with the draw (docs/eon64/renderer.md, step 6); the slot keeps the layout.
+void RD9_THUNK sm_drawShadowMap(void* RD9_THUNK_EDX, void*, unsigned int, unsigned int,
+                                 unsigned int, unsigned int, unsigned int)
 {
-    static_cast<StaticMesh*>(self)->drawShadowMap(caster, a2, a3, a4, a5, a6);
 }
 
 void staticMeshDrawExpansion(void* self);
@@ -375,7 +376,7 @@ void RD9_THUNK sm_setFloat308(void* self RD9_THUNK_EDX, float value)
     static_cast<StaticMesh*>(self)->setFloat308(value);
 }
 
-// The +0x24 caller (XpLightManager) passes a LightShadowRecord pointer; pointer-sized on x64.
+// Retail's +0x24 caller, the deleted point/spot shadow pass, passed a record pointer; pointer-sized on x64.
 void RD9_THUNK sm_setDword34C(void* self RD9_THUNK_EDX, uintptr_t value)
 {
     static_cast<StaticMesh*>(self)->setDword34C(value);
@@ -515,7 +516,7 @@ void staticMeshLightmapName(const StaticMesh* self, std::string& out);
 // pair's cached lightmap texture is released and the instance's current lightmap cleared. Null
 // when the file cannot be opened. The allocation is used unchecked, as shipped.
 // [INFERRED] placement: retail keeps this body with the rest of its run in
-// StaticMeshLightmapGeneration.cpp; this tree keeps the run's other members here.
+// a lightmap-generation file; this tree keeps the run's other members here.
 // PE 0x10198680
 ILightSampling* RD9_THUNK sm_ls_createLightSampler(void* self RD9_THUNK_EDX, float resolutionModifier)
 {
@@ -789,8 +790,7 @@ unsigned char rendererBaseFlag102()
         ::dice::hfe::dx9rend::g_rendererBase)->flag102;
 }
 
-} // anonymous namespace - the two helpers below are shared with
-  // StaticMeshLightmapGeneration.cpp (declared in StaticMesh.h)
+} // anonymous namespace - the helpers below are declared in StaticMesh.h
 
 StaticMeshRenderer* staticMeshRenderer()
 {
@@ -2509,100 +2509,18 @@ void expansionProduct(Mat4& destination, const Mat4& lhs, const Mat4& rhs)
         }
 }
 
-// PE 0x10102C00. Zero-count resizes retain storage; matrix growth fills identity values.
-void expansionShadowArrays(dx9rend::RenderQueueEntry* entry, const Mat4* matrices,
-                           const Vec4* positions, const Vec4* sizes, int count)
+// PE 0x10102C00 with a zero count: empties the entry's shadow arrays, keeping their storage.
+// [RENDER] Retail also filled them from a light's point/spot shadow records (through the batch
+// PE 0x100E2550/0x10102430/0x100E29D0/0x10102F00); those records are deleted.
+void expansionClearShadowArrays(dx9rend::RenderQueueEntry* entry)
 {
     dx9rend::Ra::RaLightingParameters& lighting = entry->lighting;
-    lighting.shadowPosArray.value.resize(static_cast<size_t>(count) * sizeof(Vec4), 0);
-    lighting.shadowSizeArray.value.resize(static_cast<size_t>(count) * sizeof(Vec4), 0);
-    std::vector<unsigned char>* const arrays[] = {
-        &lighting.shadowViewProjArray.value, &lighting.clampViewProjArray.value
-    };
-    for (unsigned int a = 0; a < 2; ++a)
-    {
-        const size_t oldCount = arrays[a]->size() / sizeof(Mat4);
-        arrays[a]->resize(static_cast<size_t>(count) * sizeof(Mat4));
-        for (size_t i = oldCount; i < static_cast<size_t>(count); ++i)
-            std::memcpy(arrays[a]->data() + i * sizeof(Mat4), &Mat4::getIdentity(), sizeof(Mat4));
-    }
-    for (int i = 0; i < count; ++i)
-    {
-        const Vec4 packed = { positions[i].x, positions[i].y, sizes[i].x, sizes[i].y };
-        std::memcpy(lighting.shadowPosArray.value.data() + i * sizeof(Vec4), &packed, sizeof(packed));
-        if (dx9rend::rendererPerformanceFlag(30))
-        {
-            Mat4 atlas = Mat4::getZero();
-            atlas.m[0] = sizes[i].x;
-            atlas.m[5] = sizes[i].y;
-            atlas.m[10] = atlas.m[15] = 1.0f;
-            atlas.m[12] = positions[i].x;
-            atlas.m[13] = positions[i].y;
-            expansionProduct(*reinterpret_cast<Mat4*>(
-                lighting.shadowViewProjArray.value.data() + i * sizeof(Mat4)), matrices[i], atlas);
-            static const Mat4 clamp = {{
-                0.5f,0,0,0, 0,0.5f,0,0, 0,0,1,0, 0.25f,0.25f,0,1
-            }};
-            expansionProduct(*reinterpret_cast<Mat4*>(
-                lighting.clampViewProjArray.value.data() + i * sizeof(Mat4)), matrices[i], clamp);
-        }
-        else
-            std::memcpy(lighting.shadowViewProjArray.value.data() + i * sizeof(Mat4),
-                        &matrices[i], sizeof(Mat4));
-    }
-    lighting.shadowCount.value = count;
+    lighting.shadowPosArray.value.clear();
+    lighting.shadowSizeArray.value.clear();
+    lighting.shadowViewProjArray.value.clear();
+    lighting.clampViewProjArray.value.clear();
+    lighting.shadowCount.value = 0;
 }
-
-// PE 0x100E2550/0x10102430/0x100E29D0/0x10102F00; names/placement [INFERRED].
-struct ExpansionShadowBatch
-{
-    Mat4* matrices;
-    Vec4* positions;
-    Vec4* sizes;
-    int capacity;
-    int count;
-    std::vector<TerrainShadowRange> ranges;
-    explicit ExpansionShadowBatch(int limit) : capacity(limit), count(0)
-    {
-        matrices = static_cast<Mat4*>(::renddx9abi::engineAlloc(limit * sizeof(Mat4)));
-        if (matrices)
-            for (int i = 0; i < limit; ++i) matrices[i] = Mat4::getIdentity();
-        positions = static_cast<Vec4*>(::renddx9abi::engineAlloc(limit * sizeof(Vec4)));
-        if (positions) std::memset(positions, 0, limit * sizeof(Vec4));
-        sizes = static_cast<Vec4*>(::renddx9abi::engineAlloc(limit * sizeof(Vec4)));
-        if (sizes) std::memset(sizes, 0, limit * sizeof(Vec4));
-        ranges.reserve(limit);
-    }
-    ~ExpansionShadowBatch()
-    {
-        // PE 0x101D9370 frees the three arrays before the range-vector storage.
-        ::renddx9abi::engineFree(matrices);
-        ::renddx9abi::engineFree(positions);
-        ::renddx9abi::engineFree(sizes);
-    }
-    // PE 0x10102430
-    void clear()
-    {
-        ranges.clear();
-        count = 0;
-    }
-    bool append(const TerrainShadowRange& range, const Mat4& matrix,
-                const Vec4& position, const Vec4& size)
-    {
-        if (count >= capacity) return false;
-        matrices[count] = matrix;
-        positions[count] = position;
-        sizes[count] = size;
-        ++count;
-        ranges.push_back(range);
-        return true;
-    }
-    // PE 0x10102F00
-    void apply(dx9rend::RenderQueueEntry* entry) const
-    {
-        if (count) expansionShadowArrays(entry, matrices, positions, sizes, count);
-    }
-};
 
 // PE 0x100FBA80. Retains both materialShaderBits calls in the static-light arm.
 void expansionProjectedEntry(StaticMesh& mesh, StaticMeshMaterial* material,
@@ -2755,9 +2673,6 @@ void staticMeshDrawExpansion(void* self)
     static std::vector<world::LightSource*> lights;        // ds:1025A9B8
     lights.clear();
     mesh.m_byte354 = 0;
-    typedef const MeshBounds* (__thiscall* BoundsFn)(const void*);
-    const MeshBounds* const bounds = reinterpret_cast<BoundsFn>(mesh.m_vptr[0x40 / 4])(&mesh);
-    StaticMeshBoundsCorners worldBounds(*bounds, *mesh.m_transform);
     const bool cone = t->m_byte2B0 != 0;
     if (!cone && !transparent)
     {
@@ -2769,27 +2684,14 @@ void staticMeshDrawExpansion(void* self)
             const int limit = g_LightManager->getMaxLightsPerStaticMesh();
             g_LightManager->gatherLightsForGeometry(&mesh, lights, limit, required, 0u, true);
         }
+        // [RENDER] Retail also flagged a static light whose point/spot shadow record reached the
+        // mesh; those records are deleted, so only dynamic lights flag it.
         for (size_t i = 0; !mesh.m_byte354 && i < projectedLights.size(); ++i)
-        {
-            XpLight* const light = projectedLights[i];
-            if (xpLightCategory(light) == 0)
+            if (xpLightCategory(projectedLights[i]) == 0)
                 mesh.m_byte354 = 1;
-            else
-            {
-                const std::vector<LightShadowRecord>& records = xpLightShadowRecords(light);
-                for (size_t j = 0; j < records.size(); ++j)
-                    if (!worldBounds.outside(records[j].frustum))
-                    {
-                        mesh.m_byte354 = 1;
-                        break;
-                    }
-            }
-        }
     }
     static std::vector<unsigned int> unused;              // ds:1025A9A8; [UNRESOLVED] word elements
-    static std::vector<LightShadowRecord> unusedRecords;   // ds:1025A998
     unused.clear();
-    { LightShadowRecord fill; unusedRecords.resize(0, fill); }
 
     // 6. the sun direction in object space
     float sunDirection[3] = { 0.0f, 0.0f, 0.0f };
@@ -2880,15 +2782,8 @@ void staticMeshDrawExpansion(void* self)
             }
             else
                 staticMeshMaterialParameters(material).pointSun.value = 0;
-            static const Mat4* identity = &Mat4::getIdentity(); // ds:1025A994
-            dx9rend::EngineTexture* const shadowMap = lightManagerPointShadowMapTexture(g_LightManager);
-            if (shadowMap)
-            {
-                std::memset(entry->lighting.unnamed008.value, 0, sizeof(entry->lighting.unnamed008.value));
-                staticMeshSwapD3DTexture(entry->lighting.terrainLightMap.value, shadowMap->baseTexture);
-                entry->lighting.matBones.a = reinterpret_cast<uintptr_t>(&identity);
-                entry->lighting.matBones.b = 0;
-            }
+            // [RENDER] Retail bound the point/spot shadow atlas here (TerrainLightMap, an identity
+            // matBones); the atlas is deleted and no static-mesh shader samples it.
 
             if (t->m_isWater && g_Terrain && mesh.m_dword26C)
             {
@@ -2973,9 +2868,6 @@ void staticMeshDrawExpansion(void* self)
                     && !dx9rend::rendererPerformanceFlag(0) && !lowShader
                     && dx9rend::rendererGetVideoOptions()->getQuality(4) >= 3)
                 {
-                    // ds:1025A990 has no writer and is loader-zero.
-                    const int limit = dx9rend::rendererPerformanceFlag(30) ? 4 : 5;
-                    static ExpansionShadowBatch batch(limit);
                     staticMeshMaterialShader(material) = staticMeshFindShaderBits(bits & qualityMask);
                     if (mesh.m_dword26C && (bits & 1u))
                         expansionLightmapThroughSetter(mesh, entry);
@@ -3027,62 +2919,25 @@ void staticMeshDrawExpansion(void* self)
                         bits = mesh.materialShaderBits(material, true);
                         staticMeshMaterialShader(material) = staticMeshFindShaderBits(bits & qualityMask);
                     }
-                    bool projected = false;
+                    // [RENDER] Retail drew each light with its point/spot shadow records (dynamic
+                    // lights without records unshadowed; static lights only through records) and
+                    // switched the after-light shader to `shadow` (0x200) when one projected. The
+                    // records are deleted: dynamic lights draw unshadowed, static lights not at all.
                     for (size_t k = 0; k < projectedLights.size(); ++k)
                     {
                         XpLight* const light = projectedLights[k];
-                        batch.clear();
-                        const std::vector<LightShadowRecord>& records = xpLightShadowRecords(light);
-                        if (xpLightCategory(light) == 0
-                            && (!g_LightManager->getDynamicShadowsEnabled() || records.empty()))
+                        if (xpLightCategory(light) == 0)
                         {
                             dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
-                            expansionShadowArrays(out, 0, 0, 0, 0);
+                            expansionClearShadowArrays(out);
                             expansionProjectedEntry(mesh, material, qualityMask, light, out);
-                        }
-                        else
-                        {
-                            for (size_t j = 0; j < records.size(); ++j)
-                            {
-                                const LightShadowRecord& record = records[j];
-                                if (worldBounds.outside(record.frustum)
-                                    || !mesh.materialVisible(material, &record.frustum))
-                                    continue;
-                                Mat4 projection;
-                                rendmath::constructIdentity(projection);    // 0x100FEC1E
-                                expansionProduct(projection, record.matrices[1], record.matrices[2]);
-                                expansionProduct(projection, projection, Mat4::getTexScaleBias());
-                                const Vec4 position = {
-                                    record.atlasScaleOffset[0], record.atlasScaleOffset[1],0,0
-                                };
-                                const Vec4 size = {
-                                    record.atlasScaleOffset[2], record.atlasScaleOffset[3],0,0
-                                };
-                                const TerrainShadowRange empty = {};
-                                batch.append(empty, projection, position, size);
-                                if (batch.count >= batch.capacity)
-                                {
-                                    dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
-                                    batch.apply(out);
-                                    batch.clear();
-                                    expansionProjectedEntry(mesh, material, qualityMask, light, out);
-                                }
-                                projected = true;
-                            }
-                            if (batch.count)
-                            {
-                                dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
-                                batch.apply(out);
-                                batch.clear();
-                                expansionProjectedEntry(mesh, material, qualityMask, light, out);
-                            }
                         }
                     }
                     // ds:1025A964 is 0 and ds:1023969C is 1; neither has a writer.
                     const unsigned int afterBits = mesh.materialShaderBits(material, false);
                     bits = afterBits;
                     dx9rend::Ra::RaShader* const after = staticMeshFindShaderBits(
-                        (projected ? afterBits | 0x200u : afterBits) & qualityMask);
+                        afterBits & qualityMask);
                     dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
                     if (mesh.m_dword26C && (bits & 1u))
                         expansionLightmapThroughSetter(mesh, out);
@@ -3213,8 +3068,6 @@ void staticMeshDrawExpansion(void* self)
 }
 
 
-// Shadow-map and silhouette drawing helpers. Profiling-only brackets are omitted.
-
 // materialVisible's two frustum sources and the renderer's cull counter, shared with the draw.
 bool staticMeshCornersOutside(const void* material, const Mat4& world, const Frustum& frustum)
 {
@@ -3222,37 +3075,6 @@ bool staticMeshCornersOutside(const void* material, const Mat4& world, const Fru
         static_cast<const StaticMeshMaterial*>(material)->m_bounds, world);   // +0x198
     return corners.outside(frustum);
 }
-
-// The renderer's +0x6C statistics block, its +0x25C word: every shadow draw adds the LOD's
-// primitive count to it, whatever it actually submitted.
-void staticMeshCountShadowPrimitives(unsigned int primitives)
-{
-    dx9rend::IRenderer* const renderer =
-        static_cast<dx9rend::IRenderer*>(dx9rend::g_rendererBase);
-    unsigned char* const stats = static_cast<unsigned char*>(renderer->getRenderStats());
-    *reinterpret_cast<unsigned int*>(stats + 0x25C) += primitives;
-}
-
-// `mov eax, [effect+8]; call [[eax]+104h]` - ID3DXEffect::CommitChanges on the wrapper's D3DX
-// effect.  The wrapper's +0x08 is the interface pointer. The only caller, drawShadowMap, has
-// already dereferenced the effect in its parameter lookups, so it is non-null here.
-void staticMeshEffectCommitChanges(dx9rend::Effect* effect)
-{
-    ID3DXEffect* const d3dx = static_cast<ID3DXEffect*>(dx9rend::effectD3dxHandle(effect));
-    d3dx->CommitChanges();
-}
-
-dx9rend::ShaderParameter* staticMeshShadowParameter(dx9rend::Effect* effect, const char* name)
-{
-    return dx9rend::effectGetShaderParameterTyped(effect, std::string(name));
-}
-
-// dword_10239698 - the shadow draw's mode word, 2 in .data and never written by the image:
-//     0  merge the lod's index ranges and draw the whole lod in one call
-//     1  draw the last lod's first material only
-//     2  draw the selected lod material by material, alpha-tested ones through pass 1
-// [INFERRED] name; kept as the mutable word it is.
-unsigned int g_staticMeshShadowDrawMode = 2;
 
 } // anonymous namespace
 
@@ -3299,212 +3121,6 @@ bool StaticMesh::materialVisible(void* material, const Frustum* frustum)
     return false;
 }
 
-
-// Draws shadow geometry with the supplied caster or this frame's cached caster.
-// Temporarily applies the shadow LOD and restores -1 afterward. Alpha texture selection
-// and primitive statistics preserve the compatibility path's per-LOD behavior.
-
-void StaticMesh::drawShadowMap(void* caster, unsigned int, unsigned int, unsigned int,
-                               unsigned int, unsigned int)
-{
-    StaticMeshTemplate* const t = static_cast<StaticMeshTemplate*>(m_template);
-    if (!t->m_vertexStream)                                               // +0x154
-        return;
-    if (!m_transform)
-        return;
-    if (!t->m_indexBuffer)                                                // +0x9C
-        return;
-    if (m_dword30C->hasAlphaMaterial)                                    // +0x54
-        return;
-
-    bool fromOwnCaster = false;
-    const LightShadowRecord* casterRecord = static_cast<const LightShadowRecord*>(caster);
-    const Mat4* lightMatrix;
-    if (!casterRecord)
-    {
-        typedef void* (__thiscall* GetDword350Fn)(const void*);
-        const void* const stamped =
-            reinterpret_cast<GetDword350Fn>(m_vptr[0xB0 / 4])(this);
-        // The pointer-typed slot carries a 32-bit frame ordinal.
-        if (static_cast<unsigned int>(reinterpret_cast<uintptr_t>(stamped))
-            != dx9rend::rendererFrameOrdinal())                                  // +0x54
-            return;
-        casterRecord  = reinterpret_cast<const LightShadowRecord*>(m_dword34C);
-        lightMatrix   = &casterRecord->matrices[1];                           // +0x238
-        fromOwnCaster = true;
-    }
-    else
-    {
-        lightMatrix = &casterRecord->matrices[0];                             // +0x1F8
-    }
-
-    const int shadowLod  = g_LightManager->getStaticMeshShadowLod();     // +0x280
-    typedef int (__thiscall* GetIndexFn)(const void*);
-    const int currentLod = reinterpret_cast<GetIndexFn>(m_vptr[0x7C / 4])(this);
-    const int lodCount   = reinterpret_cast<GetIndexFn>(m_vptr[0x80 / 4])(this);
-    if (currentLod != shadowLod)
-    {
-        int lod = lodCount - 1;
-        if (lod >= shadowLod)
-            lod = shadowLod;
-        typedef void (__thiscall* SetLodFn)(void*, int);
-        reinterpret_cast<SetLodFn>(m_vptr[0x78 / 4])(this, lod);
-    }
-    // setLod rewrites +0x30C; every read below is of the lod now selected (the shipped body
-    // reloads the word at each use).
-    StaticMeshLod* const lodRecord = m_dword30C;
-
-    StaticMeshRenderer* const smr = staticMeshRenderer();
-    dx9rend::Effect* const effect = smr->m_shadowEffect;                  // +0x44
-
-    staticMeshShadowParameter(effect, "World")->setValue(m_transform, 0);
-    {
-        const float* const packed = staticMeshPackVec4(
-            reinterpret_cast<const float*>(&t->m_decompressScale), 1.0f);    // template +0x138
-        staticMeshShadowParameter(effect, "POSUNPACK")->setValue(packed, 0);
-    }
-    staticMeshShadowParameter(effect, "TEXUNPACK")->setValue(&t->m_uvDecompress, 0);  // +0x150
-
-    if (casterRecord && casterRecord->tail494[1])                             // +0x495
-    {
-        Mat4 light;
-        rendmath::constructIdentity(light);                                   // 0x100FD76F
-        expansionProduct(light, casterRecord->matrices[1], casterRecord->matrices[2]);  // +0x238, +0x278 (0x100FD785)
-        staticMeshShadowParameter(effect, "vpLightMat")->setValue(&light, 0);
-        staticMeshShadowParameter(effect, "vpLightTrapezMat")->setValue(&light, 0);
-    }
-    else
-    {
-        staticMeshShadowParameter(effect, "vpLightMat")->setValue(lightMatrix, 0);
-        staticMeshShadowParameter(effect, "vpLightTrapezMat")->setValue(&casterRecord->matrices[2], 0);
-    }
-    staticMeshEffectCommitChanges(effect);                                    // ID3DXEffect +0x104
-
-    dx9rend::vertexBufferBindStream(t->m_vertexStream, 0);
-    dx9rend::indexBufferBind(t->m_indexBuffer);
-    dx9rend::vertexDeclarationBind(t->m_compressVertexData ? smr->m_decl34 : smr->m_decl2C);
-
-    const int mergeLimit = g_LightManager->getShadowMergeLodLimit();       // +0x2D8
-    bool drawLastLodMaterial = false;
-    bool done = false;
-
-    if (shadowLod <= mergeLimit && g_staticMeshShadowDrawMode == 0u)
-    {
-        t->mergeShadowIndexRanges();
-        if (g_staticMeshShadowDrawMode == 0u)
-        {
-            if (lodRecord->byte5C)
-            {
-                dx9rend::vertexBufferBindStream(t->m_vertexStream, 0);
-                dx9rend::indexBufferBind(t->m_indexBuffer);
-                dx9rend::vertexDeclarationBind(
-                    t->m_compressVertexData ? smr->m_decl34 : smr->m_decl2C);
-                dx9rend::rendererDrawIndexedPrimitive(
-                    lodRecord->mergedPrimitiveCount, t->m_primitiveType,
-                    static_cast<int>(lodRecord->vertexStart), 0,
-                    lodRecord->mergedVertexCount, 0);
-                staticMeshCountShadowPrimitives(lodRecord->mergedPrimitiveCount);   // +0x60 here
-                done = true;
-            }
-            else
-            {
-                drawLastLodMaterial = true;
-            }
-        }
-    }
-
-    if (!done && !drawLastLodMaterial)
-    {
-        const unsigned int mode = g_staticMeshShadowDrawMode;
-        if (mode == 1u || !lodRecord->byte5C)
-        {
-            drawLastLodMaterial = true;
-        }
-        else if (mode == 2u)
-        {
-            const unsigned int materialCount = static_cast<unsigned int>(getMaterialCount());
-            int  currentPass  = -1;
-            bool streamsBound = false;
-            for (unsigned int i = 0; i < materialCount; ++i)
-            {
-                StaticMeshMaterial* const material =
-                    m_dword310->data() + i;
-                const ShaderMaterial* const shaderMaterial = material->m_shaderMaterial;  // +0x28
-                const unsigned int alphaMode = material->m_alphaMode;                    // +0x17C
-                int pass;
-                bool skipPassSwitch = false;
-                if (!fromOwnCaster && alphaMode == 2u)
-                {
-                    pass = 1;
-                    const bool detailCombo = !t->m_isVegetation
-                        && shaderMaterial->shaderCombo != 10u && shaderMaterial->shaderCombo != 0u;
-                    const void* const tested =
-                        detailCombo ? shaderMaterial->textures[2] : shaderMaterial->textures[1];
-                    if (tested)
-                    {
-                        staticMeshShadowParameter(effect, "TEXLAYER0")->setValue(
-                            shaderMaterial->textures[1], 0);                   // [1], as shipped
-                    }
-                    if (!streamsBound)
-                    {
-                        if (detailCombo)
-                        {
-                            dx9rend::vertexDeclarationBind(smr->m_decl30);       // +0x30
-                            dx9rend::vertexBufferBindStream(
-                                t->m_uvStreams[t->m_streamIndexA], 1);           // +0x158[+0x170]
-                        }
-                        streamsBound = true;
-                    }
-                }
-                else
-                {
-                    pass = 0;
-                    skipPassSwitch = fromOwnCaster;
-                }
-
-                if (!skipPassSwitch && pass != currentPass)
-                {
-                    currentPass = pass;
-                    dx9rend::effectBeginPass(effect, static_cast<unsigned int>(pass));
-                }
-
-                StaticMeshMaterial* const typed = material;
-                dx9rend::rendererDrawIndexedPrimitive(
-                    static_cast<unsigned int>(typed->getPrimitiveCount()),     // +0x10
-                    static_cast<unsigned int>(typed->getDword1F0()),           // +0x14
-                    typed->getVertexStart(),                                   // +0x18
-                    static_cast<unsigned int>(typed->slot_0x1C()),             // +0x1C
-                    static_cast<unsigned int>(typed->getVertexCount()),        // +0x08
-                    static_cast<unsigned int>(typed->getIndexStart()));        // +0x20
-                staticMeshCountShadowPrimitives(lodRecord->primitiveCount);
-            }
-        }
-    }
-
-    if (drawLastLodMaterial)
-    {
-        const int lastLod = reinterpret_cast<GetIndexFn>(m_vptr[0x80 / 4])(this) - 1;
-        const StaticMeshGeom& geom = t->m_geoms[m_dword314];
-        const StaticMeshLod* const lastRecord = geom.lods.data() + lastLod;
-        const StaticMeshMaterialList* const lodRecords = t->m_materials.data()[m_dword314].data();
-        const StaticMeshMaterial* const material = lodRecords[lastLod].data();
-        const unsigned int alphaMode = material->m_alphaMode;
-        if (alphaMode != 2u && alphaMode != 1u)
-        {
-            dx9rend::rendererDrawIndexedPrimitive(
-                material->m_primitiveCount, t->m_primitiveType,
-                static_cast<int>(material->m_vertexStart), 0,
-                material->m_vertexCount, material->m_indexStart);
-            staticMeshCountShadowPrimitives(lastRecord->primitiveCount);
-        }
-    }
-
-    if (currentLod != shadowLod)
-    {
-        typedef void (__thiscall* SetLodFn)(void*, int);
-        reinterpret_cast<SetLodFn>(m_vptr[0x78 / 4])(this, -1);
-    }
-}
 
 // 0x100FDC20 as the template's createInstance reaches it.
 StaticMesh* staticMeshConstruct(void* storage, void* objectTemplate)

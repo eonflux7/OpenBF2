@@ -317,51 +317,6 @@ static_assert(sizeof(Mat4) == 0x40, "an instance's transform runs +0x04..+0x43")
 static_assert(sizeof(MeshBounds) == sizeof(LocalBoundingBox), "MeshBounds is LocalBoundingBox");
 
 
-// Corner distance used while extending the caster near plane; preserves z/y/x association.
-
-float shadowCornerDistance(const Vec3& a, const Vec3& b)
-{
-    const float dx = a.x - b.x;
-    const float dy = a.y - b.y;
-    const float dz = a.z - b.z;
-    return std::sqrt(dz * dz + dy * dy + dx * dx);
-}
-
-void fitShadowFrustumNearPlane(Frustum& frustum, const Vec3* corners)
-{
-    Plane3& plane = frustum.m_planes[4];                                    // +0x40
-    const Vec3 normal = plane.normal;
-    float maximum = -FLT_MAX;
-    float maximumPlusD = -FLT_MAX;
-    int best = -1;
-    for (int i = 0; i < 8; ++i)
-    {
-        const Vec3& corner = corners[i];
-        const float dot = corner.z * normal.z + corner.y * normal.y + normal.x * corner.x;
-        if (dot > maximum)
-        {
-            best = i;
-            maximumPlusD = dot + plane.d;
-            maximum = dot;
-        }
-    }
-    if (maximumPlusD >= 0.0f)
-    {
-        const Vec3& corner = corners[best];
-        plane.d = -(normal.y * corner.y + normal.z * corner.z + normal.x * corner.x);
-    }
-
-    rendmath::frustumRecalcCorners(frustum);
-    const Vec3* const corner = frustum.m_corners;
-    frustum.m_farDist = shadowCornerDistance(corner[4], corner[0]) - frustum.m_nearDist;   // +0x1E0
-    Mat4 transformation = frustum.m_transformation;
-    transformation.m[12] = (corner[0].x + corner[3].x) * 0.5f;
-    transformation.m[13] = (corner[3].y + corner[0].y) * 0.5f;
-    transformation.m[14] = (corner[3].z + corner[0].z) * 0.5f;
-    rendmath::frustumTransform(frustum, transformation);
-}
-
-
 // Moves the frustum toward the light, extending its far distance and transforming its planes.
 
 
@@ -622,73 +577,10 @@ void OverGrowth::submitShadowCasters(IRenderView* view, const Frustum& volume)
     }
 }
 
-// PE 0x100CB460.
-// Appends vegetation intersecting the directional shadow volumes and expands caster bounds.
-// Uses LOD geometry when available. Pool cursors are shared with drawing and reset only by
-// render, so this pass must run before the frame's vegetation draw resets those cursors.
-void OverGrowth::collectShadowGeometry(const std::vector<LightShadowRecord>* records,
-                                       const Frustum* lightFrustum, Frustum* casterFrustumPointer,
-                                       std::vector<void*>* geometries)
+// PE 0x100CB460, vtable slot +0x38. [RENDER] Empty: it gathered vegetation casters for the
+// point/spot shadow records, which are gone. The slot stays so the table keeps its shipped layout.
+void OverGrowth::collectShadowGeometry(const void*, const Frustum*, Frustum*, std::vector<void*>*)
 {
-    if (!m_enabled)
-        return;
-    if (!m_patches)
-        return;
-    if (!m_drawNear)
-        return;
-    const std::vector<LightShadowRecord>& shadowRecords = *records;
-    if (shadowRecords.size() == 0)
-        return;
-    if (m_gridSize <= 0)
-        return;
-
-    Frustum& casterFrustum = *casterFrustumPointer;
-    std::vector<void*>& output = *geometries;
-
-    for (int row = 0; row < m_gridSize; ++row)
-    {
-        for (int column = 0; column < m_gridSize; ++column)
-        {
-            const OverGrowthCell* const cell = m_cells[column + row * m_gridSize];
-            const int patchesX = m_patchCountX;
-            const int patchesZ = m_patchCountZ;
-            const int x = patchesX / 2 + cell->cellX;
-            const int z = patchesZ / 2 + cell->cellZ;
-            if (x < 0 || z < 0 || x >= patchesX || z >= patchesZ)
-                continue;
-            OverGrowthPatch* const patch = m_patches + (x + z * patchesX);
-            if (!terrainFrustumIntersectsBox(lightFrustum, &patch->bounds.min.x))
-                continue;
-
-            for (unsigned int index = 0; index < patch->instances.size(); ++index)
-            {
-                OverGrowthInstance* const instance = &patch->instances[index];
-                OverGrowthGeometryPair* const type = m_geometries.data() + instance->geometryIndex;
-                const StaticMeshTemplate* const lodTemplate =
-                    static_cast<const StaticMeshTemplate*>(type->lod.geometryTemplate);
-                const BoxCorners box(reinterpret_cast<const LocalBoundingBox&>(lodTemplate->m_bounds),
-                                     instance->transform);
-
-                bool held = false;
-                for (const LightShadowRecord* record = shadowRecords.data();
-                     record != shadowRecords.data() + shadowRecords.size(); ++record)
-                {
-                    if (box.insideFrustum(record->frustum))      // sub_101C6A90
-                    {
-                        held = true;
-                        break;
-                    }
-                }
-                if (!held)
-                    continue;
-
-                OverGrowthGeometryRecord* const pool = type->lod.geometry ? &type->lod : &type->full;
-                void* geometry = acquireGeometry(pool, instance);
-                output.push_back(geometry);                                 // 0x1009A340
-                fitShadowFrustumNearPlane(casterFrustum, box.corner);
-            }
-        }
-    }
 }
 
 // PE 0x100CB7A0: unreachable in 1.50: no code or data references. Walks every patch's instances in

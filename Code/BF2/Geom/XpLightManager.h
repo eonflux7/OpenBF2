@@ -199,7 +199,7 @@ public:
     virtual void setShadow80Line(float value);                            // +0x190
     virtual void setShadowMergeDynamicShadowFrustums(bool enabled);       // +0x194
     virtual bool getShadowMergeDynamicShadowFrustums() const;             // +0x198
-    virtual void renderShadowMaps();                                       // +0x19C
+    virtual void renderShadowMaps();  // +0x19C [RENDER] empty: the point/spot pass is deleted
 
     virtual void setSunDirection(Vec3 direction);                          // +0x1A0
     virtual Vec3 getSunDirection() const;                                  // +0x1A4
@@ -301,8 +301,9 @@ public:
     virtual float getOccludedSkyNightIntensity() const;                    // +0x2E8
     // [INFERRED] name; PE 100F3B20 loads both SimpleShadowmap raw files at post-load.
     virtual void loadSimpleShadowMaps();                                  // +0x2EC
+    // +0x2F0 [RENDER] empty: the shadow Effects it kept served the deleted point/spot pass.
     virtual void registerShadowEffect(int reflectionTypeId,
-                                      dx9rend::Effect* effect);            // +0x2F0
+                                      dx9rend::Effect* effect);
 
     // Mesh lighting blend duration. The console executor calls these directly; they add no slots.
     void setStaticLightBlendingTime(double duration);
@@ -330,45 +331,6 @@ inline LightManager* asLightManager(IBase* base)
 extern const unsigned int CID_LightManager;
 extern const unsigned int IID_ILightManager;
 
-// One shadow-map render record (0x498 bytes in the PE; the `// +0xNN` comments keep those offsets).
-// The LightManager keeps four vectors of them (directional +0x79C, secondary +0x7AC, spot +0x7CC,
-// point +0x7DC); a mesh's caster pointer (geometry slot +0x24) addresses one, and the mesh, decal and
-// terrain draws read its matrices and tail flags. Field names are [INFERRED].
-struct LightShadowRecord
-{
-    LightShadowRecord();
-    // The prefix up to `casters` is copied byte for byte (frustum, nine matrices, flags and
-    // pointers), then the caster set and the tail.
-    LightShadowRecord(const LightShadowRecord& other);
-    ~LightShadowRecord();
-
-    float                     atlasScaleOffset[4];  // +0x000  u, v, scale, scale
-    Frustum                   frustum;              // +0x010
-    // +0x1F8 - [0] +0x1F8 the caster view-projection, [1] +0x238 the light view, [2] +0x278 the
-    // light projection / TSM matrix, [3] +0x2B8, [4] +0x2F8 the receiver projection
-    // (lightviewprojortho), [5] +0x338, [6] +0x378, [7] +0x3B8 the trapezoid (lightviewproj),
-    // [8] +0x3F8 the atlas transform.
-    Mat4                      matrices[9];
-    float                     atlasBounds[4];       // +0x438
-    unsigned char             flags448[8];          // +0x448  [0] the first-person caster flag
-    void*                     geometry;             // +0x450  the directional record's root geometry
-    world::LightSource*       source;               // +0x454
-    unsigned char             pad458[0x30];         // +0x458
-    std::set<world::IObject*> casters;              // +0x488  the objects drawn into this record
-    // +0x494 - [0] the decal draw's record test, [1] the mesh draws' light-matrix selector (set by
-    // the point/spot records). [UNRESOLVED] roles.
-    unsigned char             tail494[4];
-
-private:
-    LightShadowRecord& operator=(const LightShadowRecord&);
-};
-
-// +0x7DC - the point shadow records ([INFERRED] name; PE 0x1015C570).
-std::vector<LightShadowRecord>& lightManagerPointShadowRecords(LightManager* manager);
-// A frustum's near plane pulled back over the box (minimum, maximum); the terrain culler's shadow gather.
-void fitShadowFrustumNearPlaneToBounds(Frustum& frustum, const Vec3& boxMin, const Vec3& boxMax);
-// +0x230 - the point/spot shadow atlas.
-dx9rend::EngineTexture* lightManagerPointShadowMapTexture(const LightManager* manager);
 // +0x248 - the black 8 x 8 cube texture the constructor builds.
 dx9rend::EngineTexture* lightManagerBlackCubeTexture(const LightManager* manager);
 // +0x838 - the shadow fade duration the mesh draws divide their elapsed fade time by (1.0).
@@ -396,17 +358,12 @@ void appendXpLightsForGeometry(void* geometry, std::vector<XpLight*>& output); /
 // PE 0x100EEED0 (the same walk returning the source pointers) is xpGatherDebugLights in
 // XpLightManager.cpp; its only caller is the SkinnedMesh light-debug list.
 int xpLightCategory(const XpLight* light); // PE 0x1018FB90
-const std::vector<LightShadowRecord>& xpLightShadowRecords(const XpLight* light); // PE 0x1018F9F0
 int xpLightType(const XpLight* light); // PE 0x1018FBA0
 void xpLightFillRecord(const XpLight* light, const Mat4& inverse,
                        dx9rend::Ra::RaLightRecord& output); // PE 0x1018FBC0
 // The transient wrapper used by the nonprojected point-light pass (PE 0x100FB8F0).
 void submitSourceLightRecord(world::LightSource* source, const Mat4& inverse,
                              dx9rend::RenderQueueEntry* entry, bool transparent);
-
-// Renderer::onRenderPathActivated and the LightManager device-reset listener call
-// this direct body rather than a primary-interface slot.
-bool createShadowResources(LightManager* manager);
 
 // PE 0x100F1F60. `Lightmanager.init` invokes this direct body rather than a primary-interface
 // slot. It rebuilds the three debug meshes and creates/configures the special sunlight at +0x840.

@@ -136,7 +136,8 @@ void SkinnedMeshTemplate::destroyMembers()
                 }
             }
         }
-        skinnedMeshReleaseShadowState();                              // 0x10110875..0x101108C4
+        // [RENDER] Retail released the shared shadow Effect "Shaders/SkinnedMesh" here
+        // (0x10110875..0x101108C4); it served only the deleted point/spot shadow maps.
     }
 
     typedef std::set<SkinnedMesh*> InstanceSet;
@@ -513,8 +514,8 @@ void SkinnedMeshTemplate::readMaterials(::renddx9abi::HostNonlinearStream* strea
 
     skinnedMeshReserveGeoms(m_materials, geomCount);   // sub_10115380 - one entry per geom
 
-    // Initialize shared shadow parameters before reading material records.
-    skinnedMeshInitShadowState();
+    // [RENDER] Retail loaded the shared shadow Effect "Shaders/SkinnedMesh" and its parameters
+    // here (0x1010FD00); it served only the deleted point/spot shadow maps.
 
     unsigned int skippedVertices = 0;                  // v93
     unsigned int skippedIndices  = 0;                  // v90

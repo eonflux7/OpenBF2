@@ -47,8 +47,17 @@ follows from it:
   records and every receiver are deleted: the mesh shadow permutations (bundled and skinned mesh
   `hasshadow` / `hasshadowocclusion` / `hashemiocclusion`, static mesh `shadow`, the `*Shadowed` tree
   techniques), terrain water's record matrices, undergrowth's `_ds` techniques, overgrowth's record
-  attach, and the decal renderer's shadowed batch kinds (decals draw pass 0 only). Point and spot
-  shadow maps are unchanged.
+  attach, and the decal renderer's shadowed batch kinds (decals draw pass 0 only).
+- BF2's point and spot shadow maps (deleted, awaiting the in-game check). Retail kept shadow records
+  only for lights whose shadow policy was non-zero, and the policy is zero outside the expansion
+  pack, so a PR session never drew this path. Deleted: the records, the shadow atlas and its
+  device-lost listener, the casters' `DrawShadowMap` draws on bundled, skinned and static meshes
+  (with the shadow effects they loaded), the static mesh lightmap silhouette, and the record
+  receivers in static meshes, terrain (the shadow-range gather and batch draws, the spot-light pass)
+  and overgrowth. The XP light coordinator stays: it still selects the point and spot lights that
+  light geometry. The LightManager's shadow vtable slots (`renderShadowMaps`, `registerShadowEffect`),
+  the mesh `drawShadowMap` / `drawSilhouette` slots and overgrowth's `collectShadowGeometry` slot
+  remain as empty bodies, and the shadow-map console setters only store their value.
 - One terrain path. `Low_Terrain` had no `RaDepthPrepass` or `RaShadowDepth` technique, so the
   engine no longer enters it: not at load, not from the terrain-quality video option, not as a
   fallback. The `m_lowQuality` branches left in the terrain code are always false and go with the

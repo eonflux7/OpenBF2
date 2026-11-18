@@ -37,10 +37,10 @@ struct StaticMeshLod
     unsigned char hasAlphaMaterial;  // +0x54  readMaterials: a material with alphaMode == 1
     unsigned char needsAltStreams;   // +0x55  readMaterials: (flags & 0xC0) || (flags & 0x100)
     unsigned char pad56[6];          // +0x56
-    // +0x5C..+0x67 is the shadow index-merge state: StaticMeshTemplate::mergeShadowIndexRanges
-    // (0x10116580) sets the flag once the lod's materials have been rebased onto one vertex start
-    // and sums their counts, and the StaticMesh shadow draw (0x100FD580) submits the whole lod in
-    // one call when the flag is up.  readMaterials zeroes the flag.
+    // +0x5C..+0x67 is the shadow index-merge state: retail's StaticMeshTemplate::
+    // mergeShadowIndexRanges (0x10116580) set the flag once the lod's materials were rebased onto
+    // one vertex start and summed their counts, for the point/spot shadow draw (0x100FD580) and
+    // the lightmap silhouette. [RENDER] Both are deleted; readMaterials still zeroes the flag.
     unsigned char byte5C;            // +0x5C  readMaterials writes 0; the merge writes 1
     unsigned char pad5D[3];          // +0x5D
     unsigned int  mergedPrimitiveCount; // +0x60  the merge: sum of the lod's material primitive counts
@@ -275,12 +275,6 @@ public:
     // without running a C++ destructor, so this destroys every member itself.
     void destroyMembers();
 
-    // sub_10116580, rebase every lod's material index ranges onto the lod's
-    // first material's vertex start so the shadow draw can submit a whole lod in one call.  Runs
-    // once (the +0x190 byte gates it), only for triangle lists (+0xAC == 4), and only for lods whose
-    // materials all fit 16-bit indices from that base.  Called by the StaticMesh shadow draw.
-    // [INFERRED] name.
-    void mergeShadowIndexRanges();
 
     // The overridden quartet counts at +0xC8.
     virtual void  addRef();
@@ -355,7 +349,7 @@ public:
     unsigned char       m_pad187;
     unsigned int        m_shaderFlagsAll;       // +0x188
     unsigned int        m_shaderFlagsUsed;      // +0x18C
-    unsigned char       m_byte190;              // +0x190
+    unsigned char       m_byte190;              // +0x190  retail's index-merge-done byte; unused [RENDER]
     unsigned char       m_skippingLods;         // +0x191
     unsigned char       m_lightmapOverride;     // +0x192
     unsigned char       m_doNotGenerateLightmaps; // +0x193

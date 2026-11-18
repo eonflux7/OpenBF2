@@ -205,21 +205,6 @@ public:
 
     // +0x14, 0x10082D10 - `fld -1.0; retn`.  A per-class constant; meaning [UNRESOLVED].
     float slot14ReturnsMinusOne() const;
-    // +0x1C, the silhouette draw ("StaticMeshSilhouette"), attested to
-    // StaticMeshLightmapGeneration.cpp:278.  Two stack arguments: the first is never read; a
-    // non-zero second takes the "MattiasH removed me" arm, which only logs.  With the renderer's
-    // +0x63 flag off (retail) or an alpha material in the template it defers to the slow walk.
-    void  drawSilhouette(void* unused, int legacyArm);
-    // sub_10198DF0 - the slow silhouette ("StaticMeshSilhouetteSlow"): every visible material
-    // through the shadow effect's lightmapGeneration technique, alpha-tested ones through the
-    // AlphaTest variant.  Line 207 of the same file holds its own "removed" arm.
-    void  drawSilhouetteSlow(void* unused, int legacyArm);
-    // +0x20, the shadow-MAP draw ("StaticMeshDrawShadowMap").  Six stack arguments,
-    // only the first read: the caster record whose light matrix is at +0x1F8, or null for the
-    // caster this instance was registered with (+0x34C, matrices at +0x238/+0x278) when that
-    // registration is this frame's.
-    void  drawShadowMap(void* caster, unsigned int, unsigned int, unsigned int, unsigned int,
-                        unsigned int);
     // sub_100FB440 - is this material's box inside the frustum (the current view's when null)?
     // True when the renderer's +0x60 cull flag is off; a rejection bumps the renderer's +0x5C.
     bool  materialVisible(void* material, const Frustum* frustum);
@@ -323,7 +308,7 @@ public:
     // at +0x2F8 and +0x3B8 feed ShadowProjMat / ShadowTrapMat) and the frame ordinal of that
     // registration; the parameter refresh treats the pair as live only when the ordinal is the
     // current frame's.  Slots +0x24/+0x28 and +0xAC/+0xB0.  [INFERRED] roles.
-    uintptr_t           m_dword34C;             // +0x34C  ctor 0; a LightShadowRecord pointer
+    uintptr_t           m_dword34C;             // +0x34C  ctor 0; retail's point/spot shadow record pointer, unused [RENDER]
     void*               m_dword350;             // +0x350  ctor 0; slots +0xAC / +0xB0
     unsigned char       m_byte354;              // +0x354  ctor 0; the draw: "point lights gathered"
     // [RENDER] Unused. Retail's parameter refresh (sub_100FBCB0) wrote "this instance is the
@@ -340,8 +325,7 @@ public:
     std::vector<unsigned int> m_geomLodDistanceCounts;  // +0x36C - its +0x378 is the last ctor store
 };
 
-// Two helpers StaticMesh.cpp defines and StaticMeshLightmapGeneration.cpp (the attested TU of
-// the silhouette pair) also uses.
+// Helpers StaticMesh.cpp defines for the other mesh translation units.
 struct StaticMeshRenderer;
 StaticMeshRenderer* staticMeshRenderer();                       // the singleton, typed
 const float* staticMeshPackVec4(const float v[3], float w);
