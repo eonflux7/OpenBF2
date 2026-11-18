@@ -774,6 +774,7 @@ struct SunShadowSettings
     float depthBias;              // cascade texels: receivers move toward the sun in depth
 };
 SunShadowSettings& sunShadowSettings();
+unsigned int sunShadowCascadeDraws(unsigned int cascade);   // draw calls, last frame rendered
 // The help line of a fork console variable (renderer.<name>), or 0. For the debug menu; retail
 // console objects carry no help.
 const char* rendererVariableHelp(const char* name);

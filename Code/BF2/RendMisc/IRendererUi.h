@@ -2,8 +2,8 @@
 //
 // The UI lives in RendDX9, which owns the device and Present. BF2.exe owns input, so it asks the
 // renderer singleton for this interface (IBase::queryInterface(IID_IRendererUi)) and, while the UI
-// takes the input, releases the mouse and delivers no game input. No export changes: the plugin
-// ABI is untouched.
+// takes the input, releases the mouse and delivers no game input. BF2.exe answers what only the
+// game knows through IUiHost. No export changes: the plugin ABI is untouched.
 #pragma once
 
 namespace dice {
@@ -13,11 +13,25 @@ namespace dx9rend {
 // Fork-owned interface id; outside the ranges retail's Ids.h uses.
 const unsigned int IID_IRendererUi = 0xE6400001u;
 
+// What the game image tells the UI. Strings stay valid until the next call.
+class IUiHost
+{
+public:
+    virtual const char* uiModDirectory() const = 0;   // GSModDirectory, for example "mods/pr"
+    virtual const char* uiMapName() const = 0;        // empty while no level is loaded
+    virtual const char* uiGameMode() const = 0;
+
+protected:
+    ~IUiHost() {}
+};
+
 class IRendererUi
 {
 public:
     // True while a UI window has the mouse and keyboard (the menu is open).
     virtual bool uiCapturesInput() const = 0;
+    // Once, before the first frame the game drives: the UI then reads its settings files.
+    virtual void uiSetHost(IUiHost* host) = 0;
 
 protected:
     ~IRendererUi() {}

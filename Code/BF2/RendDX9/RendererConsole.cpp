@@ -1388,6 +1388,10 @@ BF2_CONSOLE_PROPERTY_FN(roadLodDistMod, float, consoleRoadCompiledRenderer() != 
 // 45 (Insert) by default.
 BF2_CONSOLE_PROPERTY_FN(uiMenuKey, int, true, uiLayerGetMenuKey(), uiLayerSetMenuKey,
                         kRendererConsoleTag)
+// [UI] The performance overlay, top right (docs/eon64/ui.md); kept between sessions in the mod's
+// settings/eon64-ui.con.
+BF2_CONSOLE_PROPERTY_FN(uiOverlay, bool, true, uiLayerGetOverlay(), uiLayerSetOverlay,
+                        kRendererConsoleTag)
 
 // [RENDER] Sun shadow tuning (docs/eon64/renderer.md, sun shadows). Each variable clamps to its
 // range; the defaults are the values the cascades were accepted with.
@@ -1435,6 +1439,8 @@ const char* rendererVariableHelp(const char* name)
         { "sunShadowCascadeBlend", "Part of the next slice each cascade also covers and blends over" },
         { "sunShadowNormalOffset", "Receiver offset along its normal, in cascade texels (against acne)" },
         { "sunShadowDepthBias", "Receiver offset toward the sun, in cascade texels (against acne)" },
+        { "uiMenuKey", "Win32 virtual-key code that opens and closes this menu (45 = Insert)" },
+        { "uiOverlay", "Performance overlay, top right; kept between sessions" },
     };
     for (size_t i = 0; i < sizeof(kHelp) / sizeof(kHelp[0]); ++i)
         if (std::strcmp(kHelp[i][0], name) == 0)

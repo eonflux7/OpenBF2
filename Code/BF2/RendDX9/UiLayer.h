@@ -13,6 +13,7 @@ class IRendererUi;
 // Before Present: creates the layer on first use, then draws the UI onto the back buffer when
 // something is shown.
 void uiLayerPresent(IDirect3DSwapChain9* chain);
+void uiLayerPresented();     // after Present returns: the overlay's frame timing
 void uiLayerDeviceLost();    // before the device is reset: releases the UI's device objects
 void uiLayerShutdown();      // before the device is released: the layer goes, the window is restored
 
@@ -20,6 +21,8 @@ IRendererUi* uiLayerInterface();   // what Renderer::queryInterface(IID_IRendere
 
 int  uiLayerGetMenuKey();          // renderer.uiMenuKey: the Win32 virtual-key code toggling the menu
 void uiLayerSetMenuKey(int key);
+bool uiLayerGetOverlay();          // renderer.uiOverlay: the performance overlay (UiDebug.cpp)
+void uiLayerSetOverlay(bool on);
 
 } // namespace dx9rend
 } // namespace hfe

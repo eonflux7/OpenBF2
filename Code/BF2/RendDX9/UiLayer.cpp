@@ -1,7 +1,7 @@
 // [UI] The fork's in-game UI on Dear ImGui (docs/eon64/ui.md). Not part of retail BF2.
 //
 // One ImGui context, created at the first Present. The menu key (renderer.uiMenuKey, Insert by
-// default) opens and closes the menu. The window procedure is subclassed so ImGui sees the
+// default) opens and closes the menu; the panels are in UiDebug.cpp (UiPanels.h). The window procedure is subclassed so ImGui sees the
 // window's messages; while the menu is open, mouse, key and character messages go to ImGui only,
 // and BF2.exe (through IRendererUi) releases the DirectInput mouse and delivers no game input.
 // The UI is drawn onto the back buffer just before Present, after the frame and its screenshot,
@@ -17,6 +17,7 @@
 #include "../../RendDX9Abi/D3dx9Sdk.h"
 #include "RendDX9Base.h"
 #include "UiLayer.h"
+#include "UiPanels.h"
 #include "../RendMisc/IRendererUi.h"
 
 #include "../External/imgui/imgui.h"
@@ -115,7 +116,6 @@ bool create()
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = 0;                   // nothing written next to the game
     io.LogFilename = 0;
-    io.MouseDrawCursor = true;            // the game hides the system cursor
     io.Fonts->AddFontDefaultVector();
     applyScale(static_cast<float>(b->pp.BackBufferHeight));
 
@@ -138,21 +138,6 @@ bool create()
     return true;
 }
 
-void drawMenu()
-{
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
-                                   viewport->WorkPos.y + viewport->WorkSize.y * 0.35f),
-                            ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-    if (ImGui::Begin("openbf2-eon64", 0, ImGuiWindowFlags_AlwaysAutoResize))
-    {
-        const ImGuiIO& io = ImGui::GetIO();
-        ImGui::Text("%.1f fps  %.2f ms", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
-        ImGui::TextDisabled("Insert closes this menu");
-    }
-    ImGui::End();
-}
-
 void render(IDirect3DSwapChain9* chain)
 {
     IDirect3DDevice9* const device = g_device;
@@ -166,8 +151,18 @@ void render(IDirect3DSwapChain9* chain)
     ImGui_ImplWin32_NewFrame();
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(static_cast<float>(desc.Width), static_cast<float>(desc.Height));
+    // The cursor is ImGui's only while the menu has the mouse; otherwise the system cursor is left
+    // alone (the game keeps it hidden).
+    io.MouseDrawCursor = g_menuOpen;
+    if (g_menuOpen)
+        io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    else
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     ImGui::NewFrame();
-    drawMenu();
+    if (uiOverlayShown())
+        uiDebugDrawOverlay();
+    if (g_menuOpen)
+        uiDebugDrawMenu();
     ImGui::Render();
 
     IDirect3DSurface9* savedTarget = 0;
@@ -204,6 +199,7 @@ class RendererUi : public IRendererUi
 {
 public:
     virtual bool uiCapturesInput() const { return g_menuOpen; }
+    virtual void uiSetHost(IUiHost* host) { uiDebugSetHost(host); }
 };
 
 RendererUi g_rendererUi;
@@ -214,9 +210,16 @@ void uiLayerPresent(IDirect3DSwapChain9* chain)
 {
     if (!g_context && !create())
         return;
-    if (!g_menuOpen || !chain)
-        return;
-    render(chain);
+    uiDebugFrameStart();
+    if ((g_menuOpen || uiOverlayShown()) && chain)
+        render(chain);
+    uiDebugBeforePresent();
+}
+
+void uiLayerPresented()
+{
+    if (g_context)
+        uiDebugPresented();
 }
 
 void uiLayerDeviceLost()

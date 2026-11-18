@@ -1,12 +1,13 @@
 // [DEV] BF2_GPU_TIMERS=<path>: GPU time per renderer pass. Not part of retail BF2.
-// Off when the variable is unset: every hook below is one test of gpuTimersOn().
+// Also on while the performance overlay is shown (docs/eon64/ui.md). Off otherwise: every hook
+// below is one test of gpuTimersOn().
 #pragma once
 
 namespace dice {
 namespace hfe {
 namespace dx9rend {
 
-extern bool g_gpuTimersOn;   // BF2_GPU_TIMERS is set (read when RendDX9 loads)
+extern bool g_gpuTimersOn;   // BF2_GPU_TIMERS is set (read when RendDX9 loads), or the overlay is shown
 
 inline bool gpuTimersOn() { return g_gpuTimersOn; }
 
@@ -15,6 +16,18 @@ inline bool gpuTimersOn() { return g_gpuTimersOn; }
 void gpuTimerMark(const char* name);
 void gpuTimersFrame();     // after a successful Present: closes the frame, collects older ones
 void gpuTimersRelease();   // before the device is reset or released
+
+// [UI] The overlay's use: timers run while `live` is set, as well as under BF2_GPU_TIMERS.
+void gpuTimersSetLive(bool live);
+struct GpuSpanTime
+{
+    const char* name;
+    float ms;          // smoothed over the last frames collected
+};
+// The spans of the last frames collected, in first-seen order; "(frame)" is the whole frame.
+// Returns how many were written to `out` (at most `max`).
+unsigned int gpuTimersSnapshot(GpuSpanTime* out, unsigned int max);
+float gpuTimersFrameMs();   // the last collected frame's GPU time, 0 when none
 
 } // namespace dx9rend
 } // namespace hfe

@@ -97,6 +97,12 @@ bool ConsoleObjects::registerConsoleObjects(ConsoleObjectList& objects)
     return true;
 }
 
+// [UI] The debug menu and the console window list the host's registry (docs/eon64/ui.md).
+const ConsoleObjects::ConsoleObjectList& ConsoleObjects::getConsoleObjects() const
+{
+    return m_consoleObjects;
+}
+
 bool ConsoleObjects::unregisterConsoleObjects(ConsoleObjectList& objects)
 {
     for (ConsoleObjectList::iterator it = objects.begin(); it != objects.end(); ++it)

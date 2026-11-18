@@ -5,7 +5,8 @@
 // kFrames - 1 frames later without waiting, so the timers never stall the CPU on the GPU; a frame
 // whose results are not ready by then, or whose disjoint query reports a clock change, is dropped.
 // Once a second <path> is rewritten (TSV): per span, the mean over the last second and over the
-// session, and the last second's maximum, in milliseconds.
+// session, and the last second's maximum, in milliseconds. While the performance overlay is shown
+// (gpuTimersSetLive) the timers run without a file, and the overlay reads smoothed span times.
 #ifdef BF2_IMAGE_RENDDX9
 
 #include "../../RendDX9Abi/ThunkAbi.h"
@@ -56,9 +57,12 @@ struct Span
     double secondMax;
     unsigned int secondFrames;
     double frameMs;            // the frame being collected
+    float smoothMs;            // for the overlay: an exponential mean over the frames collected
 };
 
-const char* g_path = 0;
+const char* g_path = 0;        // BF2_GPU_TIMERS, or 0
+bool g_live = false;           // the overlay is shown
+float g_lastFrameMs = 0.0f;
 Frame* g_frames = 0;
 unsigned int g_current = 0;
 bool g_open = false;           // the current slot has its disjoint query begun
@@ -94,7 +98,7 @@ Span& span(const char* name)
     for (size_t i = 0; i < g_spans->size(); ++i)
         if ((*g_spans)[i].name == name)
             return (*g_spans)[i];
-    Span s = { name, 0.0, 0, 0.0, 0.0, 0, 0.0 };
+    Span s = { name, 0.0, 0, 0.0, 0.0, 0, 0.0, -1.0f };
     g_spans->push_back(s);
     return g_spans->back();
 }
@@ -138,7 +142,10 @@ bool collect(Frame& f)
         ++s.secondFrames;
         if (s.frameMs > s.secondMax)
             s.secondMax = s.frameMs;
+        s.smoothMs = s.smoothMs < 0.0f ? static_cast<float>(s.frameMs)
+                                       : s.smoothMs + 0.1f * (static_cast<float>(s.frameMs) - s.smoothMs);
     }
+    g_lastFrameMs = static_cast<float>(totalMs);
     ++g_collected;
     ++g_secondCollected;
     return true;
@@ -170,12 +177,11 @@ void write()
     std::rename(tmp.c_str(), g_path);
 }
 
-bool init()
+// Allocates the slots on first use.
+void allocate()
 {
-    const char* const v = std::getenv("BF2_GPU_TIMERS");
-    if (!v || !*v)
-        return false;
-    g_path = v;
+    if (g_frames)
+        return;
     g_frames = new Frame[kFrames];
     for (unsigned int i = 0; i < kFrames; ++i)
     {
@@ -185,6 +191,15 @@ bool init()
         g_frames[i].pending = false;
     }
     g_spans = new std::vector<Span>();
+}
+
+bool init()
+{
+    const char* const v = std::getenv("BF2_GPU_TIMERS");
+    if (!v || !*v)
+        return false;
+    g_path = v;
+    allocate();
     return true;
 }
 
@@ -247,7 +262,7 @@ void gpuTimersFrame()
     g_current = (g_current + 1) % kFrames;
 
     const std::clock_t now = std::clock();
-    if (now - g_lastWrite >= CLOCKS_PER_SEC)
+    if (g_path && now - g_lastWrite >= CLOCKS_PER_SEC)
     {
         g_lastWrite = now;
         write();
@@ -256,7 +271,7 @@ void gpuTimersFrame()
 
 void gpuTimersRelease()
 {
-    if (!g_gpuTimersOn)
+    if (!g_frames)
         return;
     for (unsigned int i = 0; i < kFrames; ++i)
     {
@@ -270,6 +285,45 @@ void gpuTimersRelease()
         f.pending = false;
     }
     g_open = false;
+}
+
+void gpuTimersSetLive(bool live)
+{
+    if (live == g_live)
+        return;
+    g_live = live;
+    if (live)
+        allocate();
+    g_gpuTimersOn = live || g_path != 0;
+    if (!g_gpuTimersOn)
+    {
+        gpuTimersRelease();   // no queries kept while nothing reads them
+        g_lastFrameMs = 0.0f;
+        for (size_t i = 0; i < g_spans->size(); ++i)
+            (*g_spans)[i].smoothMs = -1.0f;
+    }
+}
+
+unsigned int gpuTimersSnapshot(GpuSpanTime* out, unsigned int max)
+{
+    if (!g_spans)
+        return 0;
+    unsigned int n = 0;
+    for (size_t i = 0; i < g_spans->size() && n < max; ++i)
+    {
+        const Span& s = (*g_spans)[i];
+        if (s.smoothMs < 0.0f)
+            continue;
+        out[n].name = s.name.c_str();
+        out[n].ms = s.smoothMs;
+        ++n;
+    }
+    return n;
+}
+
+float gpuTimersFrameMs()
+{
+    return g_gpuTimersOn ? g_lastFrameMs : 0.0f;
 }
 
 } // namespace dx9rend

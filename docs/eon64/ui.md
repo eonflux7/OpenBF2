@@ -19,7 +19,7 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 |---|---|---|
 | 1. ImGui layer | `ui(imgui)` | Accepted (`71545137`, `f4a7fd65`, `6604b184`) |
 | 2. Sun shadow tuning as console variables (lane `render`, before step 3) | `render(csm)` | Built, not yet seen in game |
-| 3. Debug menu and performance overlay | `ui(debug)` | Planned |
+| 3. Debug menu and performance overlay | `ui(debug)` | Built, not yet seen in game |
 | 4. Console frontend | `ui(console)` | Planned |
 
 ### 1. ImGui layer
@@ -63,28 +63,46 @@ are listed in [renderer.md](renderer.md#sun-shadows).
 
 ### 3. Debug menu and performance overlay
 
-**Menu** (Insert):
+`RendDX9/UiDebug.cpp`. The game image tells the UI the mod directory, map and game mode through
+`IUiHost` (`IRendererUi::uiSetHost`, from `BF2Engine`).
 
-- **Variables:** sliders and checkboxes generated from the console registry, using each variable's
-  range and help text. Starts with the `renderer.*` variables, the sun shadow ones first.
-- **Commands:** a button per line of a command file read at startup (label and console line, for
-  example rcon commands for the local server). The file lives with the mod's private settings, not
-  in this repository; without it the section is empty.
-- **Overlay:** on or off, saved.
+**Menu** (the menu key):
 
-**Overlay**, top right, when on:
+- **Performance overlay:** a checkbox for `renderer.uiOverlay`.
+- **Commands:** a button per line of `<mod>/settings/eon64-commands.txt`, read when the game hands
+  the UI its host: `label = console line`, `#` starts a comment. A button runs its line as if typed
+  into the console and entered (the console's access rules, echo and history; `rcon` lines go to
+  the server). The file is the owner's, outside this repository; without it the section says where
+  it is looked for.
+- **Variables:** widgets generated from the console registry for every `renderer.*` set/get
+  property: a checkbox for `bool`, a slider for a number with a range, otherwise a text field
+  applied with Enter. A widget sets its variable through the registry, as the console does. The
+  sun shadow variables come first; the rest have a filter. A tooltip gives the help line
+  (`rendererVariableHelp`), the console name, the type and the range.
 
-- Frames per second and a frame-time graph over the last few seconds: average, 1 % low and worst
-  frame, CPU and GPU frame time side by side to show which side bounds the frame.
-- GPU time per pass (the spans of [renderer.md](renderer.md#tooling)), from the same timestamp
-  queries as `BF2_GPU_TIMERS`, issued only while the overlay is shown.
-- Draw calls in the last frame and sun casters per cascade.
-- Process memory. VRAM is not shown: D3D9's estimate under DXVK is not a real figure.
-- Resolution, MSAA, map and game mode.
-- Camera position and heading.
-- Sun direction and exposure.
+**Saved:** `<mod>/settings/eon64-ui.con`, console lines run when the game hands the UI its host,
+rewritten when `renderer.uiOverlay` changes. Nothing else is written.
 
-DXVK's HUD is turned off in the launch environment in the same change.
+**Overlay**, top right, while `renderer.uiOverlay` is on. It takes no input; the system cursor is
+left alone.
+
+- Frames per second and frame time (the last 30 frames); over the last 5 seconds the average,
+  the 1 % low (the 99th percentile frame) and the worst frame.
+- A 5-second graph of frame time (white), CPU time (blue) and GPU time (orange), scaled to hold
+  the worst frame, with a line at 16.7 ms. CPU time is the frame without the time `Present`
+  blocked; GPU time is the whole frame from the timestamp queries. The larger of the two names
+  the side that bounds the frame.
+- GPU time per pass (the spans of [renderer.md](renderer.md#tooling)), smoothed. The queries
+  are those of `BF2_GPU_TIMERS`, issued only while the overlay is on (or the flag is set).
+- Draw calls and primitives in the last frame, and draw calls per sun cascade.
+- Process memory: private bytes and working set. VRAM is not shown: D3D9's estimate under DXVK
+  is not a real figure.
+- Back-buffer size and MSAA, map and game mode.
+- Camera position, heading and pitch.
+- Sun elevation and azimuth. Exposure is a constant in the shaders until auto-exposure (renderer
+  step 9) gives the engine a value to show.
+
+DXVK's HUD is off in the launch environment.
 
 ### 4. Console frontend
 

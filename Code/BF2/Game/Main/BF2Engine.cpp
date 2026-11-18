@@ -2793,6 +2793,25 @@ namespace {
 // keyboard: the game gets no input, as with the console, and the DirectInput mouse is released so
 // Windows delivers the cursor and its messages. The message pump (BF2.cpp) leaves the mouse out of
 // its per-frame activation meanwhile, as for the main menu, and re-acquires it when the menu closes.
+// What the UI asks of the game: the mod directory (its settings files live there), the map and
+// the game mode (the overlay shows them).
+class UiHost : public dx9rend::IUiHost
+{
+public:
+    virtual const char* uiModDirectory() const
+    {
+        m_modDirectory = settings->stringGet(std::string("GSModDirectory"), std::string("mods/bf2"));
+        return m_modDirectory.c_str();
+    }
+    virtual const char* uiMapName() const { return game ? game->getCurrentMapName().c_str() : ""; }
+    virtual const char* uiGameMode() const { return game ? game->getCurrentMapGameMode().c_str() : ""; }
+
+private:
+    mutable std::string m_modDirectory;
+};
+
+UiHost g_uiHost;
+
 dx9rend::IRendererUi* rendererUi()
 {
     static dx9rend::IRendererUi* ui = 0;
@@ -2801,6 +2820,8 @@ dx9rend::IRendererUi* rendererUi()
         IBase* renderer = classManager->getSingleton("Renderer");
         if (renderer)
             ui = static_cast<dx9rend::IRendererUi*>(renderer->queryInterface(dx9rend::IID_IRendererUi));
+        if (ui)
+            ui->uiSetHost(&g_uiHost);
     }
     return ui;
 }

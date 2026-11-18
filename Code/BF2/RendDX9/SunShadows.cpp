@@ -52,6 +52,15 @@ IDirect3DSurface9* g_atlasDepth = 0;     // D24S8, standard (not reversed) depth
 unsigned int g_cascadeSize = 0;
 
 SunShadowSettings g_settings = { 400.0f, 2048u, 500.0f, 0.75f, 0.2f, 1.5f, 1.0f };
+unsigned int g_cascadeDraws[kCascades] = {};   // draw calls per cascade, last frame rendered
+
+// The renderer's running count of this frame's draw calls (indexed and not).
+unsigned int frameDrawCalls()
+{
+    const unsigned char* const stats = static_cast<RendDX9Base*>(g_rendererBase)->renderStats;
+    return *reinterpret_cast<const unsigned int*>(stats + 452)
+        + *reinterpret_cast<const unsigned int*>(stats + 460);
+}
 
 IDirect3DDevice9* device()
 {
@@ -195,6 +204,11 @@ ShadowCascadeCull cascadeCull(const Cascade& k, const Vec3f& right, const Vec3f&
 SunShadowSettings& sunShadowSettings()
 {
     return g_settings;
+}
+
+unsigned int sunShadowCascadeDraws(unsigned int cascade)
+{
+    return cascade < kCascades ? g_cascadeDraws[cascade] : 0;
 }
 
 void rendererSunShadowsRelease()
@@ -385,9 +399,11 @@ bool rendererSunShadowsRender(float time, float* constants)
         static const char* const kSpans[kCascades] = { "sun c0", "sun c1", "sun c2", "sun c3" };
         gpuTimerMark(kSpans[i]);         // [DEV] BF2_GPU_TIMERS
         drawStatsSetScope(kScopes[i]);   // [DEV] BF2_DRAW_STATS: caster draws per cascade
+        const unsigned int drawsBefore = frameDrawCalls();
         if (terrain)
             terrain->drawShadowCasters(viewProjection, cull);
         renderQueuesDrawShadowCasters(key, viewProjection, cull);
+        g_cascadeDraws[i] = frameDrawCalls() - drawsBefore;
         drawStatsSetScope(0);
 
         // The mask's rows: world position to atlas texel coordinates (texel n at n, the D3D9

@@ -287,6 +287,7 @@ bool rendererPresent(unsigned int mode)
     }
 
     b->framePresented = 1;
+    uiLayerPresented(); // [UI] the overlay's frame timing
     drawStatsFrame();   // [DEV] BF2_DRAW_STATS
     gpuTimersFrame();   // [DEV] BF2_GPU_TIMERS
     return true;
