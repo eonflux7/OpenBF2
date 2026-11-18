@@ -193,7 +193,7 @@ void BundledMesh::draw(void*,void*,void*)
     if(m_template->m_maxPartCount>1 && m_partTransforms[1]==&bundledMeshZeroMatrix())
         for(unsigned int i=1;i<m_template->m_maxPartCount;++i)m_partTransforms[i]=m_partTransforms[0];
 
-    float hemiFactor=1.0f,ambientScale=1.0f,fadeTarget=1.0f;
+    float ambientScale=1.0f,fadeTarget=1.0f;
     bool inside=false;
     if(slot<bool>(dx9rend::g_rendererBase,0xAC))
     {
@@ -203,25 +203,11 @@ void BundledMesh::draw(void*,void*,void*)
     }
     else
     {
+        // [RENDER] Retail also scaled the sun by the baked simple shadow map here (under a roof or
+        // in baked shade, to near 0). The sun cascades give the mesh its sun visibility, and the
+        // shader derives the sky from this sun colour, so that scale blacked those meshes out.
         const Vec3& p=position(*m_partTransforms[0]);
-        const float sample=g_LightManager->sampleSimpleShadowMap(p.x,p.z);
-        const float io=g_LightManager->sampleSimpleShadowMapIO(p.x,p.z);
-        inside=io<0.5f;
-        float factor=1.0f;
-        if(m_underRoof)
-        { if(io<0.5f)factor=sample; }
-        else if(!(io<0.5f))
-        {
-            const Vec2& range=g_LightManager->getShadowSunHeightOverFade();
-            float u=(m_shadowSunHeight-range.x)/(range.y-range.x);
-            // PE 0x1000ED40 (called at 101051BA) tests the high bound first and lands an unordered value
-            // on the low bound; the result is consumed in ST0 at 101051BF..CA.
-            if(u>=1.0f)u=1.0f;
-            if(!(u>=0.0f))u=0.0f;
-            factor=u+(1.0f-u)*sample;
-        }
-        hemiFactor=static_cast<float>(std::pow(static_cast<double>(factor),
-                     static_cast<double>(g_LightManager->getShadowSunScalePower())));
+        inside=g_LightManager->sampleSimpleShadowMapIO(p.x,p.z)<0.5f;
     }
     void* const timer=dx9rend::rendererFrameTimer();                          // +0x5DC
     // The timer is a raw 48-byte block of integers and doubles (BF2Render.cpp), so its total time
@@ -372,11 +358,6 @@ void BundledMesh::draw(void*,void*,void*)
             copy3(sun->color,g_LightManager->getStaticSunColor());
             sun->scaled24=0.7f;
             copy3(sun->unread28,g_LightManager->getSunSpecColor());
-            if(!(mask&0x1000))
-            {
-                for(unsigned int i=0;i<3;++i)sun->color[i]*=hemiFactor;
-                for(unsigned int i=0;i<4;++i)sun->unread28[i]*=hemiFactor;
-            }
         }
         configureAlpha(material,mask);
         RaMaterialParameters& params=materialParams(material);

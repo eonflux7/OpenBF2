@@ -1297,49 +1297,18 @@ void SkinnedMesh::draw(void*, void*, void*)
 
     // -- 6. the lit path: the hemi / ambient solve
     const bool translucent = transparency < 1.0f;
-    float hemiFactor   = 1.0f;
     float ambientScale = 1.0f;
     float easeTarget   = 1.0f;
 
     if (viewSlot<unsigned char>(base, 0xAC))                      // IRenderer::isExpansionPack
     {
-        // The expansion arm skips the pow below entirely - hemiFactor stays 1.0f. That is a
-        // `goto` past LABEL_20 in the shipped body, not an oversight here.
         easeTarget = g_LightManager->sampleSimpleShadowMapIO(m_transform->m[12], m_transform->m[14]);
         if (m_byte50)
             ambientScale = 0.0f;
     }
-    else
-    {
-        const float x = m_transform->m[12];
-        const float z = m_transform->m[14];
-        const float hemiA = g_LightManager->sampleSimpleShadowMap(x, z);
-        const bool  below = g_LightManager->sampleSimpleShadowMapIO(x, z) < 0.5f;
-
-        // The factor stays on the x87 stack as an extended value and is spilled as a double
-        // (PE 0x101A7D5C), so it is carried as a double here.
-        double factor;
-        if (m_byte50)
-        {
-            factor = below ? hemiA : 1.0f;
-        }
-        else if (!below)
-        {
-            const Vec2& range = g_LightManager->getShadowSunHeightOverFade();
-            const float height = *reinterpret_cast<const float*>(&m_dword4C);
-            const float u = (height - range.x) / (range.y - range.x);
-            // clampFloat (PE 0x1000ED40) answers in st0 and the next three instructions
-            // (0x101A7D44..0x101A7D4F) use that clamped value: factor = c + (1 - c) * hemiA.
-            const double c = clampFloat(u, 0.0f, 1.0f);
-            factor = c + (1.0 - c) * static_cast<double>(hemiA);
-        }
-        else
-        {
-            factor = 1.0;
-        }
-        hemiFactor = static_cast<float>(std::pow(factor,
-                                                 static_cast<double>(g_LightManager->getShadowSunScalePower())));
-    }
+    // [RENDER] Retail's other arm scaled the sun by the baked simple shadow map (under a roof or in
+    // baked shade, to near 0). The sun cascades give the mesh its sun visibility, and the shader
+    // derives the sky from this sun colour, so that scale blacked those meshes out.
 
     // -- 7. ease +0x354 toward the target, over real time
     // The elapsed time is kept as a double at +0x358 and the divisor is a double at the light
@@ -1574,13 +1543,12 @@ void SkinnedMesh::draw(void*, void*, void*)
             // [RENDER] One sun: the static sun (retail: Lightmanager.sunColor, +0x1AC)
             const Vec3& sun = g_LightManager->getStaticSunColor();
             float* const dst = reinterpret_cast<float*>(params + 24);
-            dst[0] = hemiFactor * sun.x; dst[1] = hemiFactor * sun.y; dst[2] = hemiFactor * sun.z;
+            dst[0] = sun.x; dst[1] = sun.y; dst[2] = sun.z;
         }
         {
             const Vec3& spec = g_LightManager->getSunSpecColor();              // +0x1B4
             float* const dst = reinterpret_cast<float*>(params + 40);
-            dst[0] = hemiFactor * spec.x; dst[1] = hemiFactor * spec.y;
-            dst[2] = hemiFactor * spec.z;
+            dst[0] = spec.x; dst[1] = spec.y; dst[2] = spec.z;
         }
         if (g_LightManager->getSkyLight())                                     // +0x28
         {
