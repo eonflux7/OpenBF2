@@ -3,6 +3,8 @@
 // Render; the hooks around Present run every frame and do nothing while nothing is shown.
 #pragma once
 
+#include <string>
+
 namespace dice {
 namespace hfe {
 namespace dx9rend {
@@ -18,6 +20,14 @@ void uiDebugBeforePresent();   // just before Present
 void uiDebugPresented();       // just after Present
 void uiDebugDrawMenu();
 void uiDebugDrawOverlay();
+// Runs a line as if typed into the console and entered (the console's access rules, echo,
+// history; rcon lines go to the server).
+void uiRunTyped(const std::string& line);
+
+// UiConsole.cpp: the console window.
+bool uiConsoleShown();               // the game's console is active
+void uiConsoleDraw(bool menuOpen);   // while shown
+void uiConsoleHidden();              // once when it stops being shown
 
 } // namespace dx9rend
 } // namespace hfe

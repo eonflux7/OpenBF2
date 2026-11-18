@@ -28,8 +28,13 @@ protected:
 class IRendererUi
 {
 public:
-    // True while a UI window has the mouse and keyboard (the menu is open).
+    // True while a UI window has the mouse and keyboard (the menu is open): no game input.
     virtual bool uiCapturesInput() const = 0;
+    // True once the UI draws the console: the retail console's typing (updateGameInput and the
+    // character ring) is left out; the console window types instead.
+    virtual bool uiOwnsConsole() const = 0;
+    // True while the menu or the console window is shown: the DirectInput mouse stays released.
+    virtual bool uiWantsMouse() const = 0;
     // Once, before the first frame the game drives: the UI then reads its settings files.
     virtual void uiSetHost(IUiHost* host) = 0;
 

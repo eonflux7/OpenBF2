@@ -20,7 +20,7 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 | 1. ImGui layer | `ui(imgui)` | Accepted (`71545137`, `f4a7fd65`, `6604b184`) |
 | 2. Sun shadow tuning as console variables (lane `render`, before step 3) | `render(csm)` | Built, not yet seen in game |
 | 3. Debug menu and performance overlay | `ui(debug)` | Built, not yet seen in game |
-| 4. Console frontend | `ui(console)` | Planned |
+| 4. Console frontend | `ui(console)` | Built, not yet seen in game |
 
 ### 1. ImGui layer
 
@@ -106,8 +106,29 @@ DXVK's HUD is off in the launch environment.
 
 ### 4. Console frontend
 
-Replaces the retail drop-down console (`drawConsole`) with an ImGui window over the same backend
-(`IO/Console`, the console object registry): autocomplete from the registry with types and help,
-history, a scrollable and filterable log, copy and paste. Command parsing, `.con` scripts, rcon and
-Python's console calls do not change. The retail console drawing is deleted when the step is
-accepted.
+`RendDX9/UiConsole.cpp`. Replaces the retail drop-down console's drawing (`Renderer::slot_0x58`)
+and typing with an ImGui window over the same backend: BF2.exe's `io::Console` and the console
+object registry.
+
+- **Shown** while the game's console is active; the game's console key still toggles it, and the
+  character that key types never reaches the window. Top of the screen, full width, 45 % of the
+  height.
+- **Typing:** a line entered in the window runs as if typed into the retail console and entered
+  (`setCurrentLine`, then Enter through `updateAsciiKey`), so access rules, echo, the console's
+  own history, `.con` execution and `rcon` are unchanged. Lines hold 127 characters, as the
+  console's buffer does. While the window is shown, BF2.exe leaves out the retail console's typing
+  (`updateGameInput`; the character ring stays empty because the window takes the characters) and
+  releases the mouse, as for the menu.
+- **Completion:** while typing the first word, a list under the input line shows the registry's
+  matching `object.function` names with their argument types or the property's type and range,
+  and the help line for the fork's renderer variables. Tab completes to the only match, or as far
+  as all matches agree.
+- **History:** Up and Down recall the window's own entered lines (200 kept).
+- **Log:** the console's output history (`getLines`), scrollable, following new output while
+  scrolled to the end; a filter shows only the lines containing its text.
+- **Copy and paste:** Copy puts the lines shown on the clipboard; Ctrl+V pastes into the input.
+- `renderer.drawConsole` gated only the retail drawing; the window does not read it.
+
+Command parsing, `.con` scripts, rcon and Python's console calls do not change. The retail
+console drawing (`slot_0x58`, which still draws when the layer could not be created) is deleted
+when the step is accepted.

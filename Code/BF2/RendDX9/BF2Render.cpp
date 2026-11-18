@@ -2998,7 +2998,9 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 io::OldConsole* const con = reinterpret_cast<io::OldConsole*>(
                     ::dice::hfe::mainConsole);
                 const bool consoleOpen = con->getConsoleActive();
-                if (consoleOpen && sw(1716))
+                // [UI] The console window (UiConsole.cpp) replaces the retail drawing once the UI
+                // layer exists (docs/eon64/ui.md step 4).
+                if (consoleOpen && sw(1716) && !dx9rend::uiLayerDrawsConsole())
                     slot_0x58();
             }
 

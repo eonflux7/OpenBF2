@@ -2826,16 +2826,25 @@ dx9rend::IRendererUi* rendererUi()
     return ui;
 }
 
-// Releases the mouse while the UI has the input; a no-op once it is released.
+// Releases the mouse while the menu or the console window is shown (a no-op once it is released);
+// true while the menu has all the input.
 bool uiTakesInput()
 {
-    if (!uiCapturesInput())
-        return false;
-    io::IInputDevice* mouse =
-        static_cast<io::IInputDeviceManager*>(io::inputDeviceManager)->getInputDevice(io::IDFMouse);
-    if (mouse)
-        mouse->deActivate();
-    return true;
+    if (uiWantsMouse())
+    {
+        io::IInputDevice* mouse =
+            static_cast<io::IInputDeviceManager*>(io::inputDeviceManager)->getInputDevice(io::IDFMouse);
+        if (mouse)
+            mouse->deActivate();
+    }
+    return uiCapturesInput();
+}
+
+// The console window types instead of the retail console.
+bool uiOwnsConsole()
+{
+    dx9rend::IRendererUi* const ui = rendererUi();
+    return ui && ui->uiOwnsConsole();
 }
 
 } // namespace
@@ -2844,6 +2853,12 @@ bool uiCapturesInput()
 {
     dx9rend::IRendererUi* const ui = rendererUi();
     return ui && ui->uiCapturesInput();
+}
+
+bool uiWantsMouse()
+{
+    dx9rend::IRendererUi* const ui = rendererUi();
+    return ui && ui->uiWantsMouse();
 }
 #endif
 
@@ -2936,6 +2951,9 @@ bool BF2Engine::filterGameInput(io::GameInput& input)
     }
     if (bf2Console->getConsoleActive())
     {
+#if !DEDICATED
+        if (!uiOwnsConsole())                               // [UI] the console window types instead
+#endif
         io::mainConsole->updateGameInput(input);            // ELF +28 / PE +0x18
         return false;
     }

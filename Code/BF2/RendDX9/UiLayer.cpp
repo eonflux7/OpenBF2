@@ -1,9 +1,12 @@
 // [UI] The fork's in-game UI on Dear ImGui (docs/eon64/ui.md). Not part of retail BF2.
 //
 // One ImGui context, created at the first Present. The menu key (renderer.uiMenuKey, Insert by
-// default) opens and closes the menu; the panels are in UiDebug.cpp (UiPanels.h). The window procedure is subclassed so ImGui sees the
-// window's messages; while the menu is open, mouse, key and character messages go to ImGui only,
-// and BF2.exe (through IRendererUi) releases the DirectInput mouse and delivers no game input.
+// default) opens and closes the menu; the panels are in UiDebug.cpp and UiConsole.cpp (UiPanels.h).
+// The console window shows while the game's console is active, and types instead of the retail
+// console. The window procedure is subclassed so ImGui sees the
+// window's messages; while the menu or the console is shown, mouse, key and character messages go
+// to ImGui only, and BF2.exe (through IRendererUi) releases the DirectInput mouse; while the menu
+// is open it delivers no game input either.
 // The UI is drawn onto the back buffer just before Present, after the frame and its screenshot,
 // with its own BeginScene/EndScene; render target, depth surface and the sRGB states are put back
 // afterwards (the DX9 backend's state block covers the rest), so StateManager's caches stay true.
@@ -43,6 +46,7 @@ HWND g_window = 0;
 WNDPROC g_gameWndProc = 0;        // the window procedure we chained in front of
 int g_menuKey = VK_INSERT;
 volatile bool g_menuOpen = false; // written by the window procedure, read by the game thread
+bool g_consoleShown = false;      // as of the last frame drawn
 
 RendDX9Base* base()
 {
@@ -56,17 +60,34 @@ bool isInputMessage(UINT message)
         || (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST);
 }
 
+void clearInput()
+{
+    if (!g_context)
+        return;
+    ImGuiIO& io = ImGui::GetIO();
+    io.ClearInputKeys();
+    io.ClearInputMouse();
+}
+
 void setMenuOpen(bool open)
 {
     if (open == g_menuOpen)
         return;
     g_menuOpen = open;
-    if (g_context)
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        io.ClearInputKeys();
-        io.ClearInputMouse();
-    }
+    clearInput();
+}
+
+// The menu or the console window has the keyboard and mouse.
+bool uiHasInput()
+{
+    return g_context && (g_menuOpen || uiConsoleShown());
+}
+
+// The character the console key types (scan code 0x29, under Esc, on every layout; 0xA7 is the
+// retail console's own toggle character): the console window never sees it.
+bool isConsoleKeyCharacter(UINT message, WPARAM wParam, LPARAM lParam)
+{
+    return message == WM_CHAR && (((lParam >> 16) & 0xFF) == 0x29 || wParam == 0xA7);
 }
 
 LRESULT CALLBACK uiWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -79,11 +100,12 @@ LRESULT CALLBACK uiWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
     }
     if (message == WM_KEYUP && static_cast<int>(wParam) == g_menuKey)
         return 0;
-    if (g_menuOpen && g_context)
+    if (uiHasInput())
     {
-        ImGui_ImplWin32_WndProcHandler(window, message, wParam, lParam);
+        if (!isConsoleKeyCharacter(message, wParam, lParam))
+            ImGui_ImplWin32_WndProcHandler(window, message, wParam, lParam);
         if (isInputMessage(message))
-            return 0;                     // the game sees none of the menu's input
+            return 0;                     // the game sees none of the UI's input
     }
     return ::CallWindowProcA(g_gameWndProc, window, message, wParam, lParam);
 }
@@ -151,16 +173,19 @@ void render(IDirect3DSwapChain9* chain)
     ImGui_ImplWin32_NewFrame();
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(static_cast<float>(desc.Width), static_cast<float>(desc.Height));
-    // The cursor is ImGui's only while the menu has the mouse; otherwise the system cursor is left
-    // alone (the game keeps it hidden).
-    io.MouseDrawCursor = g_menuOpen;
-    if (g_menuOpen)
+    // The cursor is ImGui's only while the menu or the console has the mouse; otherwise the system
+    // cursor is left alone (the game keeps it hidden).
+    const bool hasMouse = g_menuOpen || g_consoleShown;
+    io.MouseDrawCursor = hasMouse;
+    if (hasMouse)
         io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
     else
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     ImGui::NewFrame();
     if (uiOverlayShown())
         uiDebugDrawOverlay();
+    if (g_consoleShown)
+        uiConsoleDraw(g_menuOpen);
     if (g_menuOpen)
         uiDebugDrawMenu();
     ImGui::Render();
@@ -199,6 +224,8 @@ class RendererUi : public IRendererUi
 {
 public:
     virtual bool uiCapturesInput() const { return g_menuOpen; }
+    virtual bool uiOwnsConsole() const { return g_context != 0; }
+    virtual bool uiWantsMouse() const { return uiHasInput(); }
     virtual void uiSetHost(IUiHost* host) { uiDebugSetHost(host); }
 };
 
@@ -211,7 +238,15 @@ void uiLayerPresent(IDirect3DSwapChain9* chain)
     if (!g_context && !create())
         return;
     uiDebugFrameStart();
-    if ((g_menuOpen || uiOverlayShown()) && chain)
+    const bool consoleShown = uiConsoleShown();
+    if (consoleShown != g_consoleShown)
+    {
+        g_consoleShown = consoleShown;
+        clearInput();
+        if (!consoleShown)
+            uiConsoleHidden();
+    }
+    if ((g_menuOpen || g_consoleShown || uiOverlayShown()) && chain)
         render(chain);
     uiDebugBeforePresent();
 }
@@ -252,6 +287,11 @@ void uiLayerShutdown()
 IRendererUi* uiLayerInterface()
 {
     return &g_rendererUi;
+}
+
+bool uiLayerDrawsConsole()
+{
+    return g_context != 0;
 }
 
 int uiLayerGetMenuKey()
