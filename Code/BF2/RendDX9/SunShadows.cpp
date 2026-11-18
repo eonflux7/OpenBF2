@@ -46,25 +46,6 @@ namespace {
 
 const unsigned int kCascades = 4;
 const DWORD kShadowAtlasSampler = 13;
-// The atlas is also bound to vertex sampler 3 for receivers that sample it per vertex (particles).
-const DWORD kShadowAtlasVertexSampler = D3DVERTEXTEXTURESAMPLER3;
-const DWORD kShadowAtlasSamplers[] = { kShadowAtlasSampler, kShadowAtlasVertexSampler };
-
-void bindAtlas(IDirect3DDevice9* device, IDirect3DTexture9* atlas)
-{
-    for (DWORD stage : kShadowAtlasSamplers)
-    {
-        device->SetTexture(stage, atlas);
-        if (!atlas)
-            continue;
-        device->SetSamplerState(stage, D3DSAMP_MINFILTER, D3DTEXF_POINT);
-        device->SetSamplerState(stage, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
-        device->SetSamplerState(stage, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
-        device->SetSamplerState(stage, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-        device->SetSamplerState(stage, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-        device->SetSamplerState(stage, D3DSAMP_SRGBTEXTURE, FALSE);
-    }
-}
 
 IDirect3DTexture9* g_atlas = 0;          // R32F, 2 x 2 cascades
 IDirect3DSurface9* g_atlasDepth = 0;     // D24S8, standard (not reversed) depth
@@ -225,6 +206,11 @@ SunShadowSettings& sunShadowSettings()
     return g_settings;
 }
 
+IDirect3DTexture9* rendererSunShadowAtlas()
+{
+    return g_atlas;
+}
+
 unsigned int sunShadowCascadeDraws(unsigned int cascade)
 {
     return cascade < kCascades ? g_cascadeDraws[cascade] : 0;
@@ -233,7 +219,7 @@ unsigned int sunShadowCascadeDraws(unsigned int cascade)
 void rendererSunShadowsRelease()
 {
     if (g_atlas && g_rendererBase)
-        bindAtlas(device(), 0);
+        device()->SetTexture(kShadowAtlasSampler, 0);
     if (g_atlas)
         g_atlas->Release();
     g_atlas = 0;
@@ -381,7 +367,7 @@ bool rendererSunShadowsRender(float time, float* constants)
         savedDepth->AddRef();
     D3DVIEWPORT9 savedViewport;
     device()->GetViewport(&savedViewport);
-    bindAtlas(device(), 0);
+    device()->SetTexture(kShadowAtlasSampler, 0);
 
     IDirect3DSurface9* target = 0;
     g_atlas->GetSurfaceLevel(0, &target);
@@ -462,7 +448,13 @@ bool rendererSunShadowsRender(float time, float* constants)
     if (savedDepth)
         savedDepth->Release();
 
-    bindAtlas(device(), g_atlas);
+    device()->SetTexture(kShadowAtlasSampler, g_atlas);
+    device()->SetSamplerState(kShadowAtlasSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    device()->SetSamplerState(kShadowAtlasSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    device()->SetSamplerState(kShadowAtlasSampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    device()->SetSamplerState(kShadowAtlasSampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    device()->SetSamplerState(kShadowAtlasSampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    device()->SetSamplerState(kShadowAtlasSampler, D3DSAMP_SRGBTEXTURE, FALSE);
 
     static bool reported = false;
     if (!reported)

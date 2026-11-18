@@ -785,9 +785,11 @@ const float* rendererSunMaskConstants();
 // [RENDER] Sets the particle lighting parameters on a particle effect (Particles, Trail,
 // NonScreenAlignedParticles, MeshParticleMesh) by semantic: RaSunColor and RaSkyColor (the level's
 // one sun and sky, Lightmanager.staticSunColor / staticSkyColor as authored), RaSunDirection
-// (unit, toward the sun) and RASM (above). The atlas is bound to vertex sampler 3 as well as s13,
-// for receivers that sample the cascades per vertex.
+// (unit, toward the sun), RASM (above) and RaSunCascadeAtlas, the cascade atlas as a texture
+// parameter: particles sample it in the vertex shader, where the reserved s13 does not reach.
 void rendererBindParticleLighting(void* effect);
+// The sun cascade atlas (R32F, 2 x 2 cascades), or 0 before the first cascade pass.
+IDirect3DTexture9* rendererSunShadowAtlas();
 IDirect3DSurface9* rendererDepthStencilSurface();       // +0x770, the depth-stencil reference
 // The render-path target texture at retail `retailOffset` (+0x778..+0x7D4).
 EngineTexture*     rendererPathTarget(unsigned int retailOffset);
