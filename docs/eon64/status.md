@@ -54,8 +54,14 @@ Sub-steps, in order, each seen in game before the next:
       4x4 Bayer pixels through `RaLodDither` (pixel register c222, set per entry by the queues).
       Loaded on Saaremaa 2026-11-19, effects compile. Owner to check: buildings and trees
       dissolve rather than pop at mid range, no doubled point light, frame rate
-    - [ ] Overgrowth: full/LOD instances dither instead of fading through Transparency (which
-      sends them to the blended queue); the instance-to-far-cell handoff; the far cells' unused fade
+    - [ ] Overgrowth (`1e7a1c89`, `680d8890`): full/LOD instances dither over 10% of the switch
+      distance either side instead of fading through Transparency (lodTimer ease gone); far cells
+      dissolve over the last tenth of the overgrowth view distance; near instances and far cells
+      share one lighting model (static sun, tree ambient / static sky, no baked per-instance
+      shadow), so the handoff no longer jumps from dark to light. First build seen on Saaremaa
+      2026-11-19: near trees dark, far light, dots on leaves (owner); the fix is loaded there, not
+      yet seen. Owner to check: no dark-to-light pop at the handoff, dots only in the narrow band,
+      forest interiors not too bright without the baked shadow
 - [ ] Acceptance: GPU timer spans and the reference views
 
 Open: about 20% lower frame rate on Muttrah City than before step 8's LOD work (owner, 2026-11-19;
@@ -66,9 +72,8 @@ meshes, static switch distances x3 and no object distance cull. For the optimiza
 Open (sun shadows, seen on Saaremaa 2026-11-19): a band without tree shadows between the
 near overgrowth radius and the cascade end, and the cascade-to-baked edge sliding as the camera
 turned. Fixed, loaded on Saaremaa, not yet seen: far cells cast (`980b32aa`), the blend to baked
-goes by camera distance (shaders). Still open: overgrowth too dark at range (its baked
-`sampleShadow` value multiplies sun and sky on top of the cascades; drop it as for vehicles), and
-the overgrowth crossfade below.
+goes by camera distance (shaders). The baked overgrowth shadow is dropped
+(`680d8890`), not yet seen.
 
 Open: the default video profile picks 8x antialiasing (log) while the scene runs 4x; settle with fixed 4x
 (single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
