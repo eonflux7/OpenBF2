@@ -82,6 +82,15 @@ Edits to `.fx`/`.fxh` did not invalidate the generated permutations, so shared-h
 old and new shader code. The cache is now keyed on a hash of the preprocessed source and defines.
 `c2ccd4bc` fixes a null compiler entry the first commit introduced.
 
+### O. Console scripts: no `var`, `const` or assignment (fixed, commit below)
+`OldConsole::handleCommand` had no handling for `var v_x [= value]`, `const c_x = value` or
+`v_x = value`; they fell through to the binding lookup as unknown commands. Declared variables never
+existed, so `if v_mode == "gpm_cq"` compared the literal name. Mods that pick layer-specific init
+this way (PR's `setLayerMode.tweak` plus its Python handler assigning `v_layer` through
+`host.rcon_invoke`) never loaded night, skirmish, vehicles or coop layer setups. Implemented from the
+documented script syntax; a value is a quoted string, a variable or constant, a command's result, or
+the literal text. Not checked against the binary (assignment of a command result in particular).
+
 ## Build
 
 ### P. Plugin DLLs as incremental Ninja targets (`dd686d2c`, `64e160f2`, `d310968a`)

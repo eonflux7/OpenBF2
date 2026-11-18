@@ -769,6 +769,83 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
                     tokens[7], tokens[8], out);                                // virtual +0x30
             return 1;
         }
+
+        // [FIX] Script variables and constants. The reconstruction had no `var`, `const` or
+        // `v_x = value`: they fell through to the binding lookup as unknown commands, so every
+        // declared variable stayed undefined and conditions compared the literal name. PR's
+        // setLayerMode.tweak (`var v_mode`, `v_mode = v_arg1`, then the Python handler's
+        // `v_layer = 32` through rcon) never set the game mode and layer, so no level's
+        // layer-specific init (night, skirmish, vehicles, coop) ran. Retail runs these scripts;
+        // this follows the documented script syntax, not a read of the binary (not checked):
+        //   var v_name [= value]      declares in the current scope (empty when no value)
+        //   const c_name = value      declares a constant; an existing one keeps its value
+        //   v_name = value            assigns the innermost declaration
+        // A value is a quoted string (quotes stripped), a variable or constant (its value), a
+        // console command (its result), or the literal text.
+        {
+            const bool isVar = mayBeKeyword && compareIgnoreCase(kw, "var") == 0;
+            const bool isConst = mayBeKeyword && compareIgnoreCase(kw, "const") == 0;
+            std::string name, second;
+            ConsoleLineReader nin(line);
+            nin.readToken(name);
+            if (isVar || isConst)
+                nin.readToken(name);
+            const bool hasEquals = nin.readToken(second) && second == "=";
+            std::string existing;
+            const bool isAssign = !isVar && !isConst && hasEquals && mayBeKeyword
+                && exchangeVariable(name, existing);
+            if (isVar || isConst || isAssign)
+            {
+                if ((isVar || isConst) && name.empty())
+                {
+                    result = std::string("\"") + kw + "\" needs a name!";
+                    return 2;
+                }
+                std::string value;
+                if (hasEquals)
+                {
+                    std::string rhs = line.substr(line.find('=') + 1);
+                    while (!rhs.empty() && (rhs[0] == ' ' || rhs[0] == '\t')) rhs.erase(0, 1);
+                    std::string lookedUp;
+                    if (rhs.size() >= 2 && rhs[0] == '"' && rhs[rhs.size() - 1] == '"')
+                        value = rhs.substr(1, rhs.size() - 2);
+                    else if (exchangeVariable(rhs, lookedUp) || exchangeConstant(rhs, lookedUp))
+                        value = lookedUp;
+                    else
+                    {
+                        ConsoleLineReader rin(rhs);
+                        std::string first;
+                        rin.readToken(first);
+                        const std::string::size_type dot = first.find('.');
+                        if (dot != std::string::npos && dot > 0 && dot + 1 < first.size())
+                        {
+                            stageClock.pause();
+                            handleCommand(rhs, value, access);
+                            while (!value.empty() && (value[value.size() - 1] == '\n'
+                                                      || value[value.size() - 1] == '\r'))
+                                value.erase(value.size() - 1);
+                        }
+                        else
+                            value = rhs;
+                    }
+                }
+                else if (isConst)
+                {
+                    result = "\"const\" needs a value!";
+                    return 2;
+                }
+                if (isVar)
+                    addVariable(name, value);
+                else if (isConst)
+                    addConstant(name, value);
+                else
+                    setVariable(name, value);
+                if (consoleTraceEnabled())
+                    std::fprintf(stderr, "[CONTRACE] d%d %s %s = [%s]\n", m_depth,
+                                 isVar ? "var" : isConst ? "const" : "set", name.c_str(), value.c_str());
+                return 1;
+            }
+        }
     }
 
     // The two exchange functions above are the real scope-stack lookups, used as the original
