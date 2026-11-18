@@ -11,7 +11,7 @@ upstream; see [Upstreaming](#upstreaming). Read it with `git show kr4uzi/main:AG
 ## What this fork is
 
 An x64 Battlefield 2 client that runs the Project Reality mod (PR) and modernizes its renderer.
-Eight kinds of work happen here. They are called **lanes**, and every change belongs to exactly one.
+Nine kinds of work happen here. They are called **lanes**, and every change belongs to exactly one.
 
 | Lane | What it is | Rule | Destination |
 |---|---|---|---|
@@ -22,6 +22,7 @@ Eight kinds of work happen here. They are called **lanes**, and every change bel
 | `build` | Toolchain, CMake/Ninja, build scripts, ABI checks | Never changes runtime behaviour | Mostly upstream |
 | `dev` | Diagnostics and developer hooks (traces, autohost, file monitor) | Off by default; when unset, behaviour and cost are unchanged | Case by case |
 | `ui` | In-game UI the fork owns, on Dear ImGui: debug menu, performance overlay, console frontend | Replaces the retail UI it supersedes; no retail path kept once a step is accepted. Hidden UI costs nothing. Never owns a setting: widgets change console variables. PR-specific content is read from files outside this tree | Private to this fork |
+| `tools` | The in-game test harness: views, view sets, camera paths, unattended runs, benchmarks, renderer inspection | Console first: every action is a console command or variable, results are files. Idle costs nothing. View files and debug shading modes live outside this tree | Private to this fork |
 | `upstream` | Imported code: upstream merges, realitymod's PR #1 game-logic port | Not edited in place. A bug in it is a `fix` | — |
 
 When a change seems to need two lanes, split it into two commits. A `fix` found during `render` work
@@ -95,6 +96,7 @@ retail, and state why in the same comment:
 - `[PERF]` a load-time or throughput change; say what the serial code did.
 - `[DEV]` a diagnostic or developer hook.
 - `[UI]` fork UI hooked into retail code; new UI files say so once in their header instead.
+- `[TOOLS]` a test-harness hook in retail code (camera override, settle checks); new tool files say so once in their header instead.
 - `[BUILD]` in build files, where a choice differs from upstream's build.
 
 A marker is a pointer, not a justification: the comment beside it still explains the reason.
@@ -122,6 +124,7 @@ A marker is a pointer, not a justification: the comment beside it still explains
 | Frame time: measurements, profile, plan, what is done | `docs/eon64/perf-frame.md` |
 | Fixes worth upstreaming, with commits | `docs/eon64/upstream-fixes.md` |
 | In-game UI: ImGui layer, debug menu, overlay, console | `docs/eon64/ui.md` |
+| Test harness: views, runs, benchmarks, inspection | `docs/eon64/tools.md` |
 | Flags | `docs/eon64/flags.md` |
 
 Update the relevant document in the same commit as the change it describes. Commit messages

@@ -8,14 +8,24 @@ the next step.
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Steps 1–8 accepted | Step 9, draw submission | [renderer.md](renderer.md#roadmap) |
+| `render` | Steps 1–8 accepted | Step 9, draw submission, after `tools` milestones 1–3 | [renderer.md](renderer.md#roadmap) |
 | `ui` | Steps 1–4 accepted | — | [ui.md](ui.md#steps) |
+| `tools` | Planned | Milestone 1, views | [tools.md](tools.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
 | `perf` (frame) | `/O2` plugins, `tailField` table | Parked until renderer step 9 | [perf-frame.md](perf-frame.md#plan) |
 | `compat` | See the list | rhooks client features | [compat.md](compat.md#missing) |
 | `fix` | G–Q fixed | A, C–F open (packaging, build) | [upstream-fixes.md](upstream-fixes.md) |
 
-## Current step: `render` step 9, draw submission
+## Current step: `tools` milestone 1, views
+
+Plan: [tools.md](tools.md#1-views). The view tool comes before renderer step 9 (owner,
+2026-11-19): milestones 1–3 first, so step 9 is measured against reference views and a benchmark
+path. Starting set: about 5 views and one benchmark path each on Muttrah City and Saaremaa.
+
+Sub-steps: not yet broken down. First to find: where the client sets the render camera before
+culling, and whether the local server's simulation can be paused.
+
+## Next: `render` step 9, draw submission
 
 Plan: [renderer.md](renderer.md#roadmap) (step 9). Step 8 (anti-aliasing) accepted on Saaremaa
 2026-11-19: crossfades fine, GPU spans recorded, reference views skipped (owner); as built in

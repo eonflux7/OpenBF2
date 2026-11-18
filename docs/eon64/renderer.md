@@ -112,9 +112,8 @@ Built into the client, not the editor, so that the running game and its scripts 
   (BeginScene to the sun cascades), `sun clear`, `sun c0`..`sun c3`,
   `depth prepass`, `sun mask`, `world opaque` (to the sky), `world transparent` (fog pass, decals,
   particles, water, transparency), `post pass`, `first person`, `post finish`, `hud` (to Present).
-- **Reference views:** per-map lists of camera positions (with or without the first-person model,
-  optionally with a spawned vehicle). After autohost the client visits each view, waits a fixed
-  number of frames, and writes a screenshot and the pass timings, for regression and performance
-  comparison between steps.
+- **Reference views:** saved camera views per map, visited unattended after autohost, each writing
+  a screenshot, the pass timings and draw counts; plus benchmark paths. Lane `tools`, see
+  [tools.md](tools.md).
 - **Debug menu and overlay:** lane `ui`, see [ui.md](ui.md). Pass timings, renderer variables;
   debug views and spawning vehicles and kits come later.
