@@ -58,7 +58,8 @@ follows from it:
 
 **7. MSAA.** The scene draws with 4x MSAA, but the prepass depth, normals and sun mask are single
 sample, so an edge pixel reads one mask value for all its samples (halos on silhouettes, mostly
-foliage against the sky). Decide how full-screen terms meet MSAA (edge-aware upsampling,
+foliage against the sky; on bright terrain, dark lines along ridge silhouettes, where the edge reads the
+far slope's N.L and shadow, seen on Kashan Desert). Decide how full-screen terms meet MSAA (edge-aware upsampling,
 per-sample evaluation at edges, or another anti-aliasing approach) before step 10 adds a second one.
 
 **8. Atmosphere, sky IBL, water reflections.**
