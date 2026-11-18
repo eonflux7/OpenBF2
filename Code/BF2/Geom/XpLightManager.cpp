@@ -2591,7 +2591,7 @@ void updateXpLightDistance(XpLight* light)
 // [DEV] BF2_LIGHT_SHADOW_TRACE: why each light was inactive this frame (reset per traced frame).
 struct LightShadowDropCounts
 {
-    unsigned int disabled, far, culled, noCandidates;                 // lights
+    unsigned int disabled, tooFar, culled, noCandidates;                 // lights
     unsigned int records, casters, noGeometry, localView, noEffect, outside, draws;   // casters
 };
 LightShadowDropCounts g_lightShadowDrops = LightShadowDropCounts();
@@ -2638,7 +2638,7 @@ void updateXpLight(XpLight* light)
     if (!visible && forceVisible)
         visible = true;
     if (!visible && lightShadowTraceOn())   // [DEV] BF2_LIGHT_SHADOW_TRACE
-        ++((light->cameraDistance > 100.0f) ? g_lightShadowDrops.far : g_lightShadowDrops.culled);
+        ++((light->cameraDistance > 100.0f) ? g_lightShadowDrops.tooFar : g_lightShadowDrops.culled);
     setXpLightActive(light, visible);
 }
 
@@ -5225,7 +5225,7 @@ void RD9_THUNK lm_renderShadowMaps(void* self RD9_THUNK_EDX)
                          static_cast<unsigned int>(g_xpCoordinator.staticFrame.size()),
                          static_cast<unsigned int>(g_xpCoordinator.dynamicFrame.size()),
                          static_cast<unsigned int>(lm(self).spotRecords.size()),
-                         g_lightShadowDrops.disabled, g_lightShadowDrops.far,
+                         g_lightShadowDrops.disabled, g_lightShadowDrops.tooFar,
                          g_lightShadowDrops.culled, g_lightShadowDrops.noCandidates,
                          g_lightShadowDrops.records, g_lightShadowDrops.casters,
                          g_lightShadowDrops.noGeometry, g_lightShadowDrops.localView,
