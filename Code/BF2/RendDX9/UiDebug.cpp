@@ -142,12 +142,12 @@ void loadSettings()
     if (!readLines(settingsPath(kSettingsFile), lines) || !console())
         return;
     g_loadingSettings = true;
+    std::string output;   // Console::ignoredString_ lives in BF2.exe and is not exported
     for (size_t i = 0; i < lines.size(); ++i)
     {
         if (lines[i].empty() || lines[i].compare(0, 3, "rem") == 0)
             continue;
-        console()->executeLine(lines[i] + "\n", io::Console::ignoredString_, false, true, false,
-                               false, true);
+        console()->executeLine(lines[i] + "\n", output, false, true, false, false, true);
     }
     g_loadingSettings = false;
 }
@@ -171,9 +171,11 @@ void loadCommands()
                  settingsPath(kCommandsFile).c_str());
 }
 
+} // namespace
+
 // Runs a line as if typed into the console and entered: the console's own access rules, echo
 // and history, and rcon lines go to the server.
-void runTyped(const std::string& text)
+void uiRunTyped(const std::string& text)
 {
     io::Console* const c = console();
     if (!c)
@@ -182,6 +184,8 @@ void runTyped(const std::string& text)
     c->setCurrentLine(line);
     c->updateAsciiKey(13);
 }
+
+namespace {
 
 // ---------------------------------------------------------------------------------------------
 // Frame timing
@@ -405,7 +409,7 @@ void drawCommands()
     {
         ImGui::PushID(static_cast<int>(i));
         if (ImGui::Button(g_commands[i].label.c_str()))
-            runTyped(g_commands[i].line);
+            uiRunTyped(g_commands[i].line);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
             ImGui::SetTooltip("%s", g_commands[i].line.c_str());
         const float lastRight = ImGui::GetItemRectMax().x;
