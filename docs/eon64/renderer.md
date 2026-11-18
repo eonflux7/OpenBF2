@@ -19,7 +19,7 @@ kept in a private repository; this document describes only the contract between 
 | 3. Shared lighting model | Accepted (shader-only) | — |
 | 4. Depth prepass + screen-space sun mask | Accepted | `3a00bf99`, `988774bf`, `82e04f61` |
 | 5. Sun cascaded shadow maps + PCF | Accepted | `271c8d45`, `df9a6a40`, `6261ac82`, `5ccaf770`, `505ca7ab`, `2860a74a` |
-| 6. Shader audit and cleanup | Started 2026-11-17 | — |
+| 6. Shader audit and cleanup | Accepted | `ee33008f`, `7f05cc77`, `88d3b7f1`, `52af0169`, `f6fb255a`, `e7623d07`, `dc97ef7b` |
 | 7. MSAA with the single-sample prepass | Not started | — |
 | 8. Atmosphere, sky IBL, water reflections | Not started | — |
 | 9. HDR bloom + auto-exposure | Not started | — |
@@ -48,7 +48,7 @@ follows from it:
   `hasshadow` / `hasshadowocclusion` / `hashemiocclusion`, static mesh `shadow`, the `*Shadowed` tree
   techniques), terrain water's record matrices, undergrowth's `_ds` techniques, overgrowth's record
   attach, and the decal renderer's shadowed batch kinds (decals draw pass 0 only).
-- BF2's point and spot shadow maps (deleted, awaiting the in-game check). Retail kept shadow records
+- BF2's point and spot shadow maps (done; accepted on The Falklands night layer, 2026-11-18). Retail kept shadow records
   only for lights whose shadow policy was non-zero, and the policy is zero outside the expansion
   pack, so a PR session never drew this path. Deleted: the records, the shadow atlas and its
   device-lost listener, the casters' `DrawShadowMap` draws on bundled, skinned and static meshes
@@ -57,7 +57,10 @@ follows from it:
   and overgrowth. The XP light coordinator stays: it still selects the point and spot lights that
   light geometry. The LightManager's shadow vtable slots (`renderShadowMaps`, `registerShadowEffect`),
   the mesh `drawShadowMap` / `drawSilhouette` slots and overgrowth's `collectShadowGeometry` slot
-  remain as empty bodies, and the shadow-map console setters only store their value.
+  remain as empty bodies, and the shadow-map console setters only store their value. That pass
+  also bound the scene depth-stencil and colour target 0 on exit each frame; the renderer now
+  binds them itself where it was called (`dc97ef7b`), and the sun cascades clear their
+  standard-depth mark when they restore the scene depth (`e7623d07`).
 - One terrain path. `Low_Terrain` had no `RaDepthPrepass` or `RaShadowDepth` technique, so the
   engine no longer enters it: not at load, not from the terrain-quality video option, not as a
   fallback. The `m_lowQuality` branches left in the terrain code are always false and go with the
