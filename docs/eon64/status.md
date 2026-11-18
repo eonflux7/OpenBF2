@@ -8,7 +8,7 @@ the next step.
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Steps 1–7 accepted | Step 8, anti-aliasing: LOD crossfade next | [renderer.md](renderer.md#roadmap) |
+| `render` | Steps 1–7 accepted | Step 8, anti-aliasing: LOD policy and crossfade | [renderer.md](renderer.md#roadmap) |
 | `ui` | Steps 1–4 accepted | — | [ui.md](ui.md#steps) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
 | `perf` (frame) | `/O2` plugins, `tailField` table | Parked until renderer step 9 | [perf-frame.md](perf-frame.md#plan) |
@@ -40,10 +40,19 @@ Sub-steps, in order, each seen in game before the next:
   their alpha test; prepass alpha sharpened to a one-pixel ramp. Seen on Saaremaa 2026-11-18.
   Not done: the mip-loss alpha correction, which needs texture sizes from the engine; add it if
   distant foliage thins)
-- [ ] LOD crossfade
+- [ ] LOD policy and crossfade ([renderer.md](renderer.md#roadmap), step 8), in order:
+  - [x] Full-detail terrain geometry (`ee0e7ed8`; seen on Kashan Desert 2026-11-19, no cracks.
+    Owner to check: ridges scoped and unscoped, no ground sliding, frame rate)
+  - [ ] Mesh LOD distances raised; mesh shading LODs removed; full-resolution textures confirmed
+  - [ ] Distance culling: cover no earlier than what it hides
+  - [ ] Dithered crossfade for the remaining switches and the cull fade
 - [ ] Acceptance: GPU timer spans and the reference views
 
 Open: the default video profile picks 8x antialiasing (log) while the scene runs 4x; settle with fixed 4x
 (single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
+
+Terrain shading at full detail at every distance is in step 10 (the one-pass rewrite), not here.
+Roads still fade at 1.3 x `lodSwitchDistance` (130 m); now that terrain is full detail they could
+draw farther. Not decided.
 
 Carried over: The Falklands night-layer particle check moved to step 12.

@@ -93,11 +93,32 @@ screen-space term cannot be made per-sample; the mask goes instead.
   sweep of PR's statics found it catches planks and roof slats (which would turn see-through at
   distance) unless strands are required to stand alone, and that test rejects the older cables,
   which are two crossed strips. The cost was not worth a defect retail also has.
-- **LOD crossfade.** Static, overgrowth and tree LOD switches and the distance cull fade become a
-  dithered crossfade instead of popping: one screen-space Bayer threshold, `clip()` against it for
-  the outgoing LOD and against its complement for the incoming one. Alpha-to-coverage cannot do
-  this, because the masks it gives for a and 1 - a are not guaranteed complementary (holes and
-  double cover).
+- **LOD policy and crossfade.** What a player sees at range must not depend on distance-driven
+  simplification, since that shows soldiers and vehicles to whoever is farther away or zoomed in.
+  Full detail wherever it is cheap; a crossfade where a switch has to stay.
+  - *Terrain geometry* (done, `ee0e7ed8`): every visible leaf draws retail's LOD 0 at any distance
+    and zoom, with no geomorph. Retail used LOD 0 within about 75 m (zoom-scaled, plus the camera's
+    height above ground), LOD 1 to 225 m and LOD 2 beyond. A coarser LOD keeps a subset of the grid,
+    so convex crests drew below the collision heightmap and a scoped player saw different hills.
+    The culler keeps one walk (frustum, plus a `detailNear` shading flag); the crack fixup, morph
+    constants and the casters' LOD rule are gone. One constant, `HEIGHTDELTASCALE`, is left:
+    the `MorphDelta.z` term retail's LOD 0 applied to every vertex of 0x1A content.
+  - *Mesh LOD distances*: static and bundled meshes switch by PR's per-model distances times
+    the geometry quality's scale (1.0 at quality 3), divided by zoom. Raise them for statics and
+    bundled meshes (about 2-3x, tuned in game); triangle counts are low.
+  - *Shading LODs on meshes*: the distance-selected shader-quality buckets (`qualityLodEnabled`,
+    `setQualityLodDistance*`) and any distance fade of detail or normal maps in PR's mesh shaders
+    go; meshes shade at full detail at every distance.
+  - *Texture resolution*: confirm every texture loads at full resolution (texture quality, the
+    loaders' mip classes) and fix it there, with no setting. Mip selection stays: it is filtering,
+    not a LOD, and 16x anisotropic keeps distance sharp without aliasing.
+  - *Distance culling*: ordinary objects cull at `distanceCullConst` 8, soldiers and vehicles at 10,
+    so cover can vanish before what hides behind it. Cover must cull no earlier than what it hides.
+  - *Crossfade*: the mesh and overgrowth LOD switches that remain and the distance cull fade become
+    a dithered crossfade instead of popping: one screen-space Bayer threshold, `clip()` against it
+    for the outgoing LOD and against its complement for the incoming one. Alpha-to-coverage cannot
+    do this, because the masks it gives for a and 1 - a are not guaranteed complementary (holes and
+    double cover). Overgrowth's far cells compute a fade and ignore it (`OverGrowthCell::draw`).
 - **Transparents and depth.** D3D9 binds a depth buffer only with a render target of the same
   sample count and cannot resolve depth. Water stays in the MSAA scene, drawn before the resolve, so
   its shoreline keeps its edge samples (and step 11's reflections and refraction read the resolved
@@ -119,7 +140,7 @@ screen-space term cannot be made per-sample; the mask goes instead.
   a reference to compare against, not a mode.
 - **Order within the step**, each seen in game before the next: sampler policy; shadows in the lit
   shaders and the mask deleted, with the centroid cascade position; prepass into the MSAA depth with
-  EQUAL, centroid UVs and the transparent depth rebuild; alpha-to-coverage; LOD
+  EQUAL, centroid UVs and the transparent depth rebuild; alpha-to-coverage; LOD policy and
   crossfade.
 - **Moved to step 10: the compressed resolve.** Averaging linear HDR leaves high-contrast edges
   aliased; writing colour compressed (Karis, 1 / (1 + luma)) before the resolve and expanding after
@@ -142,6 +163,11 @@ fog applied once (the additive passes fog every pass, so it stacks where they ov
 over the largest surface on screen. Roads, which blend into the accumulation target, get their own
 lit path. Deleted with it: the always-false `m_lowQuality` branches and the dynamic shadow-range
 index buffer (+0x368), which nothing reads since step 6.
+Full shading detail at every distance (the owner's call, 2026-11-19): detail layers everywhere and
+no low-detail pass, so the `detailNear` split that step 8 left in the culler and `drawFinal` goes,
+with `lodSwitchDistance` reduced to the roads' view distance. At range the detail textures tile
+visibly, so the one pass blends the low-detail colormap in by distance for variation, not instead of
+the detail layers.
 The compressed resolve moved here from step 8: once terrain is one pass, opaque shaders write
 colour compressed by 1 / (1 + luma) through one shared output function, and the resolve output is
 expanded back to linear before the transparent pass and post. Water draws in the MSAA scene before
