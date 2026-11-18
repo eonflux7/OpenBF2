@@ -25,6 +25,7 @@ void removeCrashReporter()
 #include <windows.h>
 
 #include <cstdio>
+#include <csignal>
 #include <cstdlib>
 
 namespace renddx9abi {
@@ -462,6 +463,21 @@ void __cdecl purecallReport()
     logf("[CRASH] ===============================================================================");
 }
 
+// [DEV] abort() (a failed assert, std::terminate, an explicit abort) raises SIGABRT and never an
+// SEH exception either. Log the stack the same way; returning lets the CRT terminate as before.
+void __cdecl abortReport(int)
+{
+    CONTEXT ctx;
+    ::RtlCaptureContext(&ctx);
+    logf("[CRASH] ===============================================================================");
+    logf("[CRASH] abort() (SIGABRT)");
+#if !defined(_M_IX86)
+    reportRegistersAndFrames(ctx);
+#endif
+    reportStack(ctx);
+    logf("[CRASH] ===============================================================================");
+}
+
 } // anonymous namespace
 
 void installCrashReporter()
@@ -473,6 +489,7 @@ void installCrashReporter()
     // from under it.
     s_handle = ::AddVectoredExceptionHandler(1, &vectoredHandler);
     ::_set_purecall_handler(&purecallReport);
+    std::signal(SIGABRT, &abortReport);
     logf("crash reporter: %s", s_handle ? "installed (first-chance, report-only)"
                                         : "AddVectoredExceptionHandler FAILED");
 }
