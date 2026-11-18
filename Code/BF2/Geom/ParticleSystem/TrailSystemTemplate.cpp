@@ -10,6 +10,7 @@
 
 #include "../../../RendDX9Abi/ThunkAbi.h"
 #include "ParticleRawLayout.h"
+#include "ParticleRendererCallbacks.h"   // [RENDER] particleTemplateUnsetLightAffection
 #include "../../Platform/X87Compat.h"
 #include "../XpLightManager.h"
 #include "../../../RendDX9Abi/HfeAbi.h"

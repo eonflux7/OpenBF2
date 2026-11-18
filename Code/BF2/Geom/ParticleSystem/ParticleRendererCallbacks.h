@@ -43,4 +43,12 @@ unsigned char* particleSystemManagerMeshParticlesRenderer(IBase* manager);
 // The manager's force-sorted byte (retail +0x8BA8), read by the sprite descriptor's slot 114.
 // No null guard on `manager`.
 unsigned char particleSystemManagerForceSortedParticles(IBase* manager);
+
+// [RENDER] The light-affection factor a template's recompute stores when the template sets none
+// (its own value < 0). Retail stores the level's Lightmanager.defaultEffectLightAffectionFactor,
+// which some levels set to 0 so their effects draw unlit. The renderer lights effects with the
+// level's sun, so a template without its own factor is fully lit; its factor is stored as
+// -1 - the level default, which the shaders read as 1, and as the level default under thermals
+// (PR's thermal output is unchanged). docs/eon64/renderer.md, shader contract.
+float particleTemplateUnsetLightAffection();
 } } }
