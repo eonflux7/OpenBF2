@@ -1351,6 +1351,11 @@ unsigned char* particleSystemManagerMeshParticlesRenderer(IBase* manager)
     return reinterpret_cast<ParticleSystemManager*>(manager)->m_meshParticlesRenderer; // +0x5F30
 }
 
+float particleTemplateUnsetLightAffection()
+{
+    return -1.0f - (g_LightManager ? g_LightManager->getDefaultEffectLightAffectionFactor() : 0.0f);
+}
+
 unsigned char particleSystemManagerForceSortedParticles(IBase* manager)
 {
     return reinterpret_cast<ParticleSystemManager*>(manager)->m_forceSortedParticleType; // +0x8BA8

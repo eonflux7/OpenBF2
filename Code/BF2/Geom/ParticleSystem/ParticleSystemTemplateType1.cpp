@@ -299,13 +299,7 @@ void n1_setE8(void* self, float value)
 void RD9_THUNK n1_s2(void* self RD9_THUNK_EDX)
 {
     if (F(self, 0x1A8) < 0.0f)
-    {
-        if (g_LightManager)
-            F(self, 0x1B8) =
-                g_LightManager->getDefaultEffectLightAffectionFactor();
-        else
-            U(self, 0x1B8) = 0;
-    }
+        F(self, 0x1B8) = particleTemplateUnsetLightAffection();   // [RENDER] retail: level default
     else
         U(self, 0x1B8) = U(self, 0x1A8);
 

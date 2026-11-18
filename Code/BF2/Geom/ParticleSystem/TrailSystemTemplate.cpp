@@ -277,9 +277,7 @@ unsigned RD9_THUNK n2_s3(void* RD9_THUNK_EDX) { return 2; }   // emitter type id
 void RD9_THUNK n2_s2(void* self RD9_THUNK_EDX)
 {
     if (!(F(self, 0x17C) >= 0.0f))
-    {
-        F(self, 0xD8) = g_LightManager->getDefaultEffectLightAffectionFactor();
-    }
+        F(self, 0xD8) = particleTemplateUnsetLightAffection();   // [RENDER] retail: level default
     else
         U(self, 0xD8) = U(self, 0x17C);
 
