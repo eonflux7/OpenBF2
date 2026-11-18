@@ -96,7 +96,8 @@ faction pass (night layers) created kits twice and `Kit::init` aborted on the du
 Operands of `if`/`elseIf`/`var`/`const` keep a double-quoted literal with spaces as one token
 (`if v_exists != "No geometry template"`, PR's geometry guards); split at the spaces, the guard
 always returned and soldier and kit geometries (the 1P arms among them) were never created. The
-retail tokenizer for these operands is not located yet.
+retail tokenizer for these operands is not located yet. Seen in game (The Falklands night layer:
+kits created once, soldier geometry and 1P arms present).
 Also found: retail runs a level's `Init.con` with every argument empty (`bf2_w32ded.exe` 0x465D50;
 `BF2.exe` 0x4ED7xx passes `BF2Editor` only in editor mode), as this engine does.
 
