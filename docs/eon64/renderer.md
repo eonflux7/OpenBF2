@@ -20,7 +20,7 @@ kept in a private repository; this document describes only the contract between 
 | 4. Depth prepass + screen-space sun mask | Accepted | `3a00bf99`, `988774bf`, `82e04f61` |
 | 5. Sun cascaded shadow maps + PCF | Accepted | `271c8d45`, `df9a6a40`, `6261ac82`, `5ccaf770`, `505ca7ab`, `2860a74a` |
 | 6. Shader audit and cleanup | Accepted | `ee33008f`, `7f05cc77`, `88d3b7f1`, `52af0169`, `f6fb255a`, `e7623d07`, `dc97ef7b` |
-| 7. Particle lighting | Not started | — |
+| 7. Particle lighting | In game (Muttrah, Kashan); The Falklands night layer and the GPU timer comparison open | `b1549478`, `25319adf`, `7fcdc848`, `423ac5e0`, `0bffa203`; fix `6eb1a727` |
 | 8. Anti-aliasing | Not started | — |
 | 9. Draw submission | Not started | — |
 | 10. Terrain in one pass | Not started | — |
@@ -79,11 +79,37 @@ follows from it:
 - Liveness comes from `BF2_DRAW_STATS` ([flags.md](flags.md)), run on a set of maps that between them
   cover water, foliage, buildings and vehicles.
 
-**7. Particle lighting.** Particles (`particles.fx`, `nonscreenalignedparticles.fx`, `trail.fx`,
-`meshparticlemesh.fx`) still light in gamma space: they decode the product of vertex colour and
-lighting as a colour. They move onto the shared sun and sky model, so smoke, dust and trails match
-the scene by day and night. Particles also fade against the linear view depth (s15) where they meet
-geometry (soft particles) instead of clipping into it. The thermals smoke (paused) builds on this.
+**7. Particle lighting.** The four particle effects (`particles.fx`, `nonscreenalignedparticles.fx`,
+`trail.fx`, `meshparticlemesh.fx`) light in linear on the level's one sun, through one shared
+function in the shaders. Every particle renderer calls `rendererBindParticleLighting` as it binds its
+effect (sun, sky, sun direction, `RASM`, the cascade atlas, soft-particle constants; see the
+[shader contract](#shader-contract)).
+- Only the authored tint is decoded; light multiplies it in linear. Lit tints are capped at 1 (an
+  albedo): PR's tints above 1 compensated for its dim gamma-space sun and glowed once decoded.
+- Lighting is per vertex. A billboard lights at its centre, with one cascade lookup however much it
+  overdraws; beyond the cascades, and outside the main world pass, the baked term (hemi map alpha
+  plus the template's altitude offset) is the sun visibility. Billboards and trails have no normal:
+  full sun plus the hemisphere's average, whose ground bounce takes the hemi map's colour as static
+  meshes do. Mesh particles use their normal.
+- Emissive: additive effects, and the unlit part of a template's light factor, show their tint
+  times 2.38 (2^1.25, undoing the frame's exposure, so they reach the tonemap at their authored value).
+- A template that sets no light factor is lit fully. Retail gave it the level's
+  `defaultEffectLightAffectionFactor`, which eight PR levels set to 0 (Kashan, Adak, Burning Sands,
+  Icebreaker, Iron Ridge, Khamisiyah, Masirah, Road to Damascus; Fool's Road 0.7), so their effects
+  drew unlit and flat. Templates that set a factor keep it.
+- Soft particles: lit and additive particles fade over `renderer.softParticleDistance` (default
+  1.5 m, range 0.1–20) in front of the prepass depth (s15). Alpha-blended passes fade alpha, `ONE,ONE`
+  passes fade colour; `DiffuseWithZWrite` stays hard. No fade on the sky (depth 0) or outside the
+  main world pass (first person, other views).
+- Screen-aligned sprites turn against the camera's roll, so smoke stays upright when an aircraft rolls.
+- Thermals keep PR's particle output exactly: the old gamma-space formula with `EffectSunColor` /
+  `EffectShadowColor`, the level's light factor, hard edges. The thermals smoke (paused) replaces it.
+
+Limits: a billboard or trail lights at one point, so a streak that starts in shade stays shaded where
+it rises into the sun. Water and undergrowth draw no prepass depth, so particles don't soften against
+them; a fringe at depth edges remains until step 8. Fire reads red-orange rather than yellow-orange:
+the PBR Neutral tonemap keeps hue as it compresses highlights, where PR's per-channel clip pushed
+bright orange toward yellow (AgX was tried and not preferred). That is the grade's, not this step's.
 
 **8. Anti-aliasing.** 4x MSAA as the one anti-aliasing method, with what MSAA alone misses covered
 at its source. Now the prepass depth, normals and sun mask are single sample, so an edge pixel reads
@@ -202,7 +228,7 @@ In draw order, for the main world view:
    `RaShader::begin` sets on every Ra effect that declares it (`rendererSunMaskConstants`).
 6. **End of the world pass** (`rendererDepthPrepassEndWorldPass`) binds a 1 x 1 mask of
    `(1, 0, 0)` and zeroes `RASM`, so first-person passes and every other view keep their baked
-   sunlight.
+   sunlight, and stops soft particles.
 7. **Post-production** runs every frame: the colour grade is the frame's only encode from linear
    to display, so it cannot be skipped. Tinnitus blends over the float scene target first.
 
@@ -292,7 +318,7 @@ over between effects, so neither value is left to default. The engine binds s12�
 | s12 | Prepass world normals | `A2R10G10B10` | After the prepass |
 | s13 | Sun cascade atlas | `R32F` | From the cascade pass, rest of the frame |
 | s14 | Sun mask | `A8R8G8B8` | World pass; a 1 x 1 `(1, 0, 0)` elsewhere |
-| s15 | Linear view depth | `R32F` | After the prepass, rest of the frame |
+| s15 | Linear view depth | `R32F` | After the prepass, rest of the frame; particles read it only while `RaSoftParticles.x` > 0 |
 
 Techniques the engine looks up by name:
 
@@ -312,6 +338,8 @@ Parameters the engine sets by semantic:
 | `RaSunColor`, `RaSkyColor` | `float3` | The four particle effects (`rendererBindParticleLighting`, called by each particle renderer as it binds its effect): `Lightmanager.staticSunColor` and `staticSkyColor` as authored, the one sun and sky every lit surface uses |
 | `RaSunDirection` | `float3` | The particle effects: unit vector toward the sun (`-Lightmanager.sunDirection`) |
 | `RaSunCascadeAtlas` | `texture` | The particle effects: the cascade atlas, which they sample per vertex. A vertex shader cannot read s13, so the atlas reaches them as a texture parameter and D3DX binds the vertex sampler |
+| `RaSoftParticles` | `float4` | The particle effects: `.x` 1 / `renderer.softParticleDistance` while the main world pass draws over this frame's prepass depth, else 0 (no fade); `.zw` 1 / the depth target's size |
+| `TemplateParameters` `color1.a` (light factor) | `float` | The particle templates, as retail, except a template that sets no light factor: `-1 - Lightmanager.defaultEffectLightAffectionFactor` (`particleTemplateUnsetLightAffection`). The shaders light it fully; thermals read back the level default |
 | `EffectSunColor`, `EffectShadowColor` | `float3` | The particle effects, as retail: read only by the thermals path, which keeps PR's particle formula, and (`EffectSunColor`) as the fill scale of the `ShowFill` techniques |
 | `Lights[0].color` (sun record), `SunColor` (decals) | `float3` | Bundled meshes (cockpits included), skinned meshes, trees and decals: the same one sun, `Lightmanager.staticSunColor`. Retail gave them `Lightmanager.sunColor`, the cockpit gate's colour, `treeSunColor` or the sky light's colour, each authored against a separate ambient (on Kashan the dynamic sun is 0.6 against a static 0.73 doubled) |
 
