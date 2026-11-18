@@ -3,6 +3,7 @@
 
 #include "../../RendDX9Abi/ThunkAbi.h"
 #include "StaticMesh.h"
+#include "../RendDX9/DrawStats.h"   // [DEV] BF2_DRAW_STATS
 #include "../Core/StringUtil.h"         // formatString (sub_10074AB0)
 
 #ifdef BF2_IMAGE_RENDDX9
@@ -2075,6 +2076,16 @@ void StaticMesh::drawVanilla()
             }
         }
 
+        // [DEV] BF2_DRAW_STATS: the primitives this mesh would draw at other switch-distance scales.
+        if (dx9rend::drawStatsOn())
+        {
+            const unsigned int geom = m_dword314;
+            dx9rend::drawStatsLodScales(0, t->m_geoms[geom].lodDistances.data(),
+                static_cast<int>(m_geomLodDistanceCounts.data()[geom]),
+                rendererFloat(0x8B0) * rendererFloat(0x84C), lodDistance,
+                [t, geom](int lod) { return t->getPrimitiveCount(static_cast<int>(geom), lod, -1); });
+        }
+
         m_dword320 = 0;
         if (rendererByte(0x708))
         {
@@ -2628,6 +2639,16 @@ void staticMeshDrawExpansion(void* self)
                 if (--i < 0)
                     break;
             }
+        }
+
+        // [DEV] BF2_DRAW_STATS: the primitives this mesh would draw at other switch-distance scales.
+        if (dx9rend::drawStatsOn())
+        {
+            const unsigned int geom = mesh.m_dword314;
+            dx9rend::drawStatsLodScales(0, t->m_geoms[geom].lodDistances.data(),
+                static_cast<int>(mesh.m_geomLodDistanceCounts.data()[geom]),
+                rendererFloat(0x8B0) * rendererFloat(0x84C), lodDistance,
+                [t, geom](int lod) { return t->getPrimitiveCount(static_cast<int>(geom), lod, -1); });
         }
 
         mesh.m_dword320 = 0;

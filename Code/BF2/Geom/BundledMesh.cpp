@@ -3,6 +3,7 @@
 #ifdef BF2_IMAGE_RENDDX9
 #include "../../RendDX9Abi/ThunkAbi.h"
 #include "BundledMesh.h"
+#include "../RendDX9/DrawStats.h"   // [DEV] BF2_DRAW_STATS
 #include "BundledMeshTemplate.h"
 #include "BundledMeshMaterial.h"
 #include "BundledMeshStateManager.h"
@@ -422,6 +423,14 @@ void BundledMesh::updateLodSelection()
 #else
         if(distances[i]*dx9rend::rendererTailFloat(0x84C)*dx9rend::rendererTailFloat(0x8B4)<threshold)selected=i+1;
 #endif
+    }
+    // [DEV] BF2_DRAW_STATS: the primitives this mesh would draw at other switch-distance scales.
+    if(dx9rend::drawStatsOn())
+    {
+        BundledMeshTemplate* const t=m_template; const int g=static_cast<int>(m_geomIndex);
+        dx9rend::drawStatsLodScales(1,distances,static_cast<int>(count),
+            dx9rend::rendererTailFloat(0x84C)*dx9rend::rendererTailFloat(0x8B4),threshold,
+            [t,g](int lod){ return t->getPrimitiveCount(g,lod,-1); });
     }
     if(selected!=m_lodIndex) { m_lodIndex=selected; dispatch<void>(this,0x6C,static_cast<int>(m_geomIndex)); }
     m_shaderLod=0;
