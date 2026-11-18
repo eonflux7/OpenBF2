@@ -2532,7 +2532,11 @@ bool Renderer::renderFrame(double time, float deltaTime)
 
             // [RENDER] Retail rendered the LightManager's shadow maps here (+0x19C): the sun maps
             // (replaced by the sun cascades) and the point/spot maps (deleted; docs/eon64/
-            // renderer.md, step 6).
+            // renderer.md, step 6). That pass ended by binding the scene's depth-stencil
+            // (Renderer +0x770, reversed-Z) and colour target 0, which the frame clear and the
+            // scene draw rely on; bind them here.
+            geom::lightManagerSetDepthStencil(0);
+            geom::lightManagerRestoreRendererTarget0();
 
             // sub_100057E0(7, 0, 1.0f, 0, 0, 0) - the frame clear: RT flush + Clear ALL, black.
             flushRenderTargetsSeam();
@@ -5687,7 +5691,9 @@ bool Renderer::renderScene(double time, const RenderFlags* flags, void* drawObje
     m_byte6DC = flags->particles;                                                 // +0x6DC
 
     // [RENDER] Retail rendered the LightManager's shadow maps here (+0x19C); deleted, as in the
-    // main frame.
+    // main frame, keeping the scene depth-stencil and target 0 that pass bound on exit.
+    geom::lightManagerSetDepthStencil(0);
+    geom::lightManagerRestoreRendererTarget0();
 
     if (flags->field0d && g_OverGrowth)
         static_cast<geom::OverGrowth*>(g_OverGrowth)->render(getRenderView(), timeF);   // +0x34
