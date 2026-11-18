@@ -827,7 +827,14 @@ void OverGrowth::update(IRenderView* view)
     for (unsigned int i = 0; i < nearerFirst.size(); ++i)
     {
         OverGrowthCell* const cell = nearerFirst[i];
+        // [RENDER] Step 8: the cell draw ignores its fade; the cell keeps that share of the
+        // screen's 4x4 Bayer pattern instead (RaLodDither), so it dissolves at the view distance.
+        const bool dissolving = cell->fadeFactor < 1.0f;
+        if (dissolving)
+            dx9rend::renderEntryPoolSetLodDither(-1.0f, cell->fadeFactor);
         cell->draw(view, &cell->corner, cell->fadeFactor);                        // cell vslot +0x10
+        if (dissolving)
+            dx9rend::renderEntryPoolSetLodDither(0.0f, 1.0f);
     }
 }
 

@@ -250,7 +250,7 @@ public:
     unsigned char                       m_unresolved1D;         // +0x1D  0 [UNRESOLVED]
     unsigned char                       m_initialized;          // +0x1E  initialize sets it
     unsigned char                       m_pad1F;
-    float                               m_fadeBand;             // +0x20  0.3; postLoad 0
+    float                               m_fadeBand;             // +0x20  0.3; postLoad 0 ([RENDER] 0.1)
     float                               m_viewDistance;         // +0x24  Overgrowth.viewDistance
     float                               m_viewDistanceScale;    // +0x28  Overgrowth.viewDistanceScale
     float                               m_heightFadeDistance;   // +0x2C  1.0

@@ -390,8 +390,10 @@ struct RenderQueueEntry
 RenderQueueEntry* renderEntryPoolAcquire();
 
 // [RENDER] Step 8: the RaLodDither (a, b) every entry acquired from now on carries; (0, 1), every
-// pixel, unless a static mesh is submitting one LOD of a crossfade (StaticMeshLodPass).
+// pixel, unless a static mesh is submitting one LOD of a crossfade (StaticMeshLodPass) or
+// overgrowth is submitting a crossfading instance or a dissolving far cell.
 void renderEntryPoolSetLodDither(float a, float b);
+void renderEntryPoolLodDither(float out[2]);   // the (a, b) set now
 
 // sub_10041A70, PE 0x10041A70.  Route an entry to its queue: bit 0 transparent, bit 1 first-person,
 // bit 2 the delta (point-light) pass.  Index 0 and 4 go to the entry's shader's OWN queue; every

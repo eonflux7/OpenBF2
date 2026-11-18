@@ -2253,6 +2253,12 @@ void renderEntryPoolSetLodDither(float a, float b)
     g_acquireLodDither[1] = b;
 }
 
+void renderEntryPoolLodDither(float out[2])
+{
+    out[0] = g_acquireLodDither[0];
+    out[1] = g_acquireLodDither[1];
+}
+
 void renderEntryBindLodDither(const RenderQueueEntry* entry)
 {
     stateManagerSetLodDither(entry->lodDither[0], entry->lodDither[1]);

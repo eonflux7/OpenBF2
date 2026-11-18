@@ -161,7 +161,8 @@ int staticMeshLodPassCount(const StaticMeshLodCrossfade& crossfade)
 }
 
 // One pass of a draw's material submission. Every entry acquired during it carries the pass's
-// RaLodDither. Pass 1 switches the mesh to the crossfade's other LOD and its lightmap, and restores
+// RaLodDither while the mesh is crossfading; otherwise the caller's (overgrowth sets one around its
+// instances) is kept. Pass 1 switches the mesh to the crossfade's other LOD and its lightmap, and restores
 // the selected LOD and lightmap when it ends.
 class StaticMeshLodPass
 {
@@ -172,8 +173,12 @@ public:
           m_offset0(mesh.m_float270), m_offset1(mesh.m_float274),
           m_offset2(mesh.m_dword278), m_offset3(mesh.m_dword27C)
     {
-        const float* const dither = pass != 0 ? crossfade.otherDither : crossfade.selectedDither;
-        dx9rend::renderEntryPoolSetLodDither(dither[0], dither[1]);
+        dx9rend::renderEntryPoolLodDither(m_outerDither);
+        if (crossfade.other >= 0)
+        {
+            const float* const dither = pass != 0 ? crossfade.otherDither : crossfade.selectedDither;
+            dx9rend::renderEntryPoolSetLodDither(dither[0], dither[1]);
+        }
         if (!m_switched)
             return;
         setLod(crossfade.other);
@@ -182,7 +187,7 @@ public:
     }
     ~StaticMeshLodPass()
     {
-        dx9rend::renderEntryPoolSetLodDither(0.0f, 1.0f);
+        dx9rend::renderEntryPoolSetLodDither(m_outerDither[0], m_outerDither[1]);
         if (!m_switched)
             return;
         setLod(m_selected);
@@ -204,6 +209,7 @@ private:
     StaticMeshLodPass& operator=(const StaticMeshLodPass&);
 
     StaticMesh&  m_mesh;
+    float        m_outerDither[2];
     bool         m_switched;
     int          m_selected;
     uintptr_t    m_lightmap;

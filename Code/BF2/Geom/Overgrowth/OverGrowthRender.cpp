@@ -19,6 +19,7 @@
 #include "../../Math/Vec3.h"
 #include "../../RendMisc/IRenderView.h"
 #include "../../RendDX9/RendDX9Base.h"        // RendDX9Base (+0x514..+0x516), rendererFrameOrdinal
+#include "../../RendDX9/Ra/RaShader.h"         // [RENDER] renderEntryPoolSetLodDither
 #include <string>
 
 // The ONE host (BF2.exe) call of the draw half: IObjectTemplate::getCullRadiusScale on the object
@@ -171,31 +172,6 @@ float distanceSquared(const Vec3& a, const Vec3& b)
     const float dy = b.y - a.y;
     const float dz = b.z - a.z;
     return dz * dz + dx * dx + dy * dy;
-}
-
-// PE 0x1000A6B0 (77 B), read in full, on dword_1023B970 - is multisampling active: the forced byte
-// +0x514 wins, then the disabled byte +0x515, else the first 8-byte entry of the mode vector +0xC0
-// (`sar 3`) is > 0
-// (`setnle`). BF2Render.cpp and TerrainDraw.cpp keep the same body file-local.
-bool isMultisampleActive()
-{
-    const dx9rend::RendDX9Base* const base =
-        static_cast<const dx9rend::RendDX9Base*>(dx9rend::g_rendererBase);
-    if (base->forceMultisample)
-        return true;
-    if (base->disableMultisample)
-        return false;
-    return dx9rend::multiSampleListActive(base);
-}
-
-// The render's alpha-to-coverage doubling, 100CA929..100CA950 and the predicate is
-// asked, then dword_1023B970 is re-read for the capability byte +0x516, at each of the two sites.
-float alphaToCoverageAdjusted(float alpha)
-{
-    if (isMultisampleActive()
-        && static_cast<const dx9rend::RendDX9Base*>(dx9rend::g_rendererBase)->hasAlphaToCoverage)
-        alpha = alpha + alpha;                                              // `fadd st, st`, NOT re-clamped
-    return alpha;
 }
 
 
@@ -488,23 +464,30 @@ void OverGrowth::render(IRenderView* view, float time)
                     fade = 1.0f - instance->lodFadeState;
                 }
 
-                if (type->lod.geometry && fade < 1.0f)
+                // [RENDER] Step 8: retail faded the two geometries through their Transparency
+                // (alpha 2(1 - fade) and 2 fade, doubled again under alpha-to-coverage), which sent
+                // every instance in the band to the blended queue. Both now stay opaque and split
+                // the screen's 4x4 Bayer pattern (RaLodDither): the full geometry keeps the pixels
+                // whose threshold is at least the LOD's share 1 - fade, the LOD geometry the rest.
+                const float lodShare = type->lod.geometry ? 1.0f - fade : 0.0f;
+                if (lodShare > 0.0f)
                 {
-                    const float alpha = alphaToCoverageAdjusted(
-                        clampFloat((1.0f - fade) + (1.0f - fade), 0.0f, 1.0f));
                     void* const lodGeometry = acquireGeometry(&type->lod, instance);
-                    geometrySetDistanceFade(lodGeometry, alpha);
+                    geometrySetDistanceFade(lodGeometry, 1.0f);
                     geometrySetShadowValue(lodGeometry, instance);
+                    if (lodShare < 1.0f)
+                        dx9rend::renderEntryPoolSetLodDither(-1.0f, lodShare);
                     geometryDraw(lodGeometry, view);                                   // +0x18
                 }
-                if (fade > 0.0f)                                             // 100CA984 `test ah,41h`
+                if (lodShare < 1.0f)
                 {
-                    const float alpha = alphaToCoverageAdjusted(
-                        clampFloat(fade + fade, 0.0f, 1.0f));
-                    geometrySetDistanceFade(geometry, alpha);
+                    geometrySetDistanceFade(geometry, 1.0f);
                     geometrySetShadowValue(geometry, instance);
+                    if (lodShare > 0.0f)
+                        dx9rend::renderEntryPoolSetLodDither(1.0f, -lodShare);
                     geometryDraw(geometry, view);                                      // +0x18
                 }
+                dx9rend::renderEntryPoolSetLodDither(0.0f, 1.0f);
             }
         }
     }
