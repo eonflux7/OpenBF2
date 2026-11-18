@@ -17,19 +17,25 @@ the next step.
 
 ## Current step: `render` step 8, anti-aliasing
 
-Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: sun shadows in the lit shaders, Kashan Desert, 2026-11-18.
+Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: prepass into the scene depth with EQUAL, Saaremaa, 2026-11-18.
 
 Sub-steps, in order, each seen in game before the next:
 - [x] Sampler policy (`28487a35`; seen on Kashan Desert 2026-11-18)
 - [x] Sun shadows in the lit shaders, screen-space sun mask deleted, centroid cascade position
   (`65760125`; seen on Kashan Desert 2026-11-18. The dark ridge lines were terrain normals flipped
   toward the camera at crests, not MSAA)
-- [ ] Prepass into the MSAA scene depth with EQUAL, centroid UVs, transparent depth rebuild
+- [x] Prepass into the MSAA scene depth, prepassed draws EQUAL with no depth write, 4x linear
+  depth resolved to s15 (`f11bdfe3`; seen on Kashan Desert and Saaremaa 2026-11-18, forest,
+  soldiers and vehicles by the owner)
+- [ ] Centroid lightmap UVs, mip derivatives from a non-centroid copy (static mesh, terrain, roads)
+- [ ] Transparent depth rebuild after the resolve; first settle where first-person models draw,
+  since they follow the transparents today and the plan keeps them in the MSAA scene
 - [ ] Alpha-to-coverage
 - [ ] Thin geometry
 - [ ] LOD crossfade
 - [ ] Acceptance: GPU timer spans and the reference views
 
-Open: the default video profile picks 8x antialiasing (log) while the scene runs 4x; settle with fixed 4x.
+Open: the default video profile picks 8x antialiasing (log) while the scene runs 4x; settle with fixed 4x
+(single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
 
 Carried over: The Falklands night-layer particle check moved to step 12.
