@@ -420,8 +420,8 @@ void TerrainEditable::init()
     TE_PARAM(m_hFogRange,          "fogRange");                               // +0x220
     TE_PARAM(m_hFogColor,          "fogColor");                               // +0x228
 #undef TE_PARAM
-    m_hMorphDeltaSelector = 0;                                                // +0x23C
-    m_hNearFarMorphLimits = 0;                                                // +0x244 (the frame constants look it up by name)
+    m_hHeightDeltaScale   = 0;                                                // +0x23C
+    m_unused240[1]        = 0;                                                // +0x244 (the frame constants look NEARFARMORPHLIMITS up by name)
     m_hFarTexTiling       = 0;                                                // +0x248
     m_hNearTexTiling      = 0;                                                // +0x250
     m_hLightViewProj      = 0;                                                // +0x254
