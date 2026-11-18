@@ -114,7 +114,9 @@ A marker is a pointer, not a justification: the comment beside it still explains
 | What | Where |
 |---|---|
 | Fork overview, lanes, workflow | `docs/eon64/README.md` |
-| Renderer architecture, passes, targets, sampler slots, shader contract, roadmap | `docs/eon64/renderer.md` |
+| Lane status: what is done and what is next | `docs/eon64/README.md` (Status) |
+| Renderer roadmap, order, plans for the steps still to do | `docs/eon64/renderer.md` |
+| Renderer as built: accepted steps, frame, passes, targets, sampler slots, shader contract | `docs/eon64/renderer-pipeline.md` |
 | PR compatibility: what PR needs from the engine and what is done | `docs/eon64/compat.md` |
 | Load times: measurements, plan, what is done | `docs/eon64/perf.md` |
 | Frame time: measurements, profile, plan, what is done | `docs/eon64/frametime.md` |
@@ -123,7 +125,11 @@ A marker is a pointer, not a justification: the comment beside it still explains
 | Flags | `docs/eon64/flags.md` |
 
 Update the relevant document in the same commit as the change it describes. Commit messages
-record history; the documents record the current state.
+record history; the documents record the current state. When a step is accepted, move its
+description from the plan to the as-built document and update the Status row.
+
+Read the Status table first, then only the sections the task needs (`grep -n '^#'` gives the
+outline); do not read whole documents by default.
 
 ## Upstreaming
 

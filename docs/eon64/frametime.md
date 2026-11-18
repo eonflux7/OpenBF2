@@ -47,29 +47,6 @@ Main thread by image, 10 s of samples:
 Main thread by subsystem (RendDX9 and BF2.exe): object culling 17 %, mesh draws and parameter apply
 14 %, sun caster pass 7 %, state manager 5 %, render queues 3 %, `tailField` 0.8 %.
 
-### Unoptimised plugins (superseded)
-
-Engine `074b3d39`, before `/O2`: RendDX9, SwiffPlayer and BF2Audio were compiled without
-optimisation (the plugin targets followed the `.cmd` scripts' flags).
-
-- **13.3 ms a frame (76 fps)**, `game.lockFps` 200. The main thread is at 100 % of one core, DXVK's
-  submission thread at 12 %: the frame is CPU-bound.
-- GPU: about 5.3 ms of pass work (sun cascades 2.1, depth prepass 1.3, world opaque 1.3, sun mask
-  0.2, the rest under 0.3); the remainder is idle.
-
-Main thread, 10 s of samples:
-
-| Share | What |
-|---|---|
-| 21 % | Outside the engine images: DXVK's `d3d9.dll` 6.7 %, C runtime 3.5 %, Wine, Flash, Python |
-| 16 % | Mesh draws: Ra shader parameter apply, `StaticMesh::drawVanilla`, stream binding |
-| 15 % | Object culling: frustum and box tests, culler walks, cull fade |
-| 10 % | Sun caster pass: capture, sort, per-cascade test, draw |
-| 6 % | `Renderer::tailField`: a linear scan of the Renderer's field table, per object |
-| 5 % | State manager: constant uploads, pre-draw apply |
-| 4 % | Render queue walks and sorts |
-| 22 % | Spread over the rest of RendDX9 and BF2.exe |
-
 ## Plan
 
 Parked on 2026-11-18: at 153 fps there is headroom, so the renderer roadmap goes first. Resume here.
@@ -89,9 +66,10 @@ Open:
 
 ## State
 
-- `Renderer::tailField` answers from a table indexed by retail offset: 5.6 % to 0.8 % of the main thread, measured in game (unoptimised RendDX9).
-- The sun casters carry their sort keys (shader, material), copied at capture No gain in
-  the unoptimised build: the sort's cost was the unoptimised insertion sort (every move a call and
-  a `rep movsb`), not the pointer chasing.
-- The plugin DLLs compile with `/O2` (`BF2_PLUGIN_OPTIMIZE`): 12.2 ms to 6.6 ms a frame on Muttrah.
-  Seen in game.
+Seen in game on Muttrah:
+- The plugin DLLs compile with `/O2` (`BF2_PLUGIN_OPTIMIZE`): 12.2 ms to 6.6 ms a frame
+  (13.3 ms at the baseline before it); RendDX9, SwiffPlayer and BF2Audio had been built without optimisation.
+- `Renderer::tailField` answers from a table indexed by retail offset: 5.6 % to 0.8 % of the main
+  thread (measured before `/O2`).
+- The sun casters carry their sort keys (shader, material), copied at capture. No measurable gain:
+  the sort's cost had been the unoptimised insertion sort, not the pointer chasing.

@@ -59,7 +59,7 @@ The values step 5 was accepted with become console variables with the same defau
 tuned live: distance (400 m), cascade resolution (2048; the atlas is re-created when it changes),
 caster reach (500 m), split lambda (0.75), cascade blend (0.2), normal offset (1.5 texels) and depth
 bias (1.0 texel). Each variable carries its range and a help line for the debug menu. The variables
-are listed in [renderer.md](renderer.md#sun-shadows).
+are listed in [renderer.md](renderer-pipeline.md#sun-shadows).
 
 ### 3. Debug menu and performance overlay
 
