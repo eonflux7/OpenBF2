@@ -145,8 +145,8 @@ public:
     virtual void reload();                                         // +2C 100CDDC0
     virtual void clear();
     virtual void render(IRenderView* view, float time);
-    // [RENDER] Sun shadow casters: after render, submits every instance the camera
-    // pass would draw (same cells and draw distance) whose sphere touches `volume` through the
+    // [RENDER] Sun shadow casters: after render, submits every far cell the camera pass drew and
+    // every instance it would draw (same cells and draw distance) whose sphere touches `volume` through the
     // renderer's caster capture, at full opacity with the full-detail geometry. Uses pool geometry
     // past this frame's camera draws, so the camera's entries are untouched. Non-virtual: the
     // table keeps its shipped slots.

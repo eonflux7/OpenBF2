@@ -516,7 +516,35 @@ void OverGrowth::render(IRenderView* view, float time)
 // distance fade is at least one half), and nothing advances the instances' fade timers.
 void OverGrowth::submitShadowCasters(IRenderView* view, const Frustum& volume)
 {
-    if (m_path.empty() || !m_enabled || !m_patches || !m_drawNear)
+    if (m_path.empty() || !m_enabled || !m_patches)
+        return;
+
+    // The far cells the camera pass drew (update): their batched streams, against the caster
+    // volume instead of the view frustum. Without them only the near instances cast, and between
+    // their draw radius and the end of the cascades trees had no shadow at all.
+    for (int z = 0; z < m_gridSize; ++z)
+    {
+        for (int x = 0; x < m_gridSize; ++x)
+        {
+            OverGrowthCell* const cell = getCell(x, z);                          // vslot +0x20
+            if (!cell->visible || cell->empty)
+                continue;
+            if (!terrainFrustumIntersectsBox(&volume, &cell->bounds.min.x))
+                continue;
+            const Vec3& lo = cell->bounds.min;
+            const Vec3& hi = cell->bounds.max;
+            const float dx = hi.x - lo.x;
+            const float dy = hi.y - lo.y;
+            const float dz = hi.z - lo.z;
+            const float sphere[4] = { 0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z),
+                                      0.5f * std::sqrt(dx * dx + dy * dy + dz * dz) };
+            const size_t first = dx9rend::rendererShadowCasters().size();
+            cell->draw(view, &cell->corner, 1.0f);                                // cell vslot +0x10
+            dx9rend::rendererSetCasterBounds(first, sphere);
+        }
+    }
+
+    if (!m_drawNear)
         return;
 
     for (int row = 0; row < m_gridSize; ++row)
