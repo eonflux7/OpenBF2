@@ -21,7 +21,7 @@ kept in a private repository; this document describes only the contract between 
 | 5. Sun cascaded shadow maps + PCF | Accepted | `271c8d45`, `df9a6a40`, `6261ac82`, `5ccaf770`, `505ca7ab`, `2860a74a` |
 | 6. Shader audit and cleanup | Accepted | `ee33008f`, `7f05cc77`, `88d3b7f1`, `52af0169`, `f6fb255a`, `e7623d07`, `dc97ef7b` |
 | 7. Particle lighting | Not started | — |
-| 8. MSAA with the single-sample prepass | Not started | — |
+| 8. Anti-aliasing | Not started | — |
 | 9. Draw submission | Not started | — |
 | 10. Terrain in one pass | Not started | — |
 | 11. Atmosphere, sky IBL, water reflections | Not started | — |
@@ -31,8 +31,9 @@ kept in a private repository; this document describes only the contract between 
 Each step is accepted in game against the reference views (see [Tooling](#tooling)) before the next
 one starts.
 
-Order (set 2026-11-18): particle lighting first, being small and independent. MSAA stays early
-because it settles how full-screen terms meet MSAA before steps 11 and 13 add more. Draw
+Order (set 2026-11-18): particle lighting first, being small and independent. Anti-aliasing stays
+early because it moves sun shadows into the lit shaders and settles the prepass, which steps 11 and
+13 build on. Draw
 submission comes before terrain and the atmosphere, so the new terrain draw is written once on the
 new path and the parameters steps 11–13 add cost nothing per draw. Terrain comes before the
 atmosphere, so aerial perspective and sky reflections are written once into a single terrain pass.
@@ -81,13 +82,41 @@ follows from it:
 **7. Particle lighting.** Particles (`particles.fx`, `nonscreenalignedparticles.fx`, `trail.fx`,
 `meshparticlemesh.fx`) still light in gamma space: they decode the product of vertex colour and
 lighting as a colour. They move onto the shared sun and sky model, so smoke, dust and trails match
-the scene by day and night. The thermals smoke (paused) builds on this.
+the scene by day and night. Particles also fade against the linear view depth (s15) where they meet
+geometry (soft particles) instead of clipping into it. The thermals smoke (paused) builds on this.
 
-**8. MSAA.** The scene draws with 4x MSAA, but the prepass depth, normals and sun mask are single
-sample, so an edge pixel reads one mask value for all its samples (halos on silhouettes, mostly
-foliage against the sky; on bright terrain, dark lines along ridge silhouettes, where the edge reads the
-far slope's N.L and shadow, seen on Kashan Desert). Decide how full-screen terms meet MSAA (edge-aware upsampling,
-per-sample evaluation at edges, or another anti-aliasing approach) before step 13 adds a second one.
+**8. Anti-aliasing.** 4x MSAA as the one anti-aliasing method, with what MSAA alone misses covered
+at its source. Now the prepass depth, normals and sun mask are single sample, so an edge pixel reads
+one mask value for all its samples (halos on silhouettes, mostly foliage against the sky; on bright
+terrain, dark lines along ridge silhouettes, where the edge reads the far slope's N.L and shadow,
+seen on Kashan Desert). D3D9 cannot read individual samples of an MSAA surface, so a screen-space
+term cannot be made per-sample; the mask goes instead.
+- **Prepass into the scene depth.** The prepass draws into the MSAA scene depth, and the opaque
+  world pass tests EQUAL without writing depth, so each pixel shades about once. Linear depth and
+  normals are written as MSAA targets and resolved to single-sample textures for the screen-space
+  terms that remain (GTAO in step 13, which tolerates an averaged edge).
+- **Sun shadows in the lit shaders.** Every lit shader samples the cascades itself through one
+  shared include (as water and undergrowth already do) and computes N.L and the cascades' weight
+  against baked sun. The sun mask pass, its target and s14 are deleted. Each triangle then shades its
+  own edge samples.
+- **Alpha-to-coverage** for alpha-tested materials (foliage, fences, wires), in the prepass and the
+  main pass alike so EQUAL depth matches. Alpha is sharpened by its screen derivative to about a
+  one-pixel edge, and corrected for the alpha the mips lose, so foliage does not thin out with
+  distance. Retail enables it through vendor render-state hacks (NVIDIA `ATOC`); first verify DXVK
+  honours it.
+- **LOD crossfade.** Static, overgrowth and tree LOD switches and the distance cull fade become a
+  dithered crossfade, which alpha-to-coverage turns into smooth coverage, instead of popping.
+- **Compressed resolve.** The resolve is the fixed box filter, and averaging linear HDR leaves
+  high-contrast edges (sunlit against shadow, highlights) aliased. Opaque shaders write the exposed
+  colour compressed by x / (1 + x), and the resolve output is expanded back to linear before the
+  transparent pass and post. Transparents draw after the expansion.
+- **Sampler policy** (shader contract). Every material sampler (albedo, normal, detail, gloss) is
+  16x anisotropic; data samplers state point or linear. The caps-dependent filter defines
+  (`FILTER_*_MIN` / `_MAG`, `IS_NV4X`) are deleted.
+- Not used: TAA and upscalers (motion vectors for skinned meshes, vehicles and particles; blur
+  costs distant detail, which matters for spotting), post-process AA (edges only, unstable in
+  motion), supersampling (about 4x the shading). DXVK's `d3d9.forceSampleRateShading` turns 4x MSAA
+  into 4x supersampling without engine changes; it is a reference to compare against, not a mode.
 
 **9. Draw submission.** The frame is CPU-bound ([frametime.md](frametime.md)): the D3DX effect
 framework's per-draw parameter, pass and commit calls take about 15 % of the main thread, and Ra
@@ -113,6 +142,9 @@ index buffer (+0x368), which nothing reads since step 6.
 - Material interpretation without new assets: gloss maps become roughness, and each material
   class (paint, glass, metal, fabric) gets its own F0 and roughness range. Vehicle environment
   maps stop being blended into albedo and become specular.
+- Specular anti-aliasing in the shared lighting model: roughness widens with the screen-space rate
+  of change of the normal, and normal-map mips shorten the normal, which is read back as extra
+  roughness (Toksvig). MSAA shades once per pixel, so without this glossy surfaces sparkle.
 - Water: screen-space reflections. The opaque scene is resolved to a texture before water draws
   (also the source for refraction); water marches against the prepass depth and falls back to the
   prefiltered sky where the ray leaves the screen.
