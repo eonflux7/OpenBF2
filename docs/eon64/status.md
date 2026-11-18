@@ -54,26 +54,27 @@ Sub-steps, in order, each seen in game before the next:
       4x4 Bayer pixels through `RaLodDither` (pixel register c222, set per entry by the queues).
       Loaded on Saaremaa 2026-11-19, effects compile. Owner to check: buildings and trees
       dissolve rather than pop at mid range, no doubled point light, frame rate
-    - [ ] Overgrowth (`1e7a1c89`, `680d8890`): full/LOD instances dither over 10% of the switch
+    - [x] Overgrowth (`1e7a1c89`, `680d8890`): full/LOD instances dither over 10% of the switch
       distance either side instead of fading through Transparency (lodTimer ease gone); far cells
       dissolve over the last tenth of the overgrowth view distance; near instances and far cells
       share one lighting model (static sun, tree ambient / static sky, no baked per-instance
-      shadow), so the handoff no longer jumps from dark to light. First build seen on Saaremaa
-      2026-11-19: near trees dark, far light, dots on leaves (owner); the fix is loaded there, not
-      yet seen. Owner to check: no dark-to-light pop at the handoff, dots only in the narrow band,
-      forest interiors not too bright without the baked shadow
+      shadow). Seen on Saaremaa 2026-11-19 (owner: looks good; frame rate seemed lower)
 - [ ] Acceptance: GPU timer spans and the reference views
 
 Open: about 20% lower frame rate on Muttrah City than before step 8's LOD work (owner, 2026-11-19;
 when it started is not known). GPU spans there sum to about 5.7 ms of a 12.6 ms frame, the rest is
 the `hud` span (present wait), so likely CPU: more draws from full-detail terrain, LOD 0 bundled
 meshes, static switch distances x3 and no object distance cull. For the optimization pass.
+Owner thought frame rate dropped again after the overgrowth crossfade (Saaremaa, 2026-11-19, not
+measured). Lead: `Ra_LodDitherClip` runs unconditionally, so opaque shaders that had no clip
+before (static mesh, trunks) lose early depth rejection in their lit pass even when the dither is
+(0, 1); a static branch or a separate dithered technique would avoid it.
 
 Open (sun shadows, seen on Saaremaa 2026-11-19): a band without tree shadows between the
 near overgrowth radius and the cascade end, and the cascade-to-baked edge sliding as the camera
 turned. Fixed, loaded on Saaremaa, not yet seen: far cells cast (`980b32aa`), the blend to baked
 goes by camera distance (shaders). The baked overgrowth shadow is dropped
-(`680d8890`), not yet seen.
+(`680d8890`), seen on Saaremaa 2026-11-19.
 
 Open: the default video profile picks 8x antialiasing (log) while the scene runs 4x; settle with fixed 4x
 (single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
