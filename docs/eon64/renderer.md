@@ -205,6 +205,9 @@ All zero outside the main world pass, and when no cascade was rendered: nothing 
 ## Shader contract
 
 Samplers 12–15 are reserved for renderer frame resources. No effect may use them for anything else.
+Every other sampler states `SRGBTexture` in its `sampler_state`: TRUE where it reads colour (the
+hardware decodes before filtering), FALSE for data and outside the scene. D3D9 sampler state carries
+over between effects, so neither value is left to default. The engine binds s12–s15 with it FALSE.
 
 | Slot | Resource | Format | Bound |
 |---|---|---|---|
@@ -226,7 +229,7 @@ Parameters the engine sets by semantic:
 | Semantic | Type | Set on |
 |---|---|---|
 | `RaShadowViewProj` | `float4x4` | Ra effects drawing `RaShadowDepth`: the cascade being drawn |
-| `RASM` | `float4[22]` | The mask pass, and in `RaShader::begin` every Ra effect that declares it |
+| `RASM` | `float4[22]` | The mask pass; in `RaShader::begin` every Ra effect that declares it; the undergrowth effect each frame (grass has no prepass depth and samples the cascades itself) |
 | `SUNCOLOR` (`TerrainSunColor` in the Ra constants) | `float3` | Terrain, road and undergrowth effects: the level's one sun, `Lightmanager.staticSunColor` as authored (undergrowth times its `LightingScale`). Retail passed `terrain.sunColor / 4`, balanced against the statics by hand per level |
 
 ## Effect cache

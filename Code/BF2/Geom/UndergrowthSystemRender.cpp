@@ -1478,7 +1478,14 @@ void UndergrowthSystem::render(float time)
     color.z = rgb.z * m_lightingScale;
     m_paramGIColor->setValue(&color, 0);
 
-    rgb.x = raConstantF(0x230);                                              // the static point colour
+    // [RENDER] The frame's sun cascade constants (RASM). Grass draws no prepass depth, so the
+    // screen-space sun mask under a blade belongs to whatever is behind it; grass samples the
+    // cascades at its own position instead. Zero outside the main world pass (baked sun).
+    if (dx9rend::ShaderParameter* const sunCascades =
+            dx9rend::effectGetShaderParameterBorrowedTyped(m_effect, std::string("RASM")))
+        sunCascades->setValue(dx9rend::rendererSunMaskConstants(), dx9rend::kSunShadowMaskVec4s);
+
+    rgb.x = raConstantF(0x230);                                            // the static point colour
     rgb.y = raConstantF(0x234);
     rgb.z = raConstantF(0x238);
     color.w = 1.0f;
