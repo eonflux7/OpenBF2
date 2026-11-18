@@ -109,6 +109,13 @@ bool vertexBufferUnlock(void*) { particle_renderer_fixture::requireGpu(); partic
 void vertexBufferBindStream(void*, unsigned int stream)
 { particle_renderer_fixture::requireGpu(); if(stream) std::abort(); particle_renderer_fixture::gpuEvents.push_back("stream"); }
 void vertexDeclarationBind(void*) { particle_renderer_fixture::requireGpu(); particle_renderer_fixture::gpuEvents.push_back("declaration"); }
+// [RENDER] The particle lighting parameters (sun, sky, sun direction, RASM) each renderer binds.
+void rendererBindParticleLighting(void* effect)
+{
+    particle_renderer_fixture::requireGpu();
+    if (!effect) std::abort();
+    particle_renderer_fixture::gpuEvents.push_back("lighting");
+}
 void indexBufferBind(void* buffer)
 {
     particle_renderer_fixture::requireGpu();

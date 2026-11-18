@@ -290,6 +290,7 @@ static void psmBindNsaParticleParameters(unsigned char* renderer)
     }
     psmNsaParameter(renderer, 0x58C)->setValue(dx9rend::raShaderConstantsAt(0xA8), 0);
     psmNsaParameter(renderer, 0x590)->setValue(dx9rend::raShaderConstantsAt(0xBC), 0);
+    dx9rend::rendererBindParticleLighting(psmNsaField<void*>(renderer, 0x56C));   // [RENDER]
     manager = reinterpret_cast<ParticleSystemManager*>(g_ParticleSystemManager);
     static const char* const techniques[] = {"NSAParticleShowFill", "NSAParticleLow", "NSAParticleMedium", "NSAParticleHigh"};
     if (manager->m_shaderQuality <= 3)

@@ -80,6 +80,7 @@ static void psmBindTrailParameters(unsigned char* renderer)
     }
     psmTrailParameter(renderer, 0x8DC)->setValue(dx9rend::raShaderConstantsAt(0xA8), 0);
     psmTrailParameter(renderer, 0x8E0)->setValue(dx9rend::raShaderConstantsAt(0xBC), 0);
+    dx9rend::rendererBindParticleLighting(psmTrailField<void*>(renderer, 0x8D8));   // [RENDER]
     manager = reinterpret_cast<ParticleSystemManager*>(g_ParticleSystemManager);
     static const char* const techniques[] = { "TrailShowFill", "TrailLow", "TrailMedium", "TrailHigh" };
     if (manager->m_shaderQuality <= 3)

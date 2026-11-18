@@ -435,6 +435,7 @@ static void psmBindMeshParticleParameters(unsigned char* renderer)
         const Vec3& shadow = g_LightManager->getEffectShadowColor();
         psmMeshParameter(g_meshParticleMeshEffectState.effectShadowColor)->setValue(&shadow, 0);
     }
+    dx9rend::rendererBindParticleLighting(g_meshParticleMeshEffectState.effect);   // [RENDER]
 }
 
 // PE 10174640 (577 B, `retn 10h`). Draws one collected group through the descriptor's

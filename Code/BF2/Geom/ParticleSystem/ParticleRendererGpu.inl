@@ -101,6 +101,7 @@ static void psmBindParticleParameters(unsigned char* renderer)
         const Vec3 color = { scale, scale, scale };
         psmParticleParameter(renderer, 0x1DF8)->setValue(&color, 0);
     }
+    dx9rend::rendererBindParticleLighting(psmSpriteField<void*>(renderer, 0x1DD0));   // [RENDER]
     dx9rend::vertexDeclarationBind(psmSpriteField<void*>(renderer, 0x1E0C));
     dx9rend::vertexBufferBindStream(psmSpriteField<void*>(renderer, 0x1DCC), 0);
 }

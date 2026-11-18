@@ -4194,6 +4194,30 @@ const float* rendererSunMaskConstants()
     return g_sunMaskConstants;
 }
 
+// [RENDER] Particle lighting (step 7). The particle renderers set their own effect parameters, so
+// RaShader::begin never reaches them; each renderer calls this as it binds its effect. The level's
+// one sun as every lit surface gets it (Lightmanager.staticSunColor, staticSkyColor as authored),
+// the direction toward the sun, and the frame's RASM: zero outside the main world pass, so first
+// person and other views keep the baked (hemi map) sun visibility.
+void rendererBindParticleLighting(void* effect)
+{
+    Effect* const fx = static_cast<Effect*>(effect);
+    if (!fx || !geom::g_LightManager)
+        return;
+    const geom::LightManager* const lights = geom::g_LightManager;
+    const Vec3 sunDir = lights->getSunDirection();
+    const float length = ::sqrtf(sunDir.x * sunDir.x + sunDir.y * sunDir.y + sunDir.z * sunDir.z);
+    const float scale = length > 0.0f ? -1.0f / length : 0.0f;
+    const Vec3 towardSun = { sunDir.x * scale, sunDir.y * scale, sunDir.z * scale };
+    static const std::string kSun("RaSunColor"), kSky("RaSkyColor"), kDir("RaSunDirection"),
+        kCascades("RASM");
+    effectGetShaderParameterBorrowedTyped(fx, kSun)->setValue(&lights->getStaticSunColor(), 0);
+    effectGetShaderParameterBorrowedTyped(fx, kSky)->setValue(&lights->getStaticSkyColor(), 0);
+    effectGetShaderParameterBorrowedTyped(fx, kDir)->setValue(&towardSun, 0);
+    effectGetShaderParameterBorrowedTyped(fx, kCascades)->setValue(g_sunMaskConstants,
+                                                                 kSunShadowMaskVec4s);
+}
+
 IDirect3DTexture9* rendererLinearDepthTexture()
 {
     return g_linearDepthTexture;

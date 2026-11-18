@@ -782,6 +782,12 @@ const char* rendererVariableHelp(const char* name);
 // otherwise (nothing covered: baked sunlight). RaShader::begin sets it on every Ra effect with a
 // parameter of semantic RASM, so receivers without prepass depth (water) sample the cascades.
 const float* rendererSunMaskConstants();
+// [RENDER] Sets the particle lighting parameters on a particle effect (Particles, Trail,
+// NonScreenAlignedParticles, MeshParticleMesh) by semantic: RaSunColor and RaSkyColor (the level's
+// one sun and sky, Lightmanager.staticSunColor / staticSkyColor as authored), RaSunDirection
+// (unit, toward the sun) and RASM (above). The atlas is bound to vertex sampler 3 as well as s13,
+// for receivers that sample the cascades per vertex.
+void rendererBindParticleLighting(void* effect);
 IDirect3DSurface9* rendererDepthStencilSurface();       // +0x770, the depth-stencil reference
 // The render-path target texture at retail `retailOffset` (+0x778..+0x7D4).
 EngineTexture*     rendererPathTarget(unsigned int retailOffset);
