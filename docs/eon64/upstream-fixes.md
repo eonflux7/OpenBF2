@@ -82,14 +82,16 @@ Edits to `.fx`/`.fxh` did not invalidate the generated permutations, so shared-h
 old and new shader code. The cache is now keyed on a hash of the preprocessed source and defines.
 `c2ccd4bc` fixes a null compiler entry the first commit introduced.
 
-### O. Console scripts: no `var`, `const` or assignment (fixed, `06696832`)
-`OldConsole::handleCommand` had no handling for `var v_x [= value]`, `const c_x = value` or
-`v_x = value`; they fell through to the binding lookup as unknown commands. Declared variables never
-existed, so `if v_mode == "gpm_cq"` compared the literal name. Mods that pick layer-specific init
-this way (PR's `setLayerMode.tweak` plus its Python handler assigning `v_layer` through
-`host.rcon_invoke`) never loaded night, skirmish, vehicles or coop layer setups. Implemented from the
-documented script syntax; a value is a quoted string, a variable or constant, a command's result, or
-the literal text. Not checked against the binary (assignment of a command result in particular).
+### O. Console scripts: no `var`, `const` or assignment (fixed, `06696832`, `REPLACE`)
+`OldConsole::handleCommand` had no handling for `var`, `const` or `v_x = value`; they fell through
+to the binding lookup as unknown commands, so declared variables never existed and conditions
+compared the literal name. Now as `bf2_w32ded.exe` 1.50 does (line handler 0x651EFE..0x652188 and
+its strings): `var v_name [= value]` (one or three tokens, `v_` prefix, "Variable redefinition" in
+the same scope) and `const c_name = value` (three tokens, `c_` prefix, "Constant redefinition").
+Plain assignment `v_name = value` is not located in the binary yet; mods rely on it (PR's
+`setLayerMode.tweak`). Not done: retail's `command -> v_name` output capture.
+Also found: retail runs a level's `Init.con` with every argument empty (`bf2_w32ded.exe` 0x465D50;
+`BF2.exe` 0x4ED7xx passes `BF2Editor` only in editor mode), as this engine does.
 
 ## Build
 

@@ -771,78 +771,77 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
         }
 
         // [FIX] Script variables and constants. The reconstruction had no `var`, `const` or
-        // `v_x = value`: they fell through to the binding lookup as unknown commands, so every
-        // declared variable stayed undefined and conditions compared the literal name. PR's
-        // setLayerMode.tweak (`var v_mode`, `v_mode = v_arg1`, then the Python handler's
-        // `v_layer = 32` through rcon) never set the game mode and layer, so no level's
-        // layer-specific init (night, skirmish, vehicles, coop) ran. Retail runs these scripts;
-        // this follows the documented script syntax, not a read of the binary (not checked):
-        //   var v_name [= value]      declares in the current scope (empty when no value)
-        //   const c_name = value      declares a constant; an existing one keeps its value
-        //   v_name = value            assigns the innermost declaration
-        // A value is a quoted string (quotes stripped), a variable or constant (its value), a
-        // console command (its result), or the literal text.
+        // `v_x = value`: they fell through to the binding lookup as unknown commands, so declared
+        // variables never existed and conditions compared the literal name.
+        // From bf2_w32ded.exe 1.50 (the line handler, 0x651EFE..0x652188, and its strings):
+        //   var v_name [= value]   one or three tokens; the name must begin with "v_"; a name
+        //                          already declared in this scope is "Variable redefinition"
+        //   const c_name = value   three tokens; the name must begin with "c_"; an existing one
+        //                          is "Constant redefinition"
+        // Retail expands variables and constants in the value token before dispatch.
+        // `v_name = value` (assign the innermost declaration) is not located in the binary yet;
+        // PR's setLayerMode.tweak and its Python handler rely on it.
         {
             const bool isVar = mayBeKeyword && compareIgnoreCase(kw, "var") == 0;
             const bool isConst = mayBeKeyword && compareIgnoreCase(kw, "const") == 0;
-            std::string name, second;
             ConsoleLineReader nin(line);
-            nin.readToken(name);
-            if (isVar || isConst)
-                nin.readToken(name);
-            const bool hasEquals = nin.readToken(second) && second == "=";
+            std::string tok[4];
+            int count = 0;
+            while (count < 4 && nin.readToken(tok[count]))
+                ++count;
+            const std::string* const rest = (isVar || isConst) ? tok + 1 : tok;
+            const int restCount = (isVar || isConst) ? count - 1 : count;
             std::string existing;
-            const bool isAssign = !isVar && !isConst && hasEquals && mayBeKeyword
-                && exchangeVariable(name, existing);
+            const bool isAssign = !isVar && !isConst && mayBeKeyword && restCount == 3
+                && rest[1] == "=" && exchangeVariable(rest[0], existing);
             if (isVar || isConst || isAssign)
             {
-                if ((isVar || isConst) && name.empty())
+                if (isVar && !(restCount == 1 || (restCount == 3 && rest[1] == "=")))
                 {
-                    result = std::string("\"") + kw + "\" needs a name!";
+                    result = "\"var\" syntax: (variableName [= initValue])!";
+                    return 2;
+                }
+                if (isConst && !(restCount == 3 && rest[1] == "="))
+                {
+                    result = "\"const\" syntax: (constName = value)!";
+                    return 2;
+                }
+                const std::string& name = rest[0];
+                if (isVar && name.compare(0, 2, "v_") != 0)
+                {
+                    result = "The variable name must begin with \"v_\"!";
+                    return 2;
+                }
+                if (isConst && name.compare(0, 2, "c_") != 0)
+                {
+                    result = "The constant name must begin with \"c_\"!";
                     return 2;
                 }
                 std::string value;
-                if (hasEquals)
+                if (restCount == 3)
                 {
-                    std::string rhs = line.substr(line.find('=') + 1);
-                    while (!rhs.empty() && (rhs[0] == ' ' || rhs[0] == '\t')) rhs.erase(0, 1);
+                    value = rest[2];
                     std::string lookedUp;
-                    if (rhs.size() >= 2 && rhs[0] == '"' && rhs[rhs.size() - 1] == '"')
-                        value = rhs.substr(1, rhs.size() - 2);
-                    else if (exchangeVariable(rhs, lookedUp) || exchangeConstant(rhs, lookedUp))
+                    if (value.size() >= 2 && value[0] == '"' && value[value.size() - 1] == '"')
+                        value = value.substr(1, value.size() - 2);
+                    else if (exchangeVariable(value, lookedUp) || exchangeConstant(value, lookedUp))
                         value = lookedUp;
-                    else
-                    {
-                        ConsoleLineReader rin(rhs);
-                        std::string first;
-                        rin.readToken(first);
-                        const std::string::size_type dot = first.find('.');
-                        if (dot != std::string::npos && dot > 0 && dot + 1 < first.size())
-                        {
-                            stageClock.pause();
-                            handleCommand(rhs, value, access);
-                            while (!value.empty() && (value[value.size() - 1] == '\n'
-                                                      || value[value.size() - 1] == '\r'))
-                                value.erase(value.size() - 1);
-                        }
-                        else
-                            value = rhs;
-                    }
                 }
-                else if (isConst)
-                {
-                    result = "\"const\" needs a value!";
-                    return 2;
-                }
-                if (isVar)
-                    addVariable(name, value);
-                else if (isConst)
-                    addConstant(name, value);
-                else
-                    setVariable(name, value);
                 if (consoleTraceEnabled())
                     std::fprintf(stderr, "[CONTRACE] d%d %s %s = [%s]\n", m_depth,
                                  isVar ? "var" : isConst ? "const" : "set", name.c_str(), value.c_str());
+                if (isVar && !addVariable(name, value))
+                {
+                    result = "Variable redefinition \"" + name + "\"!";
+                    return 2;
+                }
+                if (isConst && !addConstant(name, value))
+                {
+                    result = "Constant redefinition \"" + name + "\"!";
+                    return 2;
+                }
+                if (isAssign)
+                    setVariable(name, value);
                 return 1;
             }
         }
