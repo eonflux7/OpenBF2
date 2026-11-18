@@ -17,12 +17,14 @@ the next step.
 
 ## Current step: `render` step 8, anti-aliasing
 
-Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: sampler policy, Kashan Desert, 2026-11-18.
+Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: sun shadows in the lit shaders, Kashan Desert, 2026-11-18.
 
 Sub-steps, in order, each seen in game before the next:
 - [x] Sampler policy (`28487a35`; seen on Kashan Desert 2026-11-18)
-- [ ] Sun shadows in the lit shaders; screen-space sun mask deleted (built, not yet seen in game)
-- [ ] Prepass into the MSAA scene depth with EQUAL, centroid interpolation, transparent depth rebuild
+- [x] Sun shadows in the lit shaders, screen-space sun mask deleted, centroid cascade position
+  (`65760125`; seen on Kashan Desert 2026-11-18. The dark ridge lines were terrain normals flipped
+  toward the camera at crests, not MSAA)
+- [ ] Prepass into the MSAA scene depth with EQUAL, centroid UVs, transparent depth rebuild
 - [ ] Alpha-to-coverage
 - [ ] Thin geometry
 - [ ] LOD crossfade

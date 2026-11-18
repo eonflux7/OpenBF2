@@ -101,8 +101,11 @@ In draw order, for the main world view:
    written to the pixel registers c200–c221.
 4. **World passes.** Every lit shader samples the cascades itself at its own world position
    (`RaSunShadow.fxh`), with its triangle's normal (from the position's screen derivatives) for
-   the normal offset; terrain and decals use their own normal. Terrain-lit receivers (terrain,
-   roads) also take N.L from it.
+   the normal offset, turned toward the camera since a derivative normal has no sign of its own.
+   Terrain and decals use their own normal, never flipped: at a crest it faces away from the camera,
+   and flipped it darkened every silhouette crest. Terrain-lit receivers (terrain, roads) also take
+   N.L from it. The lookup position is a `_centroid` interpolant (`SunPos`), so an MSAA edge sample
+   stays on its triangle; derivatives come from a non-centroid copy.
 5. **End of the world pass** (`rendererDepthPrepassEndWorldPass`) zeroes `RASM`, so first-person
    passes and every other view keep their baked sunlight, and stops soft particles.
 6. **Particles** sample the cascades per vertex, where the pixel registers and s13 do not reach:

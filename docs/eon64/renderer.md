@@ -78,8 +78,9 @@ screen-space term cannot be made per-sample; the mask goes instead.
   the triangle, so interpolants are extrapolated: lightmap UVs read the neighbouring chart (seams
   along mesh edges) and the shadow lookup position leaves the surface (acne and leaks on
   silhouettes). Lightmap and atlas UVs and the world position used for the cascades are `_centroid`.
-  Derivatives of centroid inputs are inexact, so mip selection and the coverage sharpening take
-  theirs from a non-centroid copy.
+  Derivatives of centroid inputs are inexact, so mip selection, the coverage sharpening and the
+  cascades' face normal take theirs from a non-centroid copy. The cascade position went in with the
+  sun shadows sub-step (the owner's call, 2026-11-18), as each lit shader's own `SunPos` interpolant.
 - **Alpha-to-coverage** for alpha-tested materials (foliage, fences, wires), in the prepass only:
   the main pass's EQUAL test already limits shading to the samples the prepass covered, so its alpha
   test goes and the two passes need not agree on alpha. Alpha is sharpened by its screen derivative
@@ -115,8 +116,9 @@ screen-space term cannot be made per-sample; the mask goes instead.
   `d3d9.forceSampleRateShading`, which turns 4x MSAA into 4x supersampling without engine changes:
   a reference to compare against, not a mode.
 - **Order within the step**, each seen in game before the next: sampler policy; shadows in the lit
-  shaders and the mask deleted; prepass into the MSAA depth with EQUAL, centroid and the transparent
-  depth rebuild; alpha-to-coverage; thin geometry; LOD crossfade.
+  shaders and the mask deleted, with the centroid cascade position; prepass into the MSAA depth with
+  EQUAL, centroid UVs and the transparent depth rebuild; alpha-to-coverage; thin geometry; LOD
+  crossfade.
 - **Moved to step 10: the compressed resolve.** Averaging linear HDR leaves high-contrast edges
   aliased; writing colour compressed (Karis, 1 / (1 + luma)) before the resolve and expanding after
   fixes that. It cannot land before terrain is one pass: terrain's detail and point-light passes add
