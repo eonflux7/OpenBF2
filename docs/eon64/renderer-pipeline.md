@@ -166,11 +166,10 @@ against the cascade volume into a caster list (`rendererShadowCasters`). Camera 
 reused, because meshes cull per material against the camera. Casters draw with each Ra effect's
 `RaShadowDepth` technique; terrain draws its own (`Terrain::drawShadowCasters`).
 
-Objects come from the object manager's grid query against the light volume without its distance
-cull: that cull measures from the frustum's origin and writes each object's cull fade, so against
-the light volume it dropped small objects depending on view direction. Hierarchies are expanded
-by the drawer, and an object the camera's own distance cull has faded out casts nothing. Seen in game on
-Muttrah (`2860a74a`): a supply crate's shadow no longer depends on view direction.
+Objects come from the object manager's roots-only grid query against the light volume;
+hierarchies are expanded by the drawer. Seen in game on Muttrah (`2860a74a`): a supply crate's
+shadow no longer depends on view direction. Objects have no distance cull (step 8), so a caster
+never depends on the camera's distance to it.
 
 Each cascade draws only the casters that can shadow a receiver in its own slice
 (`ShadowCascadeCull`): in light space, the 2D convex hull of the slice's eight corners, pushed out by

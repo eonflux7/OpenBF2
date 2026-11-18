@@ -362,7 +362,6 @@ bool HemiMapManager::makeHemiMap(unsigned long resolution, HemiMapName outputNam
     const int savedRenderMode = dx9rend::rendererGetHemiRenderMode();
     dx9rend::rendererCaptureHemiState(m_savedState);
     dx9rend::rendererApplyHemiState();
-    const float savedMinCullDistance = dx9rend::rendererSwapMinCullDistance(2000.0f);
 
     dx9rend::rendererSetHemiTarget(sourceTexture);
     dx9rend::rendererSetHemiRenderMode(1);
@@ -386,7 +385,6 @@ bool HemiMapManager::makeHemiMap(unsigned long resolution, HemiMapName outputNam
     roadCompiledRendererSetHemiEnabled(1u);
     dx9rend::rendererRenderHemiFrame();
 
-    dx9rend::rendererSwapMinCullDistance(savedMinCullDistance);
     dx9rend::rendererRestoreHemiState(m_savedState);
     dx9rend::rendererSetHemiRenderMode(savedRenderMode);
     dx9rend::effectManagerSetShowChannel(0u);

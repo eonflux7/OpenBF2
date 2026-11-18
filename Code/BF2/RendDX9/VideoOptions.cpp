@@ -497,7 +497,8 @@ void videoOptionsApplyCore(VideoOptions* vo)
         if (skyDome)     callSlotInt(skyDome, 148, 2);
     }
 
-    // index 1: view distance / fog
+    // index 1: view distance / fog. [RENDER] Retail also set the object distance-cull triple here
+    // (Renderer +0x6C0/+0x6C4/+0x6C8: 6/6/40, 7/8/60, 8/10/80); objects no longer cull by distance.
     // The dirty-flag logic here is genuinely convoluted in the original: the flag is set unless the
     // change is between two non-1 values or from 1 to 1 - i.e. it latches only when the setting
     // crosses the "1" boundary in either direction. Reproduced by its own structure.
@@ -524,9 +525,6 @@ void videoOptionsApplyCore(VideoOptions* vo)
     {
         if (renderer)
         {
-            writeRendererFloat(renderer, 1728, 6.0f);
-            writeRendererFloat(renderer, 1732, 6.0f);
-            writeRendererFloat(renderer, 1736, 40.0f);
             writeRendererFloat(renderer, 2124, 0.5f);
             writeRendererFloat(renderer, 2224, 2.0f);
             writeRendererInt  (renderer, 2020, 1);
@@ -539,9 +537,6 @@ void videoOptionsApplyCore(VideoOptions* vo)
     {
         if (renderer)
         {
-            writeRendererFloat(renderer, 1728, 7.0f);
-            writeRendererFloat(renderer, 1732, 8.0f);
-            writeRendererFloat(renderer, 1736, 60.0f);
             writeRendererFloat(renderer, 2124, 0.8f);
             writeRendererFloat(renderer, 2224, 1.0f);
             writeRendererInt  (renderer, 2020, 0);
@@ -553,9 +548,6 @@ void videoOptionsApplyCore(VideoOptions* vo)
     {
         if (renderer)
         {
-            writeRendererFloat(renderer, 1728, 8.0f);
-            writeRendererFloat(renderer, 1732, 10.0f);
-            writeRendererFloat(renderer, 1736, 80.0f);
             writeRendererFloat(renderer, 2124, 1.0f);
             writeRendererFloat(renderer, 2224, 1.0f);
             writeRendererInt  (renderer, 2020, 0);

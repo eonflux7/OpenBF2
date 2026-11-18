@@ -844,7 +844,6 @@ void rendererSetHemiRenderMode(int mode);
 void rendererSetHemiRoadPass(bool enabled);
 void rendererRenderHemiFrame();
 void rendererPresentHemiResult();
-float rendererSwapMinCullDistance(float value);
 void rendererCaptureHemiState(HemiRenderState& state);
 void rendererApplyHemiState();
 void rendererRestoreHemiState(const HemiRenderState& state);

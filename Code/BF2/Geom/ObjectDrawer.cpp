@@ -855,11 +855,6 @@ void ObjectDrawer::submitShadowCasters(const void* volume, float time)
         const unsigned int flags = object->getFlags();
         if ((flags & world::IObject::OFIsDisabled) != 0 || (flags & world::IObject::OFIsVisible) == 0)
             continue;
-        // What the camera's distance cull has faded out casts nothing either.
-        const GeometryInstanceData* const instance = static_cast<const GeometryInstanceData*>(
-            world::object_detail::LayoutAccess::geometry(object));
-        if (instance && !(instance->m_float2C > 0.0f))
-            continue;
 
         if (!std::binary_search(seen.begin(), seen.end(), object))
         {

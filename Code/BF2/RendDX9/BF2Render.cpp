@@ -604,9 +604,9 @@ public:
     int          m_nightVisionStage;     // +0x6B8
     unsigned char m_fullSizeRenderTargets;         // +0x6BC
     unsigned char m_pad6BD[3];
-    // The fog override triple the fog block swaps into the host ObjectManager (floats 432..434,
-    // ctor 4, 5, 100; VideoOptions::apply rewrites them; the hemi bake treats +0x6C0 as a dword).
-    float        m_fogOverride[3];       // +0x6C0 .. +0x6CB
+    // [RENDER] Retail's distance-cull triple (distanceCullConst, ...PCO, minCullDistance) swapped
+    // into the host ObjectManager around the object drawer; unused since step 8.
+    unsigned char m_pad6C0[12];          // +0x6C0 .. +0x6CB
     unsigned int m_raPath;               // +0x6CC  (435) the RAPATH shader define / quality index
     unsigned char m_byte6D0;             // +0x6D0  [UNRESOLVED] retail keyed static-mesh shader quality to the LOD; unread since step 8
     unsigned char m_pad6D1[3];
@@ -745,7 +745,7 @@ static_assert(offsetof(Renderer, m_dword6D8)             == 0x6D8, "+0x6D8");
 static_assert(offsetof(Renderer, m_frameTimeOverlay)     == 0x6AC, "+0x6AC");
 static_assert(offsetof(Renderer, m_renderSwitches6B0)    == 0x6B0, "+0x6B0");
 static_assert(offsetof(Renderer, m_fullSizeRenderTargets) == 0x6BC, "+0x6BC");
-static_assert(offsetof(Renderer, m_fogOverride)          == 0x6C0, "+0x6C0");
+static_assert(offsetof(Renderer, m_pad6C0)              == 0x6C0, "+0x6C0");
 static_assert(offsetof(Renderer, m_raPath)               == 0x6CC, "+0x6CC");
 static_assert(offsetof(Renderer, m_byte6D0)              == 0x6D0, "+0x6D0");
 static_assert(offsetof(Renderer, m_dword6D4)             == 0x6D4, "+0x6D4");
@@ -1362,9 +1362,6 @@ Renderer::Renderer()
         m_byte6DC = 1;               // byte 1756
         m_byte6DD = 0;               // byte 1757
 
-        m_fogOverride[0] = 4.0f;     // floats 432..434: the fog override triple the fog block swaps in
-        m_fogOverride[1] = 5.0f;
-        m_fogOverride[2] = 100.0f;
         m_f6FC[0] = 0.125f;          // floats 447..449 (0x3E000000 at 0x1002D74C, then 0.75 x2)
         m_f6FC[1] = 0.75f;
         m_f6FC[2] = 0.75f;
@@ -2443,21 +2440,10 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 hostCalls::windUpdate(wind, timeF);                                    // +0x10
         }
 
-        // The fog block: save the host ObjectManager's fog triple, swap in the renderer's
-        // override, run the ObjectDrawer, restore. The drawer is withheld; the host fog churn is
-        // the shipped behaviour and runs.
+        // The object drawer. [RENDER] Retail swapped the renderer's distance-cull triple into the
+        // host ObjectManager around it; objects no longer cull by distance (step 8).
         if (sw(1693))
         {
-            void* om = objectManager;
-            void*** omv = reinterpret_cast<void***>(om);
-            typedef float (__thiscall* GetF)(void*);
-            typedef void  (__thiscall* SetF)(void*, float);
-            const float fogA = reinterpret_cast<GetF>((*omv)[49])(om);   // +196
-            const float fogB = reinterpret_cast<GetF>((*omv)[51])(om);   // +204
-            const float fogC = reinterpret_cast<GetF>((*omv)[47])(om);   // +188
-            reinterpret_cast<SetF>((*omv)[46])(om, m_fogOverride[2]);             // +184
-            reinterpret_cast<SetF>((*omv)[48])(om, m_fogOverride[0]);             // +192
-            reinterpret_cast<SetF>((*omv)[50])(om, m_fogOverride[1]);             // +200
             if (m_objectDrawer)
             {
                 void*** dv = reinterpret_cast<void***>(m_objectDrawer);
@@ -2468,10 +2454,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 reinterpret_cast<TimeFn>((*dv)[4])(m_objectDrawer, timeF);
             }
             else
-                noteOnce(16u, "ObjectDrawer (fog block)");
-            reinterpret_cast<SetF>((*omv)[48])(om, fogA);
-            reinterpret_cast<SetF>((*omv)[50])(om, fogB);
-            reinterpret_cast<SetF>((*omv)[46])(om, fogC);
+                noteOnce(16u, "ObjectDrawer");
         }
 
         if (sw(1714))
@@ -3570,16 +3553,6 @@ void rendererPresentHemiResult()
     static_cast<Renderer*>(g_rendererBase)->present(2u);
 }
 
-float rendererSwapMinCullDistance(float value)
-{
-    // Host ObjectManager PE +0xBC getter, then +0xB8 setter. Both signatures/order are attested in
-    // Scene/Object/ObjectManager.h; use that recovered class directly.
-    world::ObjectManager* const manager = hemiObjectManager();
-    const float old = manager->getMinCullDistance();
-    manager->setMinCullDistance(value);
-    return old;
-}
-
 
 // Forces an LOD on live instances of a geometry class, then matching objects within 10,000 units.
 // Clamps to count - 1 with signed arithmetic; an instance may be visited through both routes.
@@ -3870,7 +3843,6 @@ const TailFieldRow kTailFields[] =
     RD9_TAIL_ROW(m_frameTimeOverlay,        0x6AC, TailInt,    4),
     RD9_TAIL_ROW(m_renderSwitches6B0,       0x6B0, TailByte,   1),
     RD9_TAIL_ROW(m_fullSizeRenderTargets,   0x6BC, TailByte,   1),
-    RD9_TAIL_ROW(m_fogOverride,             0x6C0, TailFloat,  4),
     RD9_TAIL_ROW(m_raPath,                  0x6CC, TailInt,    4),
     RD9_TAIL_ROW(m_byte6D0,                 0x6D0, TailByte,   1),
     RD9_TAIL_ROW(m_dword6D4,                0x6D4, TailInt,    4),
@@ -4561,8 +4533,8 @@ void rendererCaptureHemiState(HemiRenderState& state)
     Renderer* const renderer = static_cast<Renderer*>(g_rendererBase);
     state.bytes[40] = renderer->sw(1695);
     postProductionGetHemiState(reinterpret_cast<float*>(state.bytes + 24));
-    // +0x6C0 (1728) and +0x7D8 (2008), copied as their raw 32-bit words.
-    ::memcpy(state.bytes + 20, &renderer->m_fogOverride[0], 4);
+    // +0x7D8 (2008), copied as its raw 32-bit word. [RENDER] Retail also saved +0x6C0 into
+    // bytes 20..23, the distance cull constant; objects no longer cull by distance.
     ::memcpy(state.bytes + 16, &renderer->m_forcedLod[0], 4);
     state.bytes[0] = renderer->sw(1717);
     state.bytes[1] = renderer->sw(1693);
@@ -4587,9 +4559,6 @@ void rendererApplyHemiState()
     renderer->sw(1695) = 0;
     const float postState[4] = { 2000.0f, 2000.0f, 0.0f, 0.0f };
     postProductionSetHemiState(postState);
-    // +0x6C0 (1728) receives the raw word 0x447A0000 (the float 1000.0).
-    const float fogValue = 1000.0f;
-    ::memcpy(&renderer->m_fogOverride[0], &fogValue, 4);
     rendererSetStaticMeshLod(0);
     renderer->sw(1717) = 0;
     renderer->sw(1693) = 1;
@@ -4617,7 +4586,6 @@ void rendererRestoreHemiState(const HemiRenderState& state)
     Renderer* const renderer = static_cast<Renderer*>(g_rendererBase);
     renderer->sw(1695) = state.bytes[40];
     postProductionSetHemiState(reinterpret_cast<const float*>(state.bytes + 24));
-    ::memcpy(&renderer->m_fogOverride[0], state.bytes + 20, 4);              // +0x6C0 (1728)
     rendererSetStaticMeshLod(*reinterpret_cast<const int*>(state.bytes + 16));
     renderer->sw(1717) = state.bytes[0];
     renderer->sw(1693) = state.bytes[1];
@@ -6583,16 +6551,15 @@ IVideoOptions* Renderer::getVideoOptions()
 {
     return reinterpret_cast<RendDX9Base*>(this)->embeddedVideoOptions();
 }
-// PE 0x100326E0 / 0x100326F0, slots +0x78 / +0x7C: the third fog-override float (+0x6C8, the
-// one the fog block hands ObjectManager +184; ctor 100).
-void Renderer::slot_0x78(float value)
+// PE 0x100326E0 / 0x100326F0, slots +0x78 / +0x7C: retail's minCullDistance setter and getter.
+// [RENDER] Objects no longer cull by distance (step 8); the slots stay for the IRenderer vtable.
+void Renderer::slot_0x78(float)
 {
-    m_fogOverride[2] = value;
 }
 
 float Renderer::slot_0x7C()
 {
-    return m_fogOverride[2];
+    return 0.0f;
 }
 
 // PE 0x100285A0..0x10028600, slots +0x80..+0x8C: the RoadCompiledRenderer's view-distance

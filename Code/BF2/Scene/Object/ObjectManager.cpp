@@ -19,7 +19,6 @@
 // [CHOSEN, not recovered] Native static geometry tables retain PE slot order.
 #include "../../Geom/NativeGeometrySlots.h"
 #endif
-#include "../../Geom/GeometryInstanceData.h"
 #include "../../Geom/IGeometryTemplate.h"
 #include "ICuller.h"
 #include "ObjectPredicator.h"
@@ -735,269 +734,23 @@ void ObjectManager::getObjectsFromGridByRadiusInternal(bool collisionObjects,
         }
     }
 }
-// Sets distance-cull records, using the PCO constant for soldiers/control objects only in the main record.
-// The subrecord always uses the ordinary constant. Query visual radius before template cull scale.
-void ObjectManager::setObjectCullConsts(IObject* object, CullConsts& consts, CullConsts& subConsts)
+// [RENDER] Adds an object and its children to a renderer frustum query. Retail faded each object
+// out past a distance set by its radius, its template's cullRadiusScale and the video settings
+// (ordinary objects, soldiers and PlayerControlObjects on separate constants), so cover could
+// vanish before what it hid. Objects now cull only on the frustum, whose far plane is the view
+// distance. Disabled or predicate-rejected nodes still prune their subtree.
+void ObjectManager::addObjectHierarchy(IObject* object, std::vector<IObject*>& out,
+                                       ObjectPredicator* predicator)
 {
-    // the three scales are function-local statics and their values are read, not chosen.
-    // They sit at ELF 0x898A7C8/0x898A7CC/0x898A7D0 as plain initialised .data - no guard variable,
-    // so they are constants rather than lazily-constructed locals, and that is how they are spelled
-    // here.  0x3F000000, 0x3E800000, 0x3F4CCCCD.
-    static const float subCullConstScale       = 0.5f;
-    static const float subMinCullDistanceScale = 0.25f;
-    static const float subRadiusThreshold      = 0.8f;
-
-    const unsigned int classId = object->getTemplate()->getClassID();     // template +0x10
-
-    // 0x83141C3..0x83141E2 - both distances are squared and scaled before either is chosen.
-    const float cullConst    = m_distanceCullConst    * m_distanceCullConst    * consts.cullConstScale;
-    const float cullConstPCO = m_distanceCullConstPCO * m_distanceCullConstPCO * consts.cullConstScale;
-
-    // 0x83141E4 tests PlayerControlObject first, then Soldier.
-    consts.distanceCullConst =
-        (classId == CID_PlayerControlObjectTemplate || classId == CID_SoldierTemplate)
-            ? cullConstPCO
-            : cullConst;
-
-    subConsts.distanceCullConst = cullConst * subCullConstScale;
-    subConsts.minCullDistance   =
-        subMinCullDistanceScale * consts.minCullDistance;
-
-    const float visualRadius   = object->getVisualBoundingRadius();            // slot 37, +0x94
-    const float cullRadiusScale = object->getTemplate()->getCullRadiusScale(); // template +0x74
-
-    const float threshold =
-        cullRadiusScale * visualRadius * subRadiusThreshold;
-
-    subConsts.radiusThreshold = threshold;
-    consts.radiusThreshold    = threshold;
-}
-
-// Updates an object's distance fade with per-frame rate limiting and applies its base opacity.
-// Already fully visible objects avoid redundant stores/calls. Squared distance excludes radius squared.
-// [PLATFORM] preserve Windows' repeated getter, late geometry capture and comparison senses.
-// [INFERRED] ELF fade comparisons follow decompiler interpretation and still require x87 confirmation.
-namespace {
-
-// [PLATFORM] Geometry fade state uses the mesh's own ABI and shared data prefix.
-// Keep its two factors independent; legacy PE/ELF string and virtual-table layouts differ.
-typedef geom::GeometryInstanceData ObjectGeometryFadeView;
-
-} // anonymous namespace
-
-void ObjectManager::setCullFade(IObject* object, float radius, const CullConsts& consts)
-{
-    static const float fadeDist = 0.2f;
-    static const float fadeRate = 4.0f;
-
-#if defined(_MSC_VER)
-    // [PLATFORM] PE 0x6DFE40 / client 0x721A50 query the position again unless the
-    // first distance is strictly negative (unordered also repeats). They capture
-    // geometry only afterward, at 0x6DFF2E. ELF 0x8314470 makes one query below.
-    const Vec3& position = object->getAbsolutePosition();
-    const float dx = consts.cameraX - position.x;
-    const float dy = consts.cameraY - position.y;
-    const float dz = consts.cameraZ - position.z;
-    const float radiusSq = radius * radius;
-    float distanceSq = dz * dz + dy * dy + dx * dx - radiusSq;
-    if (distanceSq < 0.0f)
-        distanceSq = 0.0f;
-    else
-    {
-        const Vec3& repeatedPosition = object->getAbsolutePosition();
-        const float repeatedDx = consts.cameraX - repeatedPosition.x;
-        const float repeatedDy = consts.cameraY - repeatedPosition.y;
-        const float repeatedDz = consts.cameraZ - repeatedPosition.z;
-        // Retail does not clamp the second result or reuse the first reference.
-        distanceSq = repeatedDz * repeatedDz + repeatedDy * repeatedDy +
-                     repeatedDx * repeatedDx - radiusSq;
-    }
-
-    const float areaTerm = radiusSq * 3.1415927f * consts.distanceCullConst;
-    const float threshold = areaTerm > consts.minCullDistance
-                          ? areaTerm : consts.minCullDistance;
-    ObjectGeometryFadeView* const geometry =
-        static_cast<ObjectGeometryFadeView*>(object_detail::LayoutAccess::geometry(object));
-    const float outer = radius + consts.radiusBias;
-    float fade = 0.0f;
-    if (!(distanceSq > outer * outer || distanceSq > (fadeDist + 1.0f) * threshold))
-    {
-        const float inner = (1.0f - fadeDist) * threshold;
-        // PE x87 test-AH branches include unordered in these two <= arms.
-        if (!(distanceSq > inner))
-        {
-            const float opacity = geometry->m_float28;
-            geometry->m_float2C = 1.0f;
-            geometry->setOpacity(opacity);
-            return;
-        }
-        if (!(distanceSq > threshold))
-        {
-            const float current = geometry->m_float2C;
-            if (!(current < 1.0f))
-                return;
-            const float target = 1.0f - (distanceSq - inner) / (fadeDist * distanceSq);
-            const float rateLimited = current + fadeRate * consts.fadeStep;
-            const float selected = rateLimited > target ? rateLimited : target;
-            fade = selected > 1.0f ? 1.0f : selected;
-        }
-        else
-        {
-            const float current = geometry->m_float2C;
-            if (!(current > 0.0f))
-                return;
-            const float target = 1.0f - (distanceSq - threshold) / (fadeDist * distanceSq);
-            const float rateLimited = current - fadeRate * consts.fadeStep;
-            const float selected = rateLimited < target ? rateLimited : target;
-            fade = selected < 0.0f ? 0.0f : selected;
-        }
-    }
-    // PE 0x6DF3F0 and its inlined far arm read/multiply base opacity before storing
-    // the new fade; the callback observes that store on the captured geometry.
-    const float opacity = fade * geometry->m_float28;
-    geometry->m_float2C = fade;
-    geometry->setOpacity(opacity);
-#else
-    const Vec3& position = object->getAbsolutePosition();          // slot 27, +0x6C
-
-    ObjectGeometryFadeView* const geometry =
-        static_cast<ObjectGeometryFadeView*>(object_detail::LayoutAccess::geometry(object));
-
-    const float dx = consts.cameraX - position.x;
-    const float dy = consts.cameraY - position.y;
-    const float dz = consts.cameraZ - position.z;
-
-    const float radiusSq = radius * radius;
-
-    // 0x83144E1..0x8314504 then the fcmov clamp.
-    float distanceSq = dx * dx + dy * dy + dz * dz - radiusSq;
-    if (distanceSq <= 0.0f)
-        distanceSq = 0.0f;
-
-    // the pi at flt_88A2CC4, then the max against the record's own minimum.
-    const float areaTerm = radiusSq * 3.1415927f * consts.distanceCullConst;
-    float threshold = consts.minCullDistance;
-    if (threshold <= areaTerm)
-        threshold = areaTerm;
-
-    const float outer   = radius + consts.radiusBias;
-    const float outerSq = outer * outer;
-
-    float fade = 0.0f;
-
-    if (distanceSq > outerSq || distanceSq > (fadeDist + 1.0f) * threshold)
-    {
-        fade = 0.0f;                        // past both gates - fully faded out
-    }
-    else
-    {
-        const float inner = (1.0f - fadeDist) * threshold;
-
-        if (distanceSq <= inner)
-        {
-            // fully visible.  The setter gets the base opacity unchanged.
-            geometry->m_float2C = 1.0f;
-            geometry->setOpacity(geometry->m_float28);
-            return;
-        }
-
-        if (distanceSq <= threshold)
-        {
-            // Fading in.  An object already at full fade is left entirely alone (0x83145AE).
-            const float current = geometry->m_float2C;
-            if (current >= 1.0f)
-                return;
-
-            const float rateLimited = current + fadeRate * consts.fadeStep;
-            float target = 1.0f - (distanceSq - inner) / (fadeDist * distanceSq);
-            if (target <= rateLimited)
-                target = rateLimited;
-            fade = target <= 1.0f ? target : 1.0f;
-        }
-        else
-        {
-            // Fading out.  Nothing to do once it has reached zero.
-            const float current = geometry->m_float2C;
-            if (current <= 0.0f)
-                return;
-
-            const float rateLimited = current - fadeRate * consts.fadeStep;
-            float target = 1.0f - (distanceSq - threshold) / (fadeDist * distanceSq);
-            if (target > rateLimited)
-                target = rateLimited;
-            fade = target <= 0.0f ? 0.0f : target;
-        }
-    }
-
-    // store, then push fade * baseOpacity through the geometry's +0xF8 setter.
-    geometry->m_float2C = fade;
-    geometry->setOpacity(fade * geometry->m_float28);
-#endif
-}
-
-// Culls, fades and adds an object hierarchy using main/sub distance records selected by visual radius.
-// Disabled or predicate-rejected nodes prune the subtree. Nodes without geometry skip fade and remain.
-// Soldier/player-control objects derive local records inherited by descendants; preserve repeated class queries.
-void ObjectManager::cullAndAddObjectHierarchy(IObject* object, std::vector<IObject*>& out,
-                                              ObjectPredicator* predicator,
-                                              const CullConsts& consts,
-                                              const CullConsts& subConsts)
-{
-    // 0x8314262 - `(m_flags ^ 1) & 1`, i.e. proceed only while bit 0 (OFIsDisabled) is clear.
-    if ((object->getFlags() & 1u) != 0)
+    if ((object->getFlags() & 1u) != 0)                     // OFIsDisabled
         return;
-
-    if (predicator && !predicator->predicate(object))       // predicator slot +0x00
+    if (predicator && !predicator->predicate(object))
         return;
-
-    const CullConsts* selectedConsts    = &consts;
-    const CullConsts* selectedSubConsts = &subConsts;
-
-    CullConsts localConsts;
-    CullConsts localSubConsts;
-
-    const IObjectTemplate* const objectTemplate = object->getTemplate();
-    // ELF 0x83142AF/0x83142C9; PE 0x6E1091/0x6E10A1: retain both calls.
-    if (objectTemplate->getClassID() == CID_SoldierTemplate ||
-        objectTemplate->getClassID() == CID_PlayerControlObjectTemplate)
-    {
-        localConsts    = consts;
-        localSubConsts = subConsts;
-        setObjectCullConsts(object, localConsts, localSubConsts);
-        selectedConsts    = &localConsts;
-        selectedSubConsts = &localSubConsts;
-    }
-
-    void* const geometry = object_detail::LayoutAccess::geometry(object);   // IObject +0x38
-
-    if (geometry)
-    {
-        // the order of these two virtual calls is the shipped one - the object's radius is
-        // fetched first (slot 37), then the template's scale (+0x74), and only then multiplied.
-        const float visualRadius    = object->getVisualBoundingRadius();
-        const float cullRadiusScale = objectTemplate->getCullRadiusScale();
-        const float scaledRadius    = cullRadiusScale * visualRadius;
-
-        const CullConsts* fadeConsts = selectedSubConsts;
-        // ELF 0x8314316 cmovbe and PE 0x6E1163 test-AH also select main when unordered.
-        if (!(selectedConsts->radiusThreshold > scaledRadius))
-            fadeConsts = selectedConsts;
-
-        setCullFade(object, scaledRadius, *fadeConsts);
-
-        // 0x83142F?: the fade this just wrote, read straight back off the geometry.
-        if (static_cast<const ObjectGeometryFadeView*>(geometry)->m_float2C <= 0.0f)
-            return;
-    }
 
     out.push_back(object);
 
-    // getChild is slot 60 (+0xF0); the walk then follows the +0x2C sibling link, which is the same
-    // chain getChilds() in this file already uses.
     for (IObject* child = object->getChild(); child; child = child->getSibling())
-    {
-        cullAndAddObjectHierarchy(child, out, predicator, *selectedConsts, *selectedSubConsts);
-    }
+        addObjectHierarchy(child, out, predicator);
 }
 
 // ds:0x8AB0A60 in bf2.i64, the sibling of g_rendWhollyVisibleCount above.  [INFERRED] name: the
@@ -1005,21 +758,14 @@ void ObjectManager::cullAndAddObjectHierarchy(IObject* object, std::vector<IObje
 unsigned int g_rendCulledObjectCount = 0;
 
 // Collects frustum-visible objects from the collision or no-collision culler pair.
-// Predicate flag 0x01000000 returns visible objects before distance/fade settings are read.
-// Otherwise applies per-object frustum and distance/fade tests; the first float parameter is unused.
-// Preserve repeated renderer queries and initialization order of the copied CullConsts record.
-// [PLATFORM] the client requires a published renderer; dedicated images dereference zero on that
-// settings path. The predicate bypass is valid there; do not fabricate a dedicated renderer.
-
-
+// Predicate flag 0x01000000 returns the visible roots alone; otherwise each root's hierarchy is
+// added (addObjectHierarchy). [RENDER] There is no distance cull, so neither float is read.
 void ObjectManager::getObjectsFromGridInternal(bool collisionObjects, const Frustum& frustum,
                                                std::vector<IObject*>& out,
                                                ObjectPredicator* predicator,
                                                bool frustumTestEachObject,
-                                               float unused, float fadeStep)
+                                               float, float)
 {
-    (void)unused;                       // see the note above - the shipped body never reads it
-
     m_rendAllVisibleObjects.resize(0);  // +0x100, cleared first
     m_rendVisibleObjects.resize(0);     // +0x0F4
 
@@ -1058,7 +804,7 @@ void ObjectManager::getObjectsFromGridInternal(bool collisionObjects, const Frus
 
     if (predicator && (predicator->getFlags() & 0x01000000u) != 0)
     {
-        // the no-distance-cull arm: hand the set back untouched.
+        // the roots-only arm: hand the set back untouched.
         out.resize(0);
         for (std::vector<IObject*>::const_iterator it = m_rendVisibleObjects.begin();
              it != m_rendVisibleObjects.end(); ++it)
@@ -1068,57 +814,11 @@ void ObjectManager::getObjectsFromGridInternal(bool collisionObjects, const Frus
         return;
     }
 
-    CullConsts consts;
-    CullConsts subConsts;
-
-    // the manager's own minimum, squared, before the settings scale it.
-    const float minCullDistanceSq = m_minCullDistance * m_minCullDistance;
-
-    // Preserve three separate render-view calls in order. [INFERRED] radiusBias stores the
-    // far plane and participates in radius addition; its name does not establish another meaning.
-#if DEDICATED
-    consts.minCullDistance =
-        static_cast<dx9rend::IRenderer*>(0)->getRenderView()->getZoom()
-        * minCullDistanceSq;
-
-    consts.radiusBias =
-        static_cast<dx9rend::IRenderer*>(0)->getRenderView()->getFarPlane();
-
-    consts.cullConstScale =
-        static_cast<dx9rend::IRenderer*>(0)->getRenderView()->getZoom()
-        * 10.0f;
-#else
-    consts.minCullDistance =
-        static_cast<dx9rend::IRenderer*>(::dice::hfe::g_renderer)->getRenderView()->getZoom()
-        * minCullDistanceSq;
-
-    consts.radiusBias =
-        static_cast<dx9rend::IRenderer*>(::dice::hfe::g_renderer)->getRenderView()->getFarPlane();
-
-    consts.cullConstScale =
-        static_cast<dx9rend::IRenderer*>(::dice::hfe::g_renderer)->getRenderView()->getZoom()
-        * 10.0f;                                                // ds:flt_888B588
-#endif
-
-    // the camera position is the frustum's own transformation matrix translation row
-    // (+0x1A4/+0x1A8/+0x1AC is m_transformation.m[12..14]).
-    const Mat4& frustumTransform = frustum.m_transformation;
-    consts.cameraX = frustumTransform.m[12];
-    consts.cameraY = frustumTransform.m[13];
-    consts.cameraZ = frustumTransform.m[14];
-
-    consts.fadeStep = fadeStep;
-
-    subConsts = consts;     // all nine floats - see the uninitialised-copy note above
-
     out.resize(0);
-
     for (std::vector<IObject*>::const_iterator it = m_rendVisibleObjects.begin();
          it != m_rendVisibleObjects.end(); ++it)
     {
-        IObject* const object = *it;
-        setObjectCullConsts(object, consts, subConsts);
-        cullAndAddObjectHierarchy(object, out, predicator, consts, subConsts);
+        addObjectHierarchy(*it, out, predicator);
     }
 
     g_rendCulledObjectCount += static_cast<unsigned int>(out.size());

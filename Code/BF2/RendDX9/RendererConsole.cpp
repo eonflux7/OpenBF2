@@ -240,9 +240,6 @@ void setRenderAheadLimit(uint value) { static_cast<IRenderer*>(static_cast<void*
 #define BF2_RENDERER_FLOAT_ACCESSORS(name, offset) \
     float get_##name() { return rendererTailFloat(offset); } \
     void set_##name(float value) { rendererTailFloat(offset) = value; }
-// PE 0x10058F30 / 0x100590D0, the first two culling constants.
-BF2_RENDERER_FLOAT_ACCESSORS(distanceCullConst, 0x6C0)
-BF2_RENDERER_FLOAT_ACCESSORS(distanceCullConstPCO, 0x6C4)
 // PE 0x10059AA0 / 0x10059C40 / 0x10059DE0 / 0x10059F80.
 BF2_RENDERER_FLOAT_ACCESSORS(tweakNearPlane, 0x590)
 BF2_RENDERER_FLOAT_ACCESSORS(tweakNearPlane1p, 0x594)
@@ -252,9 +249,6 @@ BF2_RENDERER_FLOAT_ACCESSORS(coronaFadeSpeed, 0x59C)
 BF2_RENDERER_FLOAT_ACCESSORS(divAccum, 0x58C)
 #undef BF2_RENDERER_FLOAT_ACCESSORS
 
-// PE 0x10059270: retain Renderer +0x7C/+0x78 dispatch for the third culling constant.
-float getMinCullDistance() { return static_cast<IRenderer*>(static_cast<void*>(g_Renderer))->slot_0x7C(); }
-void setMinCullDistance(float value) { static_cast<IRenderer*>(static_cast<void*>(g_Renderer))->slot_0x78(value); }
 // PE 0x10059760: a negative request leaves the previous skip count unchanged.
 int getForceStaticMeshSkipLod() { return rendererTailInt(0x7E4); }
 void setForceStaticMeshSkipLod(int value)
@@ -1022,17 +1016,8 @@ BF2_CONSOLE_PROPERTY_FN(waterFogColor, Vec3, g_PostProductionFrameWorkOwner != 0
 BF2_CONSOLE_PROPERTY_FN(waterFogStartEndAndBase, Vec4, g_PostProductionFrameWorkOwner != 0,
                         getWaterFogStartEndAndBase(), setWaterFogStartEndAndBase, kRendererConsoleTag)
 
-// PE 0x10058DE0 (constructor) / 0x10058ED0 (converter).
-// PE 0x10058ED0: distanceCullConst converter.
-BF2_CONSOLE_PROPERTY_FN(distanceCullConst, float, g_Renderer != 0,
-                        get_distanceCullConst(), set_distanceCullConst, kRendererConsoleTag)
-// PE 0x10058F80 (constructor) / 0x10059070 (converter).
-// PE 0x10059070: distanceCullConstPCO converter.
-BF2_CONSOLE_PROPERTY_FN(distanceCullConstPCO, float, g_Renderer != 0,
-                        get_distanceCullConstPCO(), set_distanceCullConstPCO, kRendererConsoleTag)
-// PE 0x10059120, 0x10059210: minCullDistance constructor, converter.
-BF2_CONSOLE_PROPERTY_FN(minCullDistance, float, g_Renderer != 0,
-                        getMinCullDistance(), setMinCullDistance, kRendererConsoleTag)
+// [RENDER] renderer.distanceCullConst, distanceCullConstPCO and minCullDistance (PE 0x10058DE0..
+// 0x10059210) are deleted: objects no longer cull by distance (step 8).
 // PE 0x100592D0, 0x100593C0: forceSkinnedMeshLod constructor, converter.
 BF2_CONSOLE_PROPERTY_FN(forceSkinnedMeshLod, int, g_Renderer != 0,
                         rendererGetSkinnedMeshLod(), rendererSetSkinnedMeshLod, kRendererConsoleTag)

@@ -232,7 +232,9 @@ public:
                                                                                 //   (see the map correction
                                                                                 //   at the grid queries)
 
-    // Cull-distance constants (ELF +0x110/+0x114/+0x118; ctor 4.0f / 5.0f / 100.0f)
+    // Cull-distance constants (ELF +0x110/+0x114/+0x118; ctor 4.0f / 5.0f / 100.0f).
+    // [RENDER] Nothing reads them since objects stopped culling by distance (renderer step 8);
+    // the slots and fields stay for the host's vtable and object layout.
     virtual void  setMinCullDistance(float d);                                  // +0xB8
     virtual float getMinCullDistance();                                         // +0xBC
     virtual void  setDistanceCullConst(float c);                                // +0xC0
@@ -332,27 +334,6 @@ private:
                                         bool staticObjects,
                                         bool useCollisionBoundsAndChildren);
 
-    // Per-query distance-cull record of nine floats. Keep it nested in ObjectManager for signature linkage;
-    // field names marked [INFERRED] are interpreted from use.
-    struct CullConsts
-    {
-        float minCullDistance;      // +0x00  [0] quality-scaled; setObjectCullConsts scales it
-        float radiusBias;           // +0x04  [1] [INFERRED] added to a radius by setCullFade
-        float cullConstScale;       // +0x08  [2] the (quality * 10) factor the distances multiply
-        float distanceCullConst;    // +0x0C  [3] the squared cull distance for this object
-        float cameraX;              // +0x10  [4] the three together are the camera position,
-        float cameraY;              // +0x14  [5]   copied out of the frustum's [105..107]
-        float cameraZ;              // +0x18  [6]
-        float fadeStep;             // +0x1C  [7] [INFERRED] setCullFade's per-frame fade delta
-        float radiusThreshold;      // +0x20  [8] cullRadiusScale * visualRadius * subRadiusThreshold
-    };
-
-    // Fills both records for one object.  See the body.
-    void setObjectCullConsts(IObject* object, CullConsts& consts, CullConsts& subConsts);
-
-    // Drives one object's distance fade.  See the body.
-    void setCullFade(IObject* object, float radius, const CullConsts& consts);
-
     // The frustum grid query all three public overloads reach.
     void getObjectsFromGridInternal(bool collisionObjects, const Frustum& frustum,
                                     std::vector<IObject*>& out,
@@ -366,11 +347,9 @@ private:
                                                bool frustumTestEachObject,
                                                float unused, float unusedFadeStep);
 
-    // Fades one object, adds it, and recurses into its children.
-    void cullAndAddObjectHierarchy(IObject* object, std::vector<IObject*>& out,
-                                   ObjectPredicator* predicator,
-                                   const CullConsts& consts,
-                                   const CullConsts& subConsts);
+    // Adds one object and its children (renderer frustum queries; no distance cull).
+    void addObjectHierarchy(IObject* object, std::vector<IObject*>& out,
+                            ObjectPredicator* predicator);
 
     // only the fields the recovered bodies read. ELF offsets in the comments; see the layout block.
     int          m_refCount;                                   // +0x04
