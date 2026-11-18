@@ -17,7 +17,7 @@ the next step.
 
 ## Current step: `render` step 8, anti-aliasing
 
-Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: centroid lightmap UVs, Muttrah City, 2026-11-18.
+Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: alpha-to-coverage, Saaremaa, 2026-11-18.
 
 Sub-steps, in order, each seen in game before the next:
 - [x] Sampler policy (`28487a35`; seen on Kashan Desert 2026-11-18)
@@ -32,7 +32,10 @@ Sub-steps, in order, each seen in game before the next:
   space. Seen on Muttrah City 2026-11-18)
 - [ ] Transparent depth rebuild after the resolve; first settle where first-person models draw,
   since they follow the transparents today and the plan keeps them in the MSAA scene
-- [ ] Alpha-to-coverage
+- [x] Alpha-to-coverage (`f9086318`: the mesh prepass runs under ATOC, prepassed lit passes drop
+  their alpha test; prepass alpha sharpened to a one-pixel ramp. Seen on Saaremaa 2026-11-18.
+  Not done: the mip-loss alpha correction, which needs texture sizes from the engine; add it if
+  distant foliage thins)
 - [ ] Thin geometry
 - [ ] LOD crossfade
 - [ ] Acceptance: GPU timer spans and the reference views

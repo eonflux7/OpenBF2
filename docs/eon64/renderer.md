@@ -85,8 +85,8 @@ screen-space term cannot be made per-sample; the mask goes instead.
   the main pass's EQUAL test already limits shading to the samples the prepass covered, so its alpha
   test goes and the two passes need not agree on alpha. Alpha is sharpened by its screen derivative
   to about a one-pixel edge, and corrected for the alpha the mips lose, so foliage does not thin out
-  with distance. Retail enables it through vendor render-state hacks (NVIDIA `ATOC`); first verify
-  DXVK honours it.
+  with distance. Retail enables it through vendor render-state hacks (NVIDIA `ATOC`); DXVK honours
+  it (active only while a draw alpha-tests), so the whole mesh prepass runs inside retail's bracket.
 - **Thin geometry.** MSAA cannot help what is thinner than its sample spacing; power lines, antennas
   and wires break into dashes. They are widened to at least about one pixel in the vertex shader and
   their alpha lowered by the same factor. They are recognised by material, or by flagging thin static
