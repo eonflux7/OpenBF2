@@ -641,7 +641,7 @@ void stateManagerMarkStandardDepth(bool standard);
 float stateManagerClearDepth(float depth);
 unsigned int stateManagerMapDepthState(unsigned int state, unsigned int value);
 // [RENDER] While set, ZFUNC is issued as EQUAL and ZWRITEENABLE as FALSE: the draw's depth is
-// already in the scene depth from the depth prepass (step 8). StateManager.cpp.
+// already in the scene depth from the depth prepass (milestone 8). StateManager.cpp.
 void stateManagerSetPrepassedDraw(bool prepassed);
 // [RENDER] The value the next draw will issue for render state `state` (the wanted cell).
 unsigned int stateManagerWantedRenderState(unsigned int state);
@@ -717,7 +717,7 @@ void rendererDepthPrepass(bool drawTerrain, float time);
 void rendererDepthPrepassEndWorldPass();
 void rendererDepthPrepassRelease();
 IDirect3DTexture9* rendererLinearDepthTexture();
-// [RENDER] Transparent depth rebuild (step 8). The 4x scene holds the opaque world, the sky,
+// [RENDER] Transparent depth rebuild (milestone 8). The 4x scene holds the opaque world, the sky,
 // decals, the particles drawn before water, water and the first-person passes; water
 // (rendererLinearDepthWater) and the first-person opaque queues (rendererFirstPersonPrepass, a
 // prepass of their own after their depth clear) add their linear depth to the prepass's.
@@ -796,7 +796,7 @@ const unsigned int kSunCascadeVec4s = 22;
 const unsigned int kSunCascadeRegister = 200;
 // Writes RASM to pixel registers kSunCascadeRegister.. through the StateManager's mirror.
 void stateManagerSetSunCascadeConstants(const float* constants);
-// [RENDER] Step 8 LOD crossfade: RaLodDither, one float4 in pixel register c222, engine-owned like
+// [RENDER] Milestone 8 LOD crossfade: RaLodDither, one float4 in pixel register c222, engine-owned like
 // RASM. While a static mesh is in the band around a LOD switch it submits both LODs, and each
 // entry's lodDither (a, b) keeps the pixels where a * t + b >= 0 for the screen's 4x4 Bayer
 // threshold t, so the two LODs cover complementary pixels. (0, 1) keeps every pixel. The queues

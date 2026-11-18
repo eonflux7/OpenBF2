@@ -20,7 +20,7 @@ void postProductionSetTVEnabled(bool enabled);
 void postProductionPrepare();
 void postProductionPass();
 void postProductionFinish();
-// [RENDER] The transparent depth rebuild pass (step 8), see PostProductionFrameWork.cpp.
+// [RENDER] The transparent depth rebuild pass (milestone 8), see PostProductionFrameWork.cpp.
 bool postProductionDrawDepthRebuild(const float constants[4]);
 // renderScene's post-production steps: the owner's glow byte (+0x24) from the flags and the glow
 // pass after the sky (sub_1004EF80).

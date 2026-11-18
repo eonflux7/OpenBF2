@@ -390,7 +390,7 @@ unsigned int BundledMesh::materialFeatures(BundledMeshMaterial* material,bool ad
     return bits;
 }
 // PE 0x10104AE0
-// [RENDER] Step 8: bundled meshes (vehicles, weapons, kits) draw LOD 0 at any distance and zoom,
+// [RENDER] Milestone 8: bundled meshes (vehicles, weapons, kits) draw LOD 0 at any distance and zoom,
 // so a vehicle looks the same to every player. Retail picked a coarser LOD by camera distance
 // over zoom against the template's switch distances (50 m steps unless authored), and its
 // shader-quality bucket (+0x708 / +0x72C) the same way. LOD 0 everywhere costs about 20k
@@ -421,7 +421,7 @@ BM1(void,setTransparency,float)
 #undef BM1
 void RD9_THUNK bm_draw(BundledMesh* s RD9_THUNK_EDX,void* a,void* b,void* c) { s->draw(a,b,c); }
 // +0x20, the shadow-map draw. [RENDER] Its only caller, the point/spot shadow-map pass, is deleted
-// with the draw (docs/eon64/renderer.md, step 6); the slot keeps the layout.
+// with the draw (docs/eon64/renderer-pipeline.md, milestone 6); the slot keeps the layout.
 void RD9_THUNK bm_shadow(BundledMesh* RD9_THUNK_EDX,void*,void*,void*,void*,void*,void*) {}
 void* RD9_THUNK bm_destroy(void* s RD9_THUNK_EDX,unsigned char flags) { return bundledMeshDestroyFlags(s,flags); }
 void RD9_THUNK bm_setPart(BundledMesh* s RD9_THUNK_EDX,const Mat4* value,int part) { s->setPartTransformation(value,part); }

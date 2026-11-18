@@ -24,7 +24,7 @@ void drawStatsSetScope(const char* scope);
 // Adds `n` to the counter row ("(count)", name): an event count per frame rather than draws.
 void drawStatsCount(const char* name, unsigned int n);
 
-// Step 8 LOD measurement: a mesh picks its LOD by `lodDistance` (camera distance over zoom, less
+// Milestone 8 LOD measurement: a mesh picks its LOD by `lodDistance` (camera distance over zoom, less
 // the bounding radius) against `count` ascending switch distances times `scale`. Counts the
 // primitives it would draw were the switch distances x1, x2, x3 and x4, and at LOD 0, as the
 // counter rows "lod static x1" .. "lod static full". `primitivesAt(lod)` returns a LOD's count.

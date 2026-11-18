@@ -754,7 +754,7 @@ void OverGrowth::postLoadResources()
         TextureNameSet names;
         collectTextureNames(this, names);
         adoptFirstAtlasPage(this);
-        // [RENDER] Step 8: retail zeroed the band, so far cells popped in and out whole at the
+        // [RENDER] Milestone 8: retail zeroed the band, so far cells popped in and out whole at the
         // view distance. They now dissolve over its last tenth (RaLodDither, drawCells).
         m_fadeBand = 0.1f;
         m_minimumHeightFade = 1.0f;

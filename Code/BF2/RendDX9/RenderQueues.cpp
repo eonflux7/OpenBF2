@@ -1646,8 +1646,8 @@ void RenderQueue::drawWalkDefault()
                         stateManagerSetRenderState(19, 5);         // D3DRS_SRCBLEND = srcalpha
                         stateManagerSetRenderState(20, 6);         // D3DRS_DESTBLEND = invsrcalpha
                     }
-                    stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] step 8
-                    renderEntryBindLodDither(e);                   // [RENDER] step 8
+                    stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] milestone 8
+                    renderEntryBindLodDither(e);                   // [RENDER] milestone 8
                     shader->draw(e);                               // +0x18
                 }
             }
@@ -1655,7 +1655,7 @@ void RenderQueue::drawWalkDefault()
         }
     }
 
-    stateManagerSetPrepassedDraw(false);                           // [RENDER] step 8
+    stateManagerSetPrepassedDraw(false);                           // [RENDER] milestone 8
     if (shader)
     {
         if (activePass != -1)
@@ -1710,8 +1710,8 @@ void RenderQueue::drawWalkNear()
                 else
                 {
                     shader->applyInstanceParameters(e);            // +0x10
-                    stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] step 8
-                    renderEntryBindLodDither(e);                   // [RENDER] step 8
+                    stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] milestone 8
+                    renderEntryBindLodDither(e);                   // [RENDER] milestone 8
                     shader->draw(e);                               // +0x18
                 }
             }
@@ -1725,7 +1725,7 @@ void RenderQueue::drawWalkNear()
         }
     }
 done:
-    stateManagerSetPrepassedDraw(false);                           // [RENDER] step 8
+    stateManagerSetPrepassedDraw(false);                           // [RENDER] milestone 8
     shader->endPass();
     shader->end();                                                 // +0x0C
 }
@@ -2280,7 +2280,7 @@ RenderQueueEntry* renderEntryPoolAcquire()
     RenderQueueEntry* const entry = entries[pool->next];
     entry->lighting.tail10C = 0;
     entry->techniqueKey     = 0;
-    entry->lodDither[0]     = g_acquireLodDither[0];  // [RENDER] step 8
+    entry->lodDither[0]     = g_acquireLodDither[0];  // [RENDER] milestone 8
     entry->lodDither[1]     = g_acquireLodDither[1];
     ++pool->next;
     return entries[pool->next - 1];

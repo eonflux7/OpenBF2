@@ -73,7 +73,7 @@ float stateManagerClearDepth(float depth)
     return stateManagerReversedDepthBound() ? 1.0f - depth : depth;
 }
 
-// [RENDER] Prepassed draws (step 8). The depth prepass has already written a prepassed draw's
+// [RENDER] Prepassed draws (milestone 8). The depth prepass has already written a prepassed draw's
 // depth into the scene depth, so its lit passes test EQUAL and write nothing, whatever the
 // effect states: each pixel then shades only the samples the prepass left it. The same holds for
 // coverage: the prepass's alpha test (with alpha-to-coverage) decided which samples the draw

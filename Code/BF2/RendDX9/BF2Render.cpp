@@ -605,10 +605,10 @@ public:
     unsigned char m_fullSizeRenderTargets;         // +0x6BC
     unsigned char m_pad6BD[3];
     // [RENDER] Retail's distance-cull triple (distanceCullConst, ...PCO, minCullDistance) swapped
-    // into the host ObjectManager around the object drawer; unused since step 8.
+    // into the host ObjectManager around the object drawer; unused since milestone 8.
     unsigned char m_pad6C0[12];          // +0x6C0 .. +0x6CB
     unsigned int m_raPath;               // +0x6CC  (435) the RAPATH shader define / quality index
-    unsigned char m_byte6D0;             // +0x6D0  [UNRESOLVED] retail keyed static-mesh shader quality to the LOD; unread since step 8
+    unsigned char m_byte6D0;             // +0x6D0  [UNRESOLVED] retail keyed static-mesh shader quality to the LOD; unread since milestone 8
     unsigned char m_pad6D1[3];
     // Statistics overlay mode, 0..4 (setter 0x1002A6A0 clamps it and mirrors "non-zero" into
     // byte_1023E7F0); gates sub_1002E440.
@@ -626,11 +626,11 @@ public:
                                          ? 0x1C - sizeof(std::string) : 1];
     // The overlay draw's scale and offset (sub_10028FD0: x = +0x700, y = -+0x704).
     float        m_f6FC[3];              // +0x6FC .. +0x707 (447..449) ctor 0.125, 0.75, 0.75
-    unsigned char m_meshShaderLodEnabled;// +0x708  retail's mesh shader-LOD gate; unread since step 8
+    unsigned char m_meshShaderLodEnabled;// +0x708  retail's mesh shader-LOD gate; unread since milestone 8
     unsigned char m_pad709[3];
     // Three four-entry distance tables (451..462, ctor [0] = 10.0): the static-mesh draw reads
     // +0x70C + 4 * bucket, the bundled-mesh LOD +0x72C + 4 * i.
-    float        m_lodDistances70C[4];   // +0x70C  retail's shader-LOD distances (static, skinned, bundled); unread since step 8
+    float        m_lodDistances70C[4];   // +0x70C  retail's shader-LOD distances (static, skinned, bundled); unread since milestone 8
     float        m_lodDistances71C[4];   // +0x71C
     float        m_lodDistances72C[4];   // +0x72C
     float        m_f73C;                 // +0x73C  (463) ctor 9999; PostProductionFrameWork +0x54
@@ -2441,7 +2441,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
         }
 
         // The object drawer. [RENDER] Retail swapped the renderer's distance-cull triple into the
-        // host ObjectManager around it; objects no longer cull by distance (step 8).
+        // host ObjectManager around it; objects no longer cull by distance (milestone 8).
         if (sw(1693))
         {
             if (m_objectDrawer)
@@ -2515,7 +2515,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
 
             // [RENDER] Retail rendered the LightManager's shadow maps here (+0x19C): the sun maps
             // (replaced by the sun cascades) and the point/spot maps (deleted; docs/eon64/
-            // renderer.md, step 6). That pass ended by binding the scene's depth-stencil
+            // renderer-pipeline.md, milestone 6). That pass ended by binding the scene's depth-stencil
             // (Renderer +0x770, reversed-Z) and colour target 0, which the frame clear and the
             // scene draw rely on; bind them here.
             geom::lightManagerSetDepthStencil(0);
@@ -2752,12 +2752,12 @@ bool Renderer::renderFrame(double time, float deltaTime)
             {
                 geom::asParticleSystemManager(geom::g_ParticleSystemManager)->onPathDraw(false, true);
             }
-            // [RENDER] Step 8: water adds its linear depth before it draws, so the depth rebuilt
+            // [RENDER] Milestone 8: water adds its linear depth before it draws, so the depth rebuilt
             // after the resolve keeps the transparents behind it.
             rendererLinearDepthWater();
             renderQueueFlush(0x28, -1);                      // RSMTWater
 
-            // [RENDER] Step 8: the first-person passes draw here, into the 4x scene, where retail
+            // [RENDER] Milestone 8: the first-person passes draw here, into the 4x scene, where retail
             // drew them last (after the world transparents and the glow). They prepass like the
             // world (their own depth after the clear, and their linear depth over the world's),
             // so the world transparents, drawn after the resolve against the rebuilt depth, stay
@@ -2792,7 +2792,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
             renderQueueFlush(0x20, m_clearDepthBeforeFirstPerson);              // RSMTDelta1PersonTransparency
             renderQueueFlush(0x60, -1);                      // RSMTAux1PersonTransparency
 
-            // [RENDER] Step 8: resolve the scene and its linear depth, rebuild a single-sample
+            // [RENDER] Milestone 8: resolve the scene and its linear depth, rebuild a single-sample
             // depth, and draw the world transparents single sample, with the world view's
             // cascades and soft particles back on.
             gpuTimerMark("resolve");                         // [DEV] BF2_GPU_TIMERS
@@ -2994,7 +2994,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 drawStateStatisticsOverlay();
 
             // [UI] Retail drew the open console here (slot_0x58); the fork's console window
-            // (UiConsole.cpp) draws it at Present (docs/eon64/ui.md step 4).
+            // (UiConsole.cpp) draws it at Present (docs/eon64/ui.md milestone 4).
 
             if (isMultisampleActive())                                             // 0x10030AE7
                 static_cast<RendDX9Base*>(g_rendererBase)->device->SetDepthStencilSurface(
@@ -4027,7 +4027,7 @@ IDirect3DSurface9* rendererBackBufferSurface()
 // the back buffer and resolves it into +0x788; here a multisampled float surface stands in for the
 // back buffer from postProductionPrepare until the resolve in postProductionFinish, through the
 // target selector's null-texture fallback (lightManagerSelectRenderTarget).
-// [RENDER] Step 8: rendererSceneResolveForTransparents resolves the scene before the world
+// [RENDER] Milestone 8: rendererSceneResolveForTransparents resolves the scene before the world
 // transparents; from then until rendererHdrEndScene the scene is the resolved single-sample
 // target +0x788 (g_resolvedSceneSurface), and the resolve in postProductionFinish is skipped.
 namespace {
@@ -4124,7 +4124,7 @@ float g_sunCascadeConstants[kSunCascadeVec4s * 4] = {};   // RASM for this frame
 const float kNoSunCascades[kSunCascadeVec4s * 4] = {};
 bool g_sunCascadesLive = false;     // RASM is published: the world pass or its transparents draw
 bool g_softParticleDepth = false;   // s15 holds this frame's prepass depth and the world pass draws
-// Step 8, transparent depth rebuild.
+// Milestone 8, transparent depth rebuild.
 IDirect3DSurface9* g_rebuiltDepth = 0;   // single sample, the scene depth's format and size
 bool g_linearDepthFrame = false;    // this frame's prepass drew; water and first person add to it
 bool g_transparentDepth = false;    // the rebuilt depth is bound for the world transparents
@@ -4196,7 +4196,7 @@ bool ensureLinearDepthTargets(IDirect3DSurface9* depth)
 
 void* effectD3dxHandle(void* effect);   // Effect.cpp
 
-// [RENDER] Particle lighting (step 7). The particle renderers set their own effect parameters, so
+// [RENDER] Particle lighting (milestone 7). The particle renderers set their own effect parameters, so
 // RaShader::begin never reaches them; each renderer calls this as it binds its effect. The level's
 // one sun as every lit surface gets it (Lightmanager.staticSunColor, staticSkyColor as authored),
 // the direction toward the sun, the frame's RASM (zero outside the main world pass, so first
@@ -4504,7 +4504,7 @@ void rendererDepthPrepassRelease()
 IDirect3DSurface9* rendererDepthStencilSurface()
 {
     if (g_transparentDepth && g_rebuiltDepth)
-        return g_rebuiltDepth;          // [RENDER] step 8: the world transparents' rebuilt depth
+        return g_rebuiltDepth;          // [RENDER] milestone 8: the world transparents' rebuilt depth
     return publishedRenderer()->m_depthStencil;                              // +0x770
 }
 
@@ -5729,7 +5729,7 @@ void rendererPostReselectTarget()
 void rendererPostResolveScene()
 {
     if (rendererSceneResolved())
-        return;                         // [RENDER] step 8: resolved before the world transparents
+        return;                         // [RENDER] milestone 8: resolved before the world transparents
     Renderer* const renderer = publishedRenderer();
     IDirect3DSurface9* const destination =
         textureGetLevelSurface(pathTarget(renderer, 0x788), 0, 0x7FFFFFFFu);
@@ -6390,7 +6390,7 @@ unsigned int Renderer::getFrameOrdinal()
 
 
 // PE 0x1002E2D0 drew the open console: the last 20 lines over a full-width background.
-// [UI] Deleted: the fork's console window (UiConsole.cpp, docs/eon64/ui.md step 4) draws the
+// [UI] Deleted: the fork's console window (UiConsole.cpp, docs/eon64/ui.md milestone 4) draws the
 // console. The slot stays for the retail vtable layout; nothing calls it.
 void Renderer::slot_0x58()
 {
@@ -6552,7 +6552,7 @@ IVideoOptions* Renderer::getVideoOptions()
     return reinterpret_cast<RendDX9Base*>(this)->embeddedVideoOptions();
 }
 // PE 0x100326E0 / 0x100326F0, slots +0x78 / +0x7C: retail's minCullDistance setter and getter.
-// [RENDER] Objects no longer cull by distance (step 8); the slots stay for the IRenderer vtable.
+// [RENDER] Objects no longer cull by distance (milestone 8); the slots stay for the IRenderer vtable.
 void Renderer::slot_0x78(float)
 {
 }

@@ -1,4 +1,4 @@
-// [UI] The debug menu and the performance overlay (docs/eon64/ui.md, step 3). Not part of retail BF2.
+// [UI] The debug menu and the performance overlay (docs/eon64/ui.md, milestone 3). Not part of retail BF2.
 //
 // Menu (the menu key), in tabs:
 //   Commands  the mod's command file as buttons, grouped by section, with fields for arguments.

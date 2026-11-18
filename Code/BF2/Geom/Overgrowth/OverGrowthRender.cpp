@@ -357,7 +357,7 @@ inline float objectTemplateCullRadiusScale(const void* objectTemplate)
 
 } // namespace
 
-// [RENDER] Step 8: the LOD geometry's share of an instance at ratio (distance / draw radius)
+// [RENDER] Milestone 8: the LOD geometry's share of an instance at ratio (distance / draw radius)
 // squared. Retail's distance fade (1 - x) / closeDistFade * sqrt(distanceScale), x = sqrt(ratio),
 // switches dominance at one half; the share runs 0 to 1 across kOverGrowthLodBand of that switch
 // distance, either side, as static meshes do (StaticMesh.cpp). Without a LOD geometry it is 0.
@@ -384,7 +384,7 @@ float overGrowthLodShare(const OverGrowthGeometryPair* type, float ratio, float 
 // registered as a directional-shadow receiver.
 void OverGrowth::render(IRenderView* view, float time)
 {
-    (void)time;   // [RENDER] step 8: the lodTimer ease is gone (overGrowthLodShare)
+    (void)time;   // [RENDER] milestone 8: the lodTimer ease is gone (overGrowthLodShare)
     if (m_path.empty())
         return;
     if (m_updateBeforeRender)
@@ -457,7 +457,7 @@ void OverGrowth::render(IRenderView* view, float time)
                     continue;
                 // [RENDER] Retail attached the instance to a directional shadow record here.
 
-                // [RENDER] Step 8: retail faded the two geometries through their Transparency
+                // [RENDER] Milestone 8: retail faded the two geometries through their Transparency
                 // (alpha 2(1 - fade) and 2 fade, doubled again under alpha-to-coverage), which sent
                 // every instance in the band to the blended queue, and could ease the fade over
                 // Overgrowth.lodTimer. Both now stay opaque and split the screen's 4x4 Bayer

@@ -1017,7 +1017,7 @@ BF2_CONSOLE_PROPERTY_FN(waterFogStartEndAndBase, Vec4, g_PostProductionFrameWork
                         getWaterFogStartEndAndBase(), setWaterFogStartEndAndBase, kRendererConsoleTag)
 
 // [RENDER] renderer.distanceCullConst, distanceCullConstPCO and minCullDistance (PE 0x10058DE0..
-// 0x10059210) are deleted: objects no longer cull by distance (step 8).
+// 0x10059210) are deleted: objects no longer cull by distance (milestone 8).
 // PE 0x100592D0, 0x100593C0: forceSkinnedMeshLod constructor, converter.
 BF2_CONSOLE_PROPERTY_FN(forceSkinnedMeshLod, int, g_Renderer != 0,
                         rendererGetSkinnedMeshLod(), rendererSetSkinnedMeshLod, kRendererConsoleTag)
@@ -1079,7 +1079,7 @@ BF2_CONSOLE_PROPERTY_FN(globalSkinnedMeshLodDistanceScale, float, g_Renderer != 
 BF2_CONSOLE_PROPERTY_FN(renderAheadLimit, uint, g_Renderer != 0,
                         getRenderAheadLimit(), setRenderAheadLimit, kRendererConsoleTag)
 
-// [RENDER] Step 8: qualityLodEnabled and get/setQualityLodDistance{STM,SKM,BM,ALL} (PE 0x1005AB30
+// [RENDER] Milestone 8: qualityLodEnabled and get/setQualityLodDistance{STM,SKM,BM,ALL} (PE 0x1005AB30
 // to 0x1005B940) are gone with the distance shading LODs they drove.
 // PE 0x1005BA30, 0x1005BB20
 BF2_CONSOLE_PROPERTY_FN(isNightMap, bool, g_Renderer != 0,

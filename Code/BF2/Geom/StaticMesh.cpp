@@ -102,7 +102,7 @@ extern LightManager* g_LightManager;      // XpLightManager.cpp, dword_1024B914
 extern IBase*        g_StaticMeshRenderer; // StaticMeshRenderer.cpp, dword_1024B8F8
 extern IBase*        g_Terrain;            // ModuleGeom.cpp, dword_1024B930
 
-// [RENDER] Step 8: static meshes switch LOD at three times their switch distances. PR authors
+// [RENDER] Milestone 8: static meshes switch LOD at three times their switch distances. PR authors
 // almost none (80 of 6,949 static templates), so most switch at the engine's 25 m steps past
 // their bounding sphere: a building of radius 15 m dropped to LOD 1 at 40 m. On Muttrah City x3
 // draws 1.9x the primitives of x1 for about 0.6 ms; LOD 0 everywhere draws 4.2x for 1.6 ms.
@@ -110,7 +110,7 @@ extern IBase*        g_Terrain;            // ModuleGeom.cpp, dword_1024B930
 // init resets to 1 on every map.
 const float kStaticMeshLodDistanceScale = 3.0f;
 
-// [RENDER] Step 8 LOD crossfade: within kStaticMeshLodCrossfadeBand of a switch distance (a fraction
+// [RENDER] Milestone 8 LOD crossfade: within kStaticMeshLodCrossfadeBand of a switch distance (a fraction
 // of it, either side) a static mesh draws both LODs, each keeping its share of a screen-space 4x4
 // Bayer pattern (RaLodDither, kLodDitherRegister), so the switch dissolves across the band instead
 // of popping. The selected LOD is still the one on the camera's side of the switch. Shadow casters,
@@ -233,7 +233,7 @@ void RD9_THUNK sm_drawSilhouette(void* RD9_THUNK_EDX, void*, int)
 }
 
 // +0x20, the shadow-map draw.  `retn 18h`. [RENDER] Its only caller, the point/spot shadow-map
-// pass, is deleted with the draw (docs/eon64/renderer.md, step 6); the slot keeps the layout.
+// pass, is deleted with the draw (docs/eon64/renderer-pipeline.md, milestone 6); the slot keeps the layout.
 void RD9_THUNK sm_drawShadowMap(void* RD9_THUNK_EDX, void*, unsigned int, unsigned int,
                                  unsigned int, unsigned int, unsigned int)
 {
@@ -2206,7 +2206,7 @@ void StaticMesh::drawVanilla()
                 [t, geom](int lod) { return t->getPrimitiveCount(static_cast<int>(geom), lod, -1); });
         }
 
-        // [RENDER] Step 8: the LOD crossfade.
+        // [RENDER] Milestone 8: the LOD crossfade.
         if (!t->m_isRoad && !t->m_isWater && !dx9rend::rendererCasterCaptureActive())
             crossfade = staticMeshLodCrossfade(t->m_geoms[m_dword314].lodDistances.data(),
                 static_cast<int>(m_geomLodDistanceCounts.data()[m_dword314]),
@@ -2301,13 +2301,13 @@ void StaticMesh::drawVanilla()
         }
     }
 
-    // 7. the materials. [RENDER] Step 8: once per LOD drawn (StaticMeshLodPass).
+    // 7. the materials. [RENDER] Milestone 8: once per LOD drawn (StaticMeshLodPass).
     for (int lodPass = 0; lodPass < staticMeshLodPassCount(crossfade); ++lodPass)
     {
         const StaticMeshLodPass pass(*this, crossfade, lodPass);
         if (!m_byte356)
         {
-            // [RENDER] Step 8: the shader quality is the renderer's, at every distance. Retail could
+            // [RENDER] Milestone 8: the shader quality is the renderer's, at every distance. Retail could
             // raise it by a distance bucket (+0x708 / +0x70C) or key it to the LOD index (+0x6D0).
             const unsigned int qualityMask = g_staticMeshQualityMasks.data()[rendererDword(0x6CC)];
 
@@ -2751,7 +2751,7 @@ void staticMeshDrawExpansion(void* self)
                 [t, geom](int lod) { return t->getPrimitiveCount(static_cast<int>(geom), lod, -1); });
         }
 
-        // [RENDER] Step 8: the LOD crossfade.
+        // [RENDER] Milestone 8: the LOD crossfade.
         if (!t->m_isRoad && !t->m_isWater && !dx9rend::rendererCasterCaptureActive())
             crossfade = staticMeshLodCrossfade(t->m_geoms[mesh.m_dword314].lodDistances.data(),
                 static_cast<int>(mesh.m_geomLodDistanceCounts.data()[mesh.m_dword314]),
@@ -2820,13 +2820,13 @@ void staticMeshDrawExpansion(void* self)
         }
     }
 
-    // 7. the materials. [RENDER] Step 8: once per LOD drawn (StaticMeshLodPass).
+    // 7. the materials. [RENDER] Milestone 8: once per LOD drawn (StaticMeshLodPass).
     for (int lodPass = 0; lodPass < staticMeshLodPassCount(crossfade); ++lodPass)
     {
         const StaticMeshLodPass pass(mesh, crossfade, lodPass);
         if (!mesh.m_byte356)
         {
-            // [RENDER] Step 8: the shader quality is the renderer's, at every distance. Retail could
+            // [RENDER] Milestone 8: the shader quality is the renderer's, at every distance. Retail could
             // raise it by a distance bucket (+0x708 / +0x70C) or key it to the LOD index (+0x6D0).
             const unsigned int qualityMask = g_staticMeshQualityMasks.data()[rendererDword(0x6CC)];
 

@@ -63,7 +63,7 @@ inline RaMaterialParameters& streamMaterial(OverGrowthCellMesh* stream)
 struct OverGrowthCellVertex
 {
     short         position[4];     // +0x00 x, y, z = (world - cell centre) * 109.22334; w = shadow * 32767
-                                   //       ([RENDER] step 8: the shaders no longer read w)
+                                   //       ([RENDER] milestone 8: the shaders no longer read w)
     unsigned char normal[4];       // +0x08 D3DCOLOR bytes: [0] z, [1] y, [2] x = (n + 1) * 127.5;
                                    //       [3] (var_17D) is never written by the shipped body
     short         texCoord[2];     // +0x0C u, v = (clamp(t, -1, 1) * atlas scale + atlas offset) * 32767

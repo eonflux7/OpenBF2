@@ -1394,7 +1394,7 @@ void postProductionPass()
     }
 }
 
-// [RENDER] Transparent depth rebuild (step 8): technique RaDepthRebuild, one full-screen pass
+// [RENDER] Transparent depth rebuild (milestone 8): technique RaDepthRebuild, one full-screen pass
 // writing depth from the linear depth on s15 into the bound depth buffer, colour writes off.
 // `constants` is RaDepthRebuild (P22, P32, 1 / width, 1 / height). False when the effect has no
 // such technique; nothing is drawn then.

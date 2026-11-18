@@ -289,7 +289,7 @@ public:
     unsigned int        m_dword318;             // +0x318  ctor 0; the lod index
     unsigned int        m_dword31C;             // +0x31C  ctor 0; the material the draw is on
     // +0x320: retail's distance shader-quality bucket (0..4, from the Renderer's +0x70C..+0x718);
-    // the draw no longer computes it (render step 8).
+    // the draw no longer computes it (render milestone 8).
     unsigned int        m_dword320;             // +0x320  unread
     unsigned int        m_dword324;             // +0x324  ctor 0
     unsigned int        m_dword328;             // +0x328  ctor 0
