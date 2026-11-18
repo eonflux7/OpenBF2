@@ -8,7 +8,7 @@ the next step.
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Steps 1–7 accepted | Step 8, anti-aliasing: sun shadows in the lit shaders next | [renderer.md](renderer.md#roadmap) |
+| `render` | Steps 1–7 accepted | Step 8, anti-aliasing: thin geometry next | [renderer.md](renderer.md#roadmap) |
 | `ui` | Steps 1–4 accepted | — | [ui.md](ui.md#steps) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
 | `perf` (frame) | `/O2` plugins, `tailField` table | Parked until renderer step 9 | [perf-frame.md](perf-frame.md#plan) |
@@ -17,7 +17,7 @@ the next step.
 
 ## Current step: `render` step 8, anti-aliasing
 
-Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: alpha-to-coverage, Saaremaa, 2026-11-18.
+Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: transparent depth rebuild, Muttrah City, 2026-11-18.
 
 Sub-steps, in order, each seen in game before the next:
 - [x] Sampler policy (`28487a35`; seen on Kashan Desert 2026-11-18)
@@ -30,8 +30,11 @@ Sub-steps, in order, each seen in game before the next:
 - [x] Centroid lightmap UVs, mip derivatives from a non-centroid copy (static mesh and terrain's
   lightmap pass; roads have no lightmap UV, they read terrain's resolved accumulation in screen
   space. Seen on Muttrah City 2026-11-18)
-- [ ] Transparent depth rebuild after the resolve; first settle where first-person models draw,
-  since they follow the transparents today and the plan keeps them in the MSAA scene
+- [x] Transparent depth rebuild after the resolve (`b47ac87f`, `0f10eb41`). First-person models
+  draw into the 4x scene before the resolve, with a prepass of their own (the owner's call,
+  2026-11-18); water adds its linear depth; the world transparents draw single sample against the
+  rebuilt depth. Seen on Muttrah City 2026-11-18. Expected: smoke now draws over first-person
+  transparent surfaces (scope glass)
 - [x] Alpha-to-coverage (`f9086318`: the mesh prepass runs under ATOC, prepassed lit passes drop
   their alpha test; prepass alpha sharpened to a one-pixel ramp. Seen on Saaremaa 2026-11-18.
   Not done: the mip-loss alpha correction, which needs texture sizes from the engine; add it if
