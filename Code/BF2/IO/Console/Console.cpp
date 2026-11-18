@@ -573,7 +573,10 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
 
     // read: the command is searched for '>' — output redirection.
     std::string line = cmd;
-    const std::string::size_type redirect = line.find('>');
+    // [FIX] The ">" of "->" (output capture into a variable, handled below) is not a redirect.
+    std::string::size_type redirect = line.find('>');
+    while (redirect != std::string::npos && redirect > 0 && line[redirect - 1] == '-')
+        redirect = line.find('>', redirect + 1);
     if (redirect != std::string::npos)
     {
         // [CHOSEN] the split. The binary parses a filename and an append flag into
