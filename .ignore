@@ -3,3 +3,5 @@
 docs/*
 !docs/eon64/
 !docs/README.md
+ROADMAP.md
+macOSplan.md

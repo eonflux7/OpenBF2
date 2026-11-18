@@ -1,5 +1,9 @@
 # OpenBF2 roadmap
 
+> **Inherited from OpenBF2**, kept as reference; not this project's plan or policy. Where this file
+> cites AGENTS.md it means OpenBF2's (`git show kr4uzi/main:AGENTS.md`). This project's state is
+> [docs/eon64/status.md](docs/eon64/status.md).
+
 This roadmap leads from the current state to 1.0.0. The versions after 0.3.0 are a direction, not a schedule; their scope will change as work is done. Deliberate deviations from retail behaviour are decided in issues before they are implemented ([AGENTS.md](AGENTS.md)).
 
 ## Where we are: 0.2.0

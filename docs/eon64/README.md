@@ -16,7 +16,7 @@ are in the [README](../../README.md). Start with [status.md](status.md).
 | [upstream-fixes.md](upstream-fixes.md) | `fix` and standalone `build` changes, kept so they can be offered upstream |
 | [flags.md](flags.md) | Every environment flag and build option this project adds |
 
-The rest of `docs/` is OpenBF2's documentation, inherited as reference ([AGENTS.md](../../AGENTS.md#documentation)).
+The rest of `docs/`, `ROADMAP.md` and `macOSplan.md` are OpenBF2's documentation, inherited as reference ([AGENTS.md](../../AGENTS.md#documentation)).
 
 ## History
 

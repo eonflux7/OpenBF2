@@ -125,9 +125,10 @@ the same comment. A marker is a pointer, not a justification.
   gives the outline). Do not read whole documents by default.
 - Update the relevant document in the same commit as the change it describes. Each fact lives in
   one place; elsewhere, link to it.
-- The rest of `docs/` is OpenBF2's documentation, inherited: reconstruction notes and evidence that
-  source comments cite. It is reference, not policy and not current state. Do not read or search it
-  unless a task needs that evidence; `.ignore` keeps it out of ripgrep searches.
+- The rest of `docs/`, `ROADMAP.md` and `macOSplan.md` are OpenBF2's documentation, inherited:
+  reconstruction notes and evidence that source comments cite. They are reference, not policy and
+  not current state. Do not read or search them unless a task needs that evidence; `.ignore` keeps
+  them out of ripgrep searches.
 
 ## Upstreaming
 

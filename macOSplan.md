@@ -1,5 +1,9 @@
 # macOS client plan
 
+> **Inherited from OpenBF2**, kept as reference; not this project's plan or policy. Where this file
+> cites AGENTS.md it means OpenBF2's (`git show kr4uzi/main:AGENTS.md`). This project's state is
+> [docs/eon64/status.md](docs/eon64/status.md).
+
 The plan for bringing the OpenBF2 client to macOS, ending in a native Metal renderer. Work happens on the branch `mac-metal` of `kr4uzi/OpenBF2`, and every port change is labelled `[CHOSEN, not recovered]` (see AGENTS.md). `docs/macos-port.md` holds the measured analysis this plan is based on: sizes, file lists and the interface surface.
 
 ## Target platforms
