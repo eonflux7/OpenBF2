@@ -2094,14 +2094,20 @@ void raReadManifest(const std::string& path, std::vector<std::string>& names)
     }
 }
 
-// Appends a name the manifest does not list yet.
+// Appends a name the manifest does not list yet. FileManager::writeFile cannot append (its bool
+// picks CREATE_NEW or CREATE_ALWAYS), so the file is opened without truncating (OPEN_ALWAYS) and
+// written at its end. File streams are seekable (INonlinearStream, as File.cpp uses them).
 void raNoteManifest(const std::string& path, const std::string& name)
 {
     if (!::dice::hfe::fileManager || !g_raManifestNames.insert(name).second)
         return;
     const std::string line = name + "\n";
-    ::dice::hfe::fileManager->writeFile(renddx9abi::makeHostString(path), line.data(),
-                                        static_cast<unsigned int>(line.size()), true);
+    renddx9abi::HostStream* const file = raOpen(path, 3, 2);   // OPEN_ALWAYS, write
+    if (!file)
+        return;
+    static_cast< ::dice::hfe::io::INonlinearStream*>(file)->seek(::dice::hfe::io::SEEKORIGIN_END, 0);
+    file->write(line.data(), static_cast<unsigned int>(line.size()));
+    file->release();
 }
 
 // The prefetched bytecode for name, or null (compile it serially). Waits for the job if a worker
