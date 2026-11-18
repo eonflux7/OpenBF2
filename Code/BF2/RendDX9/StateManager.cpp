@@ -52,8 +52,8 @@ unsigned char g_transparencyAAOff[4] = { 0, 0, 0, 0 };
 // (RendMisc/RenderView.cpp). While any depth buffer other than a shadow map is bound, the issued
 // ZFUNC is mirrored (LESS <-> GREATER) and DEPTHBIAS / SLOPESCALEDEPTHBIAS are negated, and depth
 // clears write 1 - z. The mirror cells keep the effects' logical (forward-Z) values, so shaders and
-// callers stay unchanged. XpLightManager marks its shadow-map depth buffers standard (they use
-// their own light matrices).
+// callers stay unchanged. The sun cascades (SunShadows.cpp) mark their atlas depth standard (it
+// uses the cascades' own light matrices) and clear the mark when they rebind the scene depth.
 namespace {
 bool g_standardDepthBound = false;   // a shadow-map depth buffer is the wanted depth-stencil
 }

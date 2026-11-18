@@ -433,6 +433,7 @@ bool rendererSunShadowsRender(float time, float* constants)
 
     stateManagerSetRenderTarget(0, savedTarget);
     stateManagerSetDepthStencilSurface(savedDepth);
+    stateManagerMarkStandardDepth(false);   // the scene depth is reversed-Z again
     flushRenderTargetsSeam();
     device()->SetViewport(&savedViewport);
     if (target)
