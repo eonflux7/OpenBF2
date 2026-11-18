@@ -47,6 +47,21 @@ struct TerrainSurroundingVertex
     float v;            // +0x0C  z * secondaryWorldScale.z / span
 };
 
+// One LOD record of Terrain::m_lodTables and QuadPatchDetailLayer::lodTables (400 bytes in the
+// retail image): per LOD row, sixteen index starts and sixteen index counts selected by the crack
+// mask, then the four child-record links the loaders store. The links are pointers, so on x64 the
+// record is 416 bytes [CHOSEN, not recovered] (https://github.com/B2BF/OpenBF2/issues/7); every
+// stride, allocation and clear uses kTerrainLodRecordSize. Nothing outside RendDX9 reads a record.
+struct TerrainLodRecord
+{
+    unsigned int   starts[3][16];      // +0x000  row = LOD, column = crack mask
+    unsigned int   counts[3][16];      // +0x0C0
+    unsigned char* children[4];        // +0x180  null on the last level
+};
+
+const int kTerrainLodRecordSize = static_cast<int>(sizeof(TerrainLodRecord));
+
+#if defined(_M_IX86)
 static_assert(sizeof(TerrainLodRecord) == 400, "the LOD records are 400 bytes - see 0x100DA9C0");
 static_assert(offsetof(TerrainLodRecord, counts) == 0xC0, "index counts at +0xC0 (row + 192)");
 static_assert(offsetof(TerrainLodRecord, children) == 0x180, "child links at +0x180..+0x18C");
