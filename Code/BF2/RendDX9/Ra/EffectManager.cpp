@@ -2065,6 +2065,8 @@ void raPrefetchQueue(RaPrefetchJob* job)
     g_raPrefetchPool->work.notify_one();
 }
 
+void raParseManifest(const std::string& text, std::vector<std::string>& names);
+
 // The listed names, read once per session.
 void raReadManifest(const std::string& path, std::vector<std::string>& names)
 {
@@ -2079,6 +2081,12 @@ void raReadManifest(const std::string& path, std::vector<std::string>& names)
     const unsigned int read = file->read(&text[0], info.size);
     file->release();
     text.resize(read);
+    raParseManifest(text, names);
+}
+
+// Appends the names in a manifest's text that are not listed yet.
+void raParseManifest(const std::string& text, std::vector<std::string>& names)
+{
     std::string::size_type line = 0;
     while (line < text.size())
     {
@@ -2092,6 +2100,94 @@ void raReadManifest(const std::string& path, std::vector<std::string>& names)
             names.push_back(name);
         line = end + 1;
     }
+}
+
+// A cache directory without a manifest (new, because an engine define changed its name) takes the
+// newest manifest among its siblings under cache/, and writes it as its own. Names another directory
+// listed are only candidates: a name that does not read is skipped, and a job whose key differs from
+// the one compileEffect computes is dropped, so a stale name costs at most one wasted compile.
+void raSeedManifest(const std::string& cacheDirectory, const std::string& manifestPath,
+                    std::vector<std::string>& names)
+{
+    if (!::dice::hfe::fileManager)
+        return;
+    std::string own;
+    ::dice::hfe::fileManager->getWritePath(renddx9abi::makeHostString(cacheDirectory), own);
+    while (!own.empty() && (own[own.size() - 1] == '/' || own[own.size() - 1] == '\\'))
+        own.erase(own.size() - 1);
+    const std::string::size_type slash = own.find_last_of("/\\");
+    if (slash == std::string::npos)
+        return;
+    const std::string parent = own.substr(0, slash + 1);
+    const std::string ownName = own.substr(slash + 1);
+
+    const auto widen = [](const std::string& text) {
+        std::wstring wide;
+        const int length = ::MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, 0, 0);
+        if (length > 1)
+        {
+            wide.resize(static_cast<std::size_t>(length - 1));
+            ::MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &wide[0], length);
+        }
+        return wide;
+    };
+    const std::wstring parentWide = widen(parent);
+    const std::wstring ownWide = widen(ownName);
+    WIN32_FIND_DATAW found;
+    const HANDLE search = ::FindFirstFileW((parentWide + L"*").c_str(), &found);
+    if (search == INVALID_HANDLE_VALUE)
+        return;
+    std::wstring newest;
+    ULARGE_INTEGER newestTime = {};
+    do
+    {
+        if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || found.cFileName[0] == L'.'
+            || ::_wcsicmp(found.cFileName, ownWide.c_str()) == 0)
+            continue;
+        const std::wstring candidate = parentWide + found.cFileName + L"\\effects.lst";
+        WIN32_FILE_ATTRIBUTE_DATA attributes;
+        if (!::GetFileAttributesExW(candidate.c_str(), GetFileExInfoStandard, &attributes)
+            || attributes.nFileSizeLow == 0)
+            continue;
+        ULARGE_INTEGER time;
+        time.LowPart = attributes.ftLastWriteTime.dwLowDateTime;
+        time.HighPart = attributes.ftLastWriteTime.dwHighDateTime;
+        if (newest.empty() || time.QuadPart > newestTime.QuadPart)
+        {
+            newest = candidate;
+            newestTime = time;
+        }
+    } while (::FindNextFileW(search, &found));
+    ::FindClose(search);
+    if (newest.empty())
+        return;
+
+    const HANDLE file = ::CreateFileW(newest.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                      0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    if (file == INVALID_HANDLE_VALUE)
+        return;
+    std::string text;
+    const DWORD size = ::GetFileSize(file, 0);
+    if (size != INVALID_FILE_SIZE && size > 0)
+    {
+        text.resize(size);
+        DWORD read = 0;
+        if (!::ReadFile(file, &text[0], size, &read, 0))
+            read = 0;
+        text.resize(read);
+    }
+    ::CloseHandle(file);
+    const std::size_t before = names.size();
+    raParseManifest(text, names);
+    if (names.size() == before)
+        return;
+    std::string seeded;
+    for (std::size_t i = before; i < names.size(); ++i)
+        seeded += names[i] + "\n";
+    ::dice::hfe::fileManager->writeFile(renddx9abi::makeHostString(manifestPath), seeded.data(),
+                                        static_cast<unsigned int>(seeded.size()), true);
+    ::fprintf(stderr, "[EFFECTPREFETCH] seeded %u names from a sibling cache directory\n",
+                 static_cast<unsigned int>(names.size() - before));
 }
 
 // Appends a name the manifest does not list yet. FileManager::writeFile cannot append (its bool
@@ -2553,7 +2649,11 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
         const std::string manifestPath = cacheDirectory + "effects.lst";
         std::vector<std::string> listed;
         if (!g_raManifestRead)
+        {
             raReadManifest(manifestPath, listed);
+            if (listed.empty())
+                raSeedManifest(cacheDirectory, manifestPath, listed);
+        }
         raNoteManifest(manifestPath, name);
         if (!g_raPrefetchStarted && raLoadEffectCompiler())
         {

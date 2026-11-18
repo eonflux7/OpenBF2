@@ -91,6 +91,7 @@ with the caches and prefetch off). Every change below was accepted in game and i
 | Ra cache key falls back to `D3DPreprocess` under Wine | `fix` | Filled cache: 186 s to 37 s |
 | Ra cache key from source and includes, no preprocessor | `perf` | Keys 16.6 s to 2.2 s per load |
 | Ra effect prefetch: stale effects in `effects.lst` compile on 8 workers | `perf` | Full recompile 186 s to 31 s |
+| `effects.lst` appended to, not replaced (it held one name); a new cache directory seeds it from the newest sibling's | `perf` | Not yet measured |
 | Each include file's info looked up once per frame (`FXSTAT`) | `perf` | −4.2 s (menu switch and Geometries) |
 | Bytecode cache for `compileEffectFile`, `@HOME@/<mod>/cache/fxsrc/` (`FXSRC`) | `perf` | Boot to menu 10.6 s to 8.75 s |
 | Console lines tokenized without `std::istringstream` (`CONPARSE`) | `perf` | About −4.5 s of part:Objects |
