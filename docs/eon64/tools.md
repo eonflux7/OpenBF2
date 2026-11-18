@@ -14,9 +14,18 @@ saved views, view sets, camera paths and unattended runs that write a report. Ru
   without the tool.
 - **Map data is the owner's.** View files live in the mod's `settings/` directory, outside this
   tree, like `eon64-commands.txt`. Debug shading modes live with the shaders, outside this tree; the
-  engine only provides the variable that selects them.
+  engine only provides the variable that selects them. Run output (`tools.outputDir`) also lies
+  outside this tree: it holds screenshots of the mod's content and the shader set's commit.
 - It comes before renderer step 9 (owner, 2026-11-19): milestones 1–3 are done first, so step 9 is
   measured against reference views and a benchmark path.
+
+**Names.** Commands are grouped by what they act on: `view.*` (views, sets, shots, runs),
+`path.*` (camera paths), `bench.*` (benchmarks and the perf map). The tool's own settings are
+`tools.*` variables. Switches that change what the renderer draws (debug shading, compiling all
+effects) are `renderer.*` variables, since the renderer owns them. All names below are provisional.
+
+**Flags.** `BF2_VIEWRUN` (milestone 2) is the only environment variable planned. It is permanent,
+off by default and inert when unset, and is listed in [flags.md](flags.md) when it lands.
 
 ## Milestones
 
@@ -37,18 +46,26 @@ so culling, LOD, streaming and shadow cascades follow the override. No soldier i
 works from the spawn screen, with the spawn menu and HUD hidden while a view is active. Leaving the
 view hands the camera back to the game.
 
+Only the client's camera moves. The server still places the player at the spawn screen, so dynamic
+objects (vehicles, other soldiers) far from it may not be sent to the client and do not appear at
+a view. Static geometry, terrain, overgrowth and effects are local and always draw. Views that need
+dynamic objects wait for soldier mode (milestone 5).
+
 **Free fly.** A key toggles a free camera: no collision, mouse look, adjustable speed, mouse wheel
 for FOV. This is how views are placed.
 
 **A view** is a name, position, yaw, pitch, FOV, and options:
-- console lines run on entering it (debug mode, a forced cascade, a time of day) and undone on
-  leaving;
+- `run` lines, executed on entering the view (debug mode, a forced cascade, a time of day). Before
+  a line sets a console variable, the tool records the variable's value and restores it on leaving
+  the view. Lines that are commands rather than variable assignments (a reload, for example) are not
+  undone; the menu marks them;
 - a note (for example "fence alpha flicker, check after step 10"), shown in the menu and copied
   into reports;
-- settle frames (default below).
+- settle frames (`tools.settleFrames`, default 8).
 
 **A set** is an ordered list of views with a dwell time each. Each map has one view file,
-`<mod>/settings/eon64-views/<map>.txt`:
+`<mod>/settings/eon64-views/<map>.txt`, where `<map>` is the level's folder name. A view applies to
+every game mode and layer of the map; the mode and layer a shot was taken on are in its stamp.
 
 ```
 # views for muttrah_city_2
@@ -59,36 +76,47 @@ set default market airfield
 set quick   market
 ```
 
-`view` takes `key=value` fields (`fov` defaults to the game's); indented `run` lines belong to the
-view above them; `| text` is the note; `set NAME VIEW...` lists views in order; `#` starts a
-comment. The menu rewrites the file when views change; hand edits are kept if the menu is not
-used, and Reload rereads the file.
+`view` takes `key=value` fields. `pos` is `x,y,z` in world metres with y up, as BF2 stores
+positions. `yaw` and `pitch` are in degrees, in the game's own camera convention (pitch is negative
+looking down). `fov` is the vertical field of view in degrees and defaults to the game's. Indented
+`run` lines belong to the view above them; `| text` is the note; `set NAME VIEW...` lists views in
+order; `#` starts a comment.
 
-**Commands** (provisional names): `view.go NAME`, `view.save NAME [note]` (the current camera),
-`view.delete NAME`, `view.leave`, `view.list`, `view.reload`, `view.fly 0|1`,
-`view.shot [NAME]`.
+**Editing.** The file is edited by hand (by the owner or an agent) and from the menu, so neither
+may overwrite the other. Before each write the menu rereads the file, and if it changed since the
+last read, reloads it first. It then rewrites only the lines of the views and sets that changed,
+keeping comments, order and blank lines. `view.reload` (Reload in the tab) rereads the file.
+
+**Commands:** `view.go NAME`, `view.save NAME [note]` (the current camera), `view.delete NAME`,
+`view.leave`, `view.list`, `view.reload`, `view.fly 0|1`, `view.shot [NAME]`.
 
 **Views tab:** the list with Go, Update (to the current camera), Delete and reordering; set editing;
 Save current view; the note and run lines of the selected view.
 
-**Bookmarks:** Ctrl+F1..F8 store the current camera, F1..F8 go back to it, for quick A/B looks
-without naming views. Not saved.
+**Bookmarks:** while free fly is on, Ctrl+F1..F8 store the current camera and F1..F8 go back to it,
+for quick A/B looks without naming views. Not saved. Outside free fly, F1..F8 keep switching vehicle
+seats ([ui.md](ui.md)); free fly takes the input from the soldier, so the keys never mean both.
 
 **Screenshot in the engine.** The scene is read back before the HUD (or with it, by option) and
 written as PNG, plus a 960-wide JPEG for quick review. It works when the window is covered.
 
-**Settle and freeze.** Before a shot the tool waits until streaming has no pending loads, LOD
-crossfades have finished and the shadow cascades are filled, then a fixed number of frames
-(`tools.settleFrames`). While a view is active, the renderer's time inputs are frozen: wind on
-overgrowth, water, particle updates, the sun. Whether the game simulation can also be paused on a
-local server is part of this milestone; if it cannot, the report says what was not frozen.
+**Settle and freeze.** Before a shot the tool waits until streaming has no pending loads and LOD
+crossfades have finished, then `tools.settleFrames` frames, which also covers any shadow cascade
+that is updated less often than every frame. If the wait exceeds `tools.settleTimeout` (default
+10 s), the shot is taken anyway and the report names the condition that was still pending. While a
+view is active, the renderer's time inputs are frozen: wind on overgrowth, water, particle updates,
+the sun. Whether the game simulation can also be paused on a local server is part of this
+milestone; if it cannot, the report says what was not frozen.
 
 **Stamping.** Every shot and report records the engine commit, the shader set's commit, map, game
-mode, resolution, MSAA, and the `renderer.*` variables that differ from their defaults.
+mode, layer, resolution, MSAA, vsync and frame cap, and the `renderer.*` variables that differ from
+their defaults.
 
 Accepted when: views are placed with free fly and saved from the menu, `view.go` from the console
 and from `BF2_DEVCMD_FILE` reaches the same image, and two shots of the same view in one session
-are identical (the **determinism check**; if a source of difference cannot be frozen, it is named).
+are bit-identical (the **determinism check**). Step 8's anti-aliasing has no temporal part, so any
+difference has a source that can be named; one that cannot be frozen is named in the report, and
+only then does the check fall back to a tolerance.
 
 ### 2. Unattended runs and regression
 
@@ -96,9 +124,13 @@ are identical (the **determinism check**; if a source of difference cannot be fr
 GPU pass timings, draw calls and primitives for that view, then a report. `BF2_VIEWRUN=<set>[:label]`
 does the same right after autohost and quits when done, so one launch line runs a set unattended.
 
-**Report.** In `<output>/<map>/<label>/` (`tools.outputDir`): the PNGs and JPEGs, `report.json`
-(the stamp, per view: pass timings, frame time, draw counts, the load gate, errors) and `report.md`
-(the same, short).
+**Errors.** A set that names a missing view, a map without a view file, or a `run` line that fails
+is recorded in the report as an error for that view; the run continues with the next view. The run
+fails if any view has an error.
+
+**Report.** In `<output>/<map>/<label>/` (`tools.outputDir`, default `eon64-runs` under the
+game's working directory): the PNGs and JPEGs, `report.json` (the stamp, per view: pass timings,
+frame time, draw counts, settle results, the load gate, errors) and `report.md` (the same, short).
 
 **Load gate.** During the load the tool counts shader compile errors, missing techniques and effects
 that failed to load; they head the report and fail the run. `renderer.compileAllEffects` compiles
@@ -108,7 +140,8 @@ vehicle-only and cockpit shaders), and logs each failure.
 **Baselines and diffs.** A label marks a baseline (for example `step8`, `stock`). A script in this
 repository compares two runs: per view a difference metric with a tolerance, a heatmap, and the
 change in pass timings and draw counts; it writes one contact sheet image (thumbnails and heatmaps)
-and a summary table. One image per comparison is what gets reviewed.
+and a summary table. One image per comparison is what gets reviewed. The script refuses to compare
+runs whose resolution or MSAA differ, rather than produce a heatmap of the difference.
 
 **Stock baseline.** The same set run with the stock PR shader set gives a reference for drift from
 the original look, alongside the previous step's baseline.
@@ -117,8 +150,10 @@ the original look, alongside the previous step's baseline.
 settle frames, shoots again and writes one A/B image with a heatmap: the shader edit loop in one
 command.
 
-**Watchdog.** On a crash, hang or device loss the last report entry names the view and command that
-were running, and the crash address is symbolized from the RendDX9 map file.
+**Watchdog.** A watchdog thread treats 10 s without a presented frame as a hang. On a crash, hang
+or device loss, the last report entry names the view and command that were running and, for a
+crash, the faulting address with its module and module base. The game does not ship map files, so
+the diff script symbolizes the address afterwards from the build's RendDX9 map file.
 
 Accepted when: an unattended run on Muttrah City and on Saaremaa produces a report and contact
 sheet, a second run diffs clean against the first, and a deliberate shader error fails the load
@@ -132,24 +167,35 @@ indented `key TIME pos=… yaw=… pitch=… fov=…` lines. The Views tab adds 
 camera, previews the path and draws it in the world while editing.
 
 **Two clocks.** Real time for benchmarks (frame times as they are); fixed step for images (frame N
-looks the same in every run). `path.play NAME [real|fixed]`, `path.stop`.
+looks the same in every run). The fixed step drives the frozen renderer time from milestone 1 as
+well as the camera, so the image at frame N does not depend on how fast frames drew.
+`path.play NAME [real|fixed]`, `path.stop`.
 
 **Benchmark.** `bench.run PATH [runs] [label]` plays the path in real time, after one warm-up pass,
-the given number of times. It writes a per-frame CSV (frame, CPU, GPU, per pass, draws) and a
-summary: average, 1 % low, worst frame, per-pass averages, CPU or GPU bound, and the spread between
-runs. Each labelled benchmark appends its summary to a per-map history file, so frame time and draw
-counts can be charted across steps.
+the given number of times (default 3). It turns vsync off and `game.lockFps` to 0 for the
+benchmark and restores both afterwards. It writes a per-frame CSV (frame, CPU frame time, GPU busy
+time, per pass, draws) and a summary: average, 1 % low (the average of the slowest 1 % of frames),
+worst frame, per-pass averages, the spread between runs, and whether the path is CPU or GPU bound.
+GPU pass spans include idle time when the CPU is the bottleneck ([flags.md](flags.md)), so the
+bound is decided per frame by comparing CPU frame time with GPU busy time (the sum of the GPU's
+work, not the span from start to end of the frame); the summary gives the share of frames that were
+GPU bound. Each labelled benchmark appends its summary to a per-map history file, so frame time and
+draw counts can be charted across steps.
 
 **Hitch log.** During paths and benchmarks (and in normal play with `tools.hitchLog 1`), frames over
-a threshold are logged with what happened in them: an effect compiled at run time, textures
-streamed in, effects created.
+`tools.hitchMs` (default 50 ms) are logged with what happened in them: an effect compiled at run
+time, textures streamed in, effects created. It reuses the timed spans `BF2_LOAD_TRACE` already
+records ([perf-load.md](perf-load.md)) rather than a second set of probes.
 
-**Perf map.** `bench.map [step]` samples the map on a grid at four headings, unattended, and writes
-frame time and draw counts per cell as an image over the minimap and as a table. Any cell can be
+**Perf map.** `bench.map [step]` samples the map on a grid (default 64 m) at four headings, with
+the camera 2 m above the terrain, unattended, and writes frame time and draw counts per cell as an
+image over the minimap and as a table. Each sample settles and then averages 30 frames; a 2 km map
+at the default grid is about 1,000 cells and 4,000 samples, roughly 20 minutes. Any cell can be
 saved as a view, so the worst places on a map are found rather than guessed.
 
-Accepted when: the Muttrah City and Saaremaa benchmark paths give a spread between runs small
-enough to measure step 9 with (stated in the report), and a perf map of one map is produced.
+Accepted when: three runs of each of the Muttrah City and Saaremaa benchmark paths agree within
+2 % on average frame time and 5 % on 1 % low (stated in the report, so step 9's gains can be told
+from noise), and a perf map of one map is produced.
 
 ### 4. Renderer inspection
 
@@ -169,6 +215,10 @@ Runs alongside render step 9; parts may be step 9's first sub-steps.
 - **Variable sweep:** `view.sweep VAR FROM TO STEP` shoots the current view per value and writes
   one strip with the timings.
 
+Accepted when: at a Muttrah City view, the draw breakdown's totals match the frame's draw count,
+every debug mode and pass toggle works in the menu and from the console, a RenderDoc capture reads
+by pass marker, and a variable sweep writes its strip.
+
 ### 5. Soldier mode and capture
 
 - **Soldier mode:** the local server spawns a kit at a view's position and heading, so views can
@@ -182,3 +232,7 @@ Runs alongside render step 9; parts may be step 9's first sub-steps.
 - **Settings matrix:** run a set under several profiles (antialiasing, resolution, shadow quality).
 - **Temporal metric:** on a slow fixed-step path, the difference between consecutive frames, so
   LOD popping, shadow shimmer and crossfade flicker become a number.
+
+Accepted when: a view with soldier mode on shows the first-person model and a vehicle view shows
+its cockpit, both deterministic under the milestone 1 check; `view.capture` writes a capture
+unattended; and a settings matrix run produces one report per profile.
