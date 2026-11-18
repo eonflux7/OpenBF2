@@ -1427,6 +1427,16 @@ void setSunShadowResolution(int value)
 BF2_CONSOLE_PROPERTY_FN_RANGED_T(sunShadowResolution, int, true, getSunShadowResolution(),
                                  setSunShadowResolution, 512, 4096, kRendererConsoleTag)
 
+// [RENDER] Soft particles (docs/eon64/renderer.md): the depth over which a particle fades out in
+// front of the scene behind it, in metres.
+float getSoftParticleDistance() { return softParticleDistance(); }
+void setSoftParticleDistance(float value)
+{
+    softParticleDistance() = value < 0.1f ? 0.1f : value > 20.0f ? 20.0f : value;
+}
+BF2_CONSOLE_PROPERTY_FN_RANGED_T(softParticleDistance, float, true, getSoftParticleDistance(),
+                                 setSoftParticleDistance, 0.1f, 20.0f, kRendererConsoleTag)
+
 
 
 } // anonymous namespace
@@ -1442,6 +1452,7 @@ const char* rendererVariableHelp(const char* name)
         { "sunShadowCascadeBlend", "Part of the next slice each cascade also covers and blends over" },
         { "sunShadowNormalOffset", "Receiver offset along its normal, in cascade texels (against acne)" },
         { "sunShadowDepthBias", "Receiver offset toward the sun, in cascade texels (against acne)" },
+        { "softParticleDistance", "Depth over which particles fade out in front of the scene, in metres" },
         { "uiMenuKey", "Win32 virtual-key code that opens and closes this menu (45 = Insert)" },
         { "uiOverlay", "Performance overlay, top right; kept between sessions" },
         { "uiConsoleHeight", "Console window height, as a share of the screen; kept between sessions" },

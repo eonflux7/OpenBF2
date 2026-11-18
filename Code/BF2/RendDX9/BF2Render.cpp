@@ -4110,6 +4110,8 @@ const DWORD kLinearDepthSampler = 15;
 const DWORD kShadowMaskSampler = 14;
 const DWORD kSurfaceNormalSampler = 12;
 float g_sunMaskConstants[kSunShadowMaskVec4s * 4] = {};   // RASM while the world pass draws
+bool g_softParticleDepth = false;   // s15 holds this frame's prepass depth and the world pass draws
+float g_softParticleDistance = 1.5f;   // m, renderer.softParticleDistance
 
 void bindSampler(DWORD stage, IDirect3DTexture9* texture, D3DTEXTUREFILTERTYPE filter)
 {
@@ -4223,6 +4225,25 @@ void rendererBindParticleLighting(void* effect)
     if (ID3DXEffect* const d3dx = static_cast<ID3DXEffect*>(effectD3dxHandle(effect)))
         if (const D3DXHANDLE atlas = d3dx->GetParameterBySemantic(0, "RaSunCascadeAtlas"))
             d3dx->SetTexture(atlas, rendererSunShadowAtlas());
+
+    // Soft particles: 1 / fade distance while the main world pass draws over this frame's prepass
+    // depth (s15), and 1 / its size; 0 elsewhere, so first person and other views keep hard edges.
+    float soft[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    D3DSURFACE_DESC depth;
+    if (g_softParticleDepth && g_linearDepthTexture
+        && g_linearDepthTexture->GetLevelDesc(0, &depth) >= 0)
+    {
+        soft[0] = 1.0f / g_softParticleDistance;
+        soft[2] = 1.0f / static_cast<float>(depth.Width);
+        soft[3] = 1.0f / static_cast<float>(depth.Height);
+    }
+    static const std::string kSoft("RaSoftParticles");
+    effectGetShaderParameterBorrowedTyped(fx, kSoft)->setValue(soft, 0);
+}
+
+float& softParticleDistance()
+{
+    return g_softParticleDistance;
 }
 
 IDirect3DTexture9* rendererLinearDepthTexture()
@@ -4234,6 +4255,7 @@ void rendererDepthPrepass(bool drawTerrain, float time)
 {
     bindBakedSunMask();
     std::memset(g_sunMaskConstants, 0, sizeof(g_sunMaskConstants));
+    g_softParticleDepth = false;
     if (!ensureLinearDepthTargets())
         return;
 
@@ -4313,12 +4335,14 @@ void rendererDepthPrepass(bool drawTerrain, float time)
         savedDepth->Release();
 
     bindSampler(kShadowMaskSampler, g_shadowMaskTexture, D3DTEXF_POINT);
+    g_softParticleDepth = true;
 }
 
 void rendererDepthPrepassEndWorldPass()
 {
     bindBakedSunMask();
     std::memset(g_sunMaskConstants, 0, sizeof(g_sunMaskConstants));
+    g_softParticleDepth = false;
 }
 
 void rendererDepthPrepassRelease()

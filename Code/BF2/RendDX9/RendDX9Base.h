@@ -787,7 +787,11 @@ const float* rendererSunMaskConstants();
 // one sun and sky, Lightmanager.staticSunColor / staticSkyColor as authored), RaSunDirection
 // (unit, toward the sun), RASM (above) and RaSunCascadeAtlas, the cascade atlas as a texture
 // parameter: particles sample it in the vertex shader, where the reserved s13 does not reach.
+// Also RaSoftParticles (soft particles): .x 1 / softParticleDistance while the main world pass
+// draws over this frame's prepass depth (s15), else 0 (no fade); .zw 1 / the depth target's size.
 void rendererBindParticleLighting(void* effect);
+// m: the depth over which a particle fades out in front of the scene (renderer.softParticleDistance).
+float& softParticleDistance();
 // The sun cascade atlas (R32F, 2 x 2 cascades), or 0 before the first cascade pass.
 IDirect3DTexture9* rendererSunShadowAtlas();
 IDirect3DSurface9* rendererDepthStencilSurface();       // +0x770, the depth-stencil reference
