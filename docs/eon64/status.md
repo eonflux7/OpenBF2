@@ -43,7 +43,10 @@ Sub-steps, in order, each seen in game before the next:
 - [ ] LOD policy and crossfade ([renderer.md](renderer.md#roadmap), step 8), in order:
   - [x] Full-detail terrain geometry (`ee0e7ed8`; seen on Kashan Desert 2026-11-19, no cracks.
     Owner to check: ridges scoped and unscoped, no ground sliding, frame rate)
-  - [ ] Mesh LOD distances raised; mesh shading LODs removed; full-resolution textures confirmed
+  - [x] Mesh LOD distances raised; mesh shading LODs removed; full-resolution textures confirmed
+    (`98165f0b`: bundled meshes always LOD 0, static switch distances x3, shader-quality buckets
+    deleted; textures load at full resolution at texture quality 3. Loaded on Muttrah City
+    2026-11-19. Owner to check: no visible building pops at mid range, vehicles at range, frame rate)
   - [ ] Distance culling: cover no earlier than what it hides
   - [ ] Dithered crossfade for the remaining switches and the cull fade
 - [ ] Acceptance: GPU timer spans and the reference views

@@ -103,15 +103,20 @@ screen-space term cannot be made per-sample; the mask goes instead.
     The culler keeps one walk (frustum, plus a `detailNear` shading flag); the crack fixup, morph
     constants and the casters' LOD rule are gone. One constant, `HEIGHTDELTASCALE`, is left:
     the `MorphDelta.z` term retail's LOD 0 applied to every vertex of 0x1A content.
-  - *Mesh LOD distances*: static and bundled meshes switch by PR's per-model distances times
-    the geometry quality's scale (1.0 at quality 3), divided by zoom. Raise them for statics and
-    bundled meshes (about 2-3x, tuned in game); triangle counts are low.
-  - *Shading LODs on meshes*: the distance-selected shader-quality buckets (`qualityLodEnabled`,
-    `setQualityLodDistance*`) and any distance fade of detail or normal maps in PR's mesh shaders
-    go; meshes shade at full detail at every distance.
-  - *Texture resolution*: confirm every texture loads at full resolution (texture quality, the
-    loaders' mip classes) and fix it there, with no setting. Mip selection stays: it is filtering,
-    not a LOD, and 16x anisotropic keeps distance sharp without aliasing.
+  - *Mesh LOD distances* (done, `98165f0b`): PR authors switch distances for almost none of its
+    meshes (80 of 6,949 static templates, 96 of 857 vehicle templates), so most used the engine
+    default, LOD n+1 at 25(n+1) m (static) or 50(n+1) m (bundled) past the bounding sphere,
+    times the geometry quality scale and over zoom. Bundled meshes now always draw LOD 0 (Muttrah
+    City: 64k primitives against 45k). Static meshes switch at three times their distances
+    (`kStaticMeshLodDistanceScale`; 1.9x the primitives of x1, about 0.6 ms on Muttrah; LOD 0
+    everywhere would be 4.2x and 1.6 ms, mostly occluded buildings). The factor sits in the
+    selection, since PR's level init resets `renderer.global*MeshLodDistanceScale` to 1 per map.
+    `BF2_DRAW_STATS` counts the static primitives at x1..x4 and full per frame ("lod static" rows).
+  - *Shading LODs on meshes* (done, `98165f0b`): the distance shader-quality buckets and their
+    console commands are deleted (PR left them off), as is the static mask keyed to the LOD index.
+    PR's mesh shaders have no distance fade of detail or normal maps.
+  - *Texture resolution* (confirmed): at texture quality 3 every mip class skips 0 levels.
+    Mip selection stays: it is filtering, not a LOD, and 16x anisotropic keeps distance sharp.
   - *Distance culling*: ordinary objects cull at `distanceCullConst` 8, soldiers and vehicles at 10,
     so cover can vanish before what hides behind it. Cover must cull no earlier than what it hides.
   - *Crossfade*: the mesh and overgrowth LOD switches that remain and the distance cull fade become
