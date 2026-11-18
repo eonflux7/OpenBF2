@@ -1,9 +1,9 @@
 // Shader preprocessor vocabulary: D3D enums and engine detail/render-path symbols.
 // Unspecified feature values use the string "0", not an empty expansion.
 
-// 120 entries and the {0, 0} terminator that ends the retail table at 0x101DEF90; D3DXCreateEffect
-// reads to that terminator when DiceEffect::compile passes the table as pDefines.
-const ShaderDefine kShaderDefines[121] =
+// The retail table at 0x101DEF90 (120 entries) less IS_NV4X [RENDER], and the {0, 0} terminator;
+// D3DXCreateEffect reads to that terminator when DiceEffect::compile passes the table as pDefines.
+const ShaderDefine kShaderDefines[] =
 {
     { "USEPARTIALPRECISIONTYPES", "0" },
     { "PS2_EXT", "ps_2_0" },
@@ -11,7 +11,6 @@ const ShaderDefine kShaderDefines[121] =
     { "NVIDIA", "0" },
     { "ATI", "0" },
     { "SM30", "0" },
-    { "IS_NV4X", "0" },
     { "HASALPHA2MASK", "0" },
     { "Alpha2Mask", "PointSize" },
     { "LOWPSMODEL", "ps_1_4" },

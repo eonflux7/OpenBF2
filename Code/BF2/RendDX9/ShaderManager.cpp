@@ -68,8 +68,7 @@ struct CapsView { D3DCAPS9 caps; D3DADAPTER_IDENTIFIER9 adapter; int gpuFamily; 
 const CapsView* capsOf() { return static_cast<const CapsView*>(g_deviceCaps); }
 
 // The caps accessors below are file-local copies of the retail DeviceCaps readers, which have no null
-// guard (PE 0x100011C0 vendor == 0x10DE, 0x10001180 MaxAnisotropy, 0x10001190 MAGFANISOTROPIC bit 26,
-// 0x100011A0 MINFANISOTROPIC bit 10). The null checks here are the existing [CHOSEN, not recovered]
+// guard (PE 0x100011C0 vendor == 0x10DE). The null checks here are the existing [CHOSEN, not recovered]
 // omission of a null dereference before DeviceCaps is published.
 bool isNvidia()          { const CapsView* c = capsOf(); return c && c->adapter.VendorId == 4318u; }
 bool isAti()             { const CapsView* c = capsOf(); return c && c->adapter.VendorId == 4098u; }
@@ -77,14 +76,6 @@ bool isAti()             { const CapsView* c = capsOf(); return c && c->adapter.
 // The shader-major readers are RendDX9Init.cpp's deviceCapsVertexShaderMajor (retail sub_100010B0)
 // and deviceCapsPixelShaderMajor (retail sub_100010D0); the calls below use them directly.
 
-// PE 0x10001250.
-int  gpuFamily()         { return capsOf()->gpuFamily; }
-// PE 0x10001180.
-unsigned int maxAniso()  { const CapsView* c = capsOf(); return c ? c->caps.MaxAnisotropy : 0u; }
-// PE 0x100011A0.
-bool minAnisoOk()        { const CapsView* c = capsOf(); return c && (c->caps.TextureFilterCaps & 0x400u) != 0u; }
-// PE 0x10001190.
-bool magAnisoOk()        { const CapsView* c = capsOf(); return c && (c->caps.TextureFilterCaps & 0x4000000u) != 0u; }
 
 // PE sub_1000A6B0 on dword_1023B970, is multisampling active: the forced-on byte
 // +0x514 wins, then the forced-off +0x515, else the first entry of the multisample list (+0xC0 /
@@ -296,9 +287,8 @@ void clearDefines(ShaderManager* sm)
 
 // ShaderManager_updateShaderDefines, 0x10023730.
 
-// Clears the list, walks the 120-entry table pushing name then value - nine names take a computed
-// value instead - then appends the A2M pair, the two shader-model forcing flags, the filter and mip
-// block from VideoOptions, and the terrain pair.
+// Clears the list, walks the table pushing name then value - eight names take a computed value
+// instead - then appends the A2M pair, the two shader-model forcing flags and the terrain pair.
 
 void updateShaderDefines(void* shaderManager, void* base)
 {
@@ -310,14 +300,14 @@ void updateShaderDefines(void* shaderManager, void* base)
 
     char buf[32];
 
-    for (int i = 0; i < 120; ++i)
+    for (int i = 0; kShaderDefines[i].name != 0; ++i)
     {
         const char* name  = kShaderDefines[i].name;
         const char* value = kShaderDefines[i].value;
 
         pushDefine(sm, name);
 
-        // The nine special cases, in the body's own strcmp order.
+        // The eight special cases, in the body's own strcmp order.
         if (::strcmp(name, "RAPATH") == 0)
         {
             // PE 0x10023793..0x100237BF: _itoa(g_Renderer +0x6CC, 10) over a buffer that already
@@ -347,10 +337,6 @@ void updateShaderDefines(void* shaderManager, void* base)
         {
             pushDefine(sm, (deviceCapsPixelShaderMajor() < 3 || deviceCapsVertexShaderMajor() < 3)
                                ? "0" : "1");
-        }
-        else if (::strcmp(name, "IS_NV4X") == 0)
-        {
-            pushDefine(sm, gpuFamily() == 6 ? "1" : "0");
         }
         else if (::strcmp(name, "HASALPHA2MASK") == 0)
         {
@@ -398,54 +384,9 @@ void updateShaderDefines(void* shaderManager, void* base)
     pushDefine(sm, "_FORCE_1_3_SHADERS_");
     pushDefine(sm, "0");
 
-    // the texture filter block, from VideoOptions::getQuality(7)
-    const int filterQuality = vo->quality[7];
-    const int aniso         = static_cast<int>(maxAniso());
-
-    if (filterQuality == 1 || filterQuality == 2)
-    {
-        // Both arms leave all four diff filters linear; they differ only in which mip filter goes
-        // point, which the mip block below picks up.
-        pushDefine(sm, "FILTER_TRN_DIFF_MIN");  pushDefine(sm, "LINEAR");
-        pushDefine(sm, "FILTER_TRN_DIFF_MAG");  pushDefine(sm, "LINEAR");
-        pushDefine(sm, "FILTER_ROAD_DIFF_MIN"); pushDefine(sm, "LINEAR");
-        pushDefine(sm, "FILTER_ROAD_DIFF_MAG"); pushDefine(sm, "LINEAR");
-    }
-    else if (filterQuality == 3)
-    {
-        // THE TWO clamps ARE different AND that IS NOT A slip: terrain caps at 2, road at 4.
-        const int trnAniso  = aniso >= 2 ? 2 : aniso;
-        const int roadAniso = aniso >= 4 ? 4 : aniso;
-
-        pushDefine(sm, "FILTER_TRN_DIFF_MIN");
-        pushDefine(sm, minAnisoOk() ? "ANISOTROPIC" : "LINEAR");
-        pushDefine(sm, "FILTER_TRN_DIFF_MAG");
-        pushDefine(sm, magAnisoOk() ? "ANISOTROPIC" : "LINEAR");
-        pushDefine(sm, "FILTER_TRN_DIFF_MAX_ANISOTROPY");
-        ::_snprintf_s(buf, sizeof(buf), _TRUNCATE, "%i", trnAniso);
-        pushDefine(sm, buf);
-
-        pushDefine(sm, "FILTER_ROAD_DIFF_MIN");
-        pushDefine(sm, minAnisoOk() ? "ANISOTROPIC" : "LINEAR");
-        pushDefine(sm, "FILTER_ROAD_DIFF_MAG");
-        pushDefine(sm, magAnisoOk() ? "ANISOTROPIC" : "LINEAR");
-        pushDefine(sm, "FILTER_ROAD_DIFF_MAX_ANISOTROPY");
-        ::_snprintf_s(buf, sizeof(buf), _TRUNCATE, "%i", roadAniso);
-        pushDefine(sm, buf);
-    }
-    else
-    {
-        ::renddx9abi::logf("ShaderManager.cpp:950 Undefined texture filter quality. (got %d)",
-                           filterQuality);
-    }
-
-    // The three mip filters. All linear unless quality 1 or 2 forced one to point - quality 1
-    // affects both the terrain and the bundled-mesh filter, quality 2 only the latter.
-    const char* trnMip  = (filterQuality == 1) ? "POINT" : "LINEAR";
-    const char* roadMip = (filterQuality == 1 || filterQuality == 2) ? "POINT" : "LINEAR";
-    pushDefine(sm, "FILTER_TRN_MIP");      pushDefine(sm, trnMip);
-    pushDefine(sm, "FILTER_ROAD_MIP");     pushDefine(sm, roadMip);
-    pushDefine(sm, "FILTER_PARTICLE_MIP"); pushDefine(sm, roadMip);
+    // [RENDER] Texture filtering is a shader contract: every material sampler states 16x
+    // anisotropic and every data sampler states point or linear, so the retail filter and mip
+    // block (FILTER_*_DIFF_* by caps and VideoOptions quality 7, FILTER_*_MIP) is not defined.
 
     // terrain quality, from getQuality(0) - 1
     // 0x10023730 computes `result = getQuality(0) - 1`
@@ -479,14 +420,13 @@ void updateShaderDefines(void* shaderManager, void* base)
 
     const unsigned int count = static_cast<unsigned int>(sm->defines.size());
     ::renddx9abi::logf("ShaderManager::updateShaderDefines: %u entries (%u pairs) - NVIDIA=%d "
-                       "ATI=%d SM30=%d IS_NV4X=%d PS2_EXT=%s filterQuality=%d terrain=%d",
+                       "ATI=%d SM30=%d PS2_EXT=%s terrain=%d",
                        count, count / 2,
                        isNvidia() ? 1 : 0, isAti() ? 1 : 0,
                        (deviceCapsPixelShaderMajor() >= 3
                         && deviceCapsVertexShaderMajor() >= 3) ? 1 : 0,
-                       gpuFamily() == 6 ? 1 : 0,
                        sm->flag78 ? "ps_2_a" : "ps_2_0",
-                       filterQuality, terrain);
+                       terrain);
 }
 
 // The static D3DXMACRO table at 0x101DEBD0, kShaderDefines with its {0, 0} terminator. Retail's

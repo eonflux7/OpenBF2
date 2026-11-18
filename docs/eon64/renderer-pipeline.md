@@ -191,6 +191,13 @@ Every other sampler states `SRGBTexture` in its `sampler_state`: TRUE where it r
 hardware decodes before filtering), FALSE for data and outside the scene. D3D9 sampler state carries
 over between effects, so neither value is left to default. The engine binds s12–s15 with it FALSE.
 
+Every `sampler_state` also states its filter. A material sampler (a colour, normal or detail texture
+mapped onto world geometry) is 16x anisotropic: min `ANISOTROPIC`, mag and mip `LINEAR`. A data
+sampler (lightmaps, light and blend maps, cube and lookup maps, render targets, UI) states point or
+linear. The engine defines no filter: retail's caps- and setting-dependent `FILTER_*` defines and
+`IS_NV4X` are gone, so the texture filter quality setting changes nothing and the effect cache
+directory no longer carries it (`_3153_0`).
+
 | Slot | Resource | Format | Bound |
 |---|---|---|---|
 | s12 | Prepass world normals | `A2R10G10B10` | After the prepass |

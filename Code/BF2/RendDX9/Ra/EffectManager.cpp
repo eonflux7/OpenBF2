@@ -127,9 +127,6 @@ unsigned int psMinor()        { const CapsView* c = capsOf(); return c ? (c->cap
 // sub_10001450 - `*(DWORD*)(this + 264) & 1`. Byte 264 of D3DCAPS9 is PS20Caps.Caps, and bit 0 is
 // the documented D3DPS20CAPS_ARBITRARYSWIZZLE.
 bool ps20ArbitrarySwizzle()   { const CapsView* c = capsOf(); return c && (c->caps.PS20Caps.Caps & 1u) != 0; }
-unsigned int maxAnisotropy()  { const CapsView* c = capsOf(); return c ? c->caps.MaxAnisotropy : 0u; }
-bool         minAniso()       { const CapsView* c = capsOf(); return c && (c->caps.TextureFilterCaps & 0x400u) != 0; }
-bool         magAniso()       { const CapsView* c = capsOf(); return c && (c->caps.TextureFilterCaps & 0x4000000u) != 0; }
 
 // The three trees' head nodes, by the node-size rule BufferManager.cpp records (size == flag
 // offset + 3, confirmed against two read allocators):
@@ -535,59 +532,9 @@ void EffectManager::rebuildShaderDefines()
     ::sprintf_s(line, "#define A2MDisable 0x%X \n", transparencyAACode(g_transparencyAAOff));
     m_shaderDefines += line;
 
-    // base->vslot+0x74 is `return this + 1016` - the VideoOptions inside the base object - and
-    // VideoOptions' vslot+0x04 is `return this[index + 10]`. Index 7 is the texture filter quality.
-    unsigned int filterQuality = 0;
-    if (base)
-    {
-        filterQuality = static_cast<unsigned int>(base->videoOptions.quality[7]);   // this[7 + 10]
-    }
-
-    std::string stmNormMip("#define FILTER_STM_NORM_MIP LINEAR \n");
-    std::string bmNormMip ("#define FILTER_BM_NORM_MIP LINEAR \n");
-
-    switch (filterQuality)
-    {
-    case 1:
-        stmNormMip = "#define FILTER_STM_NORM_MIP POINT \n";
-        // falls into case 2 - the original jumps into the middle of it
-    case 2:
-        bmNormMip = "#define FILTER_BM_NORM_MIP POINT \n";
-        m_shaderDefines += "#define FILTER_STM_DIFF_MIN LINEAR \n";
-        m_shaderDefines += "#define FILTER_STM_DIFF_MAG LINEAR \n";
-        m_shaderDefines += "#define FILTER_BM_DIFF_MIN LINEAR \n";
-        m_shaderDefines += "#define FILTER_BM_DIFF_MAG LINEAR \n";
-        break;
-
-    case 3:
-    {
-        // Bundled and static meshes use anisotropy limits of four and two respectively.
-        unsigned int anisoBm  = maxAnisotropy(); if (anisoBm  >= 4) anisoBm  = 4;
-        unsigned int anisoStm = maxAnisotropy(); if (anisoStm >= 2) anisoStm = 2;
-
-        const char* minF = minAniso() ? "ANISOTROPIC" : "LINEAR";
-        const char* magF = magAniso() ? "ANISOTROPIC" : "LINEAR";
-
-        ::sprintf_s(line, "#define FILTER_STM_DIFF_MIN %s \n", minF);          m_shaderDefines += line;
-        ::sprintf_s(line, "#define FILTER_STM_DIFF_MAG %s \n", magF);          m_shaderDefines += line;
-        ::sprintf_s(line, "#define FILTER_STM_DIFF_MAX_ANISOTROPY %i\n", anisoStm); m_shaderDefines += line;
-        ::sprintf_s(line, "#define FILTER_BM_DIFF_MIN %s \n", minF);           m_shaderDefines += line;
-        ::sprintf_s(line, "#define FILTER_BM_DIFF_MAG %s \n", magF);           m_shaderDefines += line;
-        ::sprintf_s(line, "#define FILTER_BM_DIFF_MAX_ANISOTROPY %i\n", anisoBm);   m_shaderDefines += line;
-        break;
-    }
-
-    default:
-        // EffectManager.cpp:438. AND IT does NOT return - the two NORM_MIP lines below are still
-        // appended, with their linear defaults. Same shape as BF2Render.cpp:761's "aborting."
-        ::renddx9abi::logf("EffectManager.cpp:438 Undefined texture filter quality. (got %u; "
-                           "VideoOptions is not initialised on any written path, so this is "
-                           "expected here rather than a bad setting)", filterQuality);
-        break;
-    }
-
-    m_shaderDefines += stmNormMip;
-    m_shaderDefines += bmNormMip;
+    // [RENDER] Texture filtering is a shader contract: every material sampler states 16x
+    // anisotropic and every data sampler states point or linear. The retail block that defined
+    // FILTER_STM_* / FILTER_BM_* from VideoOptions quality 7 and the caps is gone.
 }
 
 namespace {
@@ -2465,18 +2412,6 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
             raFormatGuid(guidText, deviceCapsDeviceIdentifier());          // sub_10001260
     }
 
-    // g_rendererBase->vslot+0x74 -> VideoOptions; VideoOptions->vslot+0x04(7) -> filter quality.
-    unsigned int filterQuality = 0;
-    if (g_rendererBase)
-    {
-        IVideoOptions* const videoOptions =
-            static_cast<IRenderer*>(g_rendererBase)->getVideoOptions();
-        if (videoOptions)
-        {
-            filterQuality = static_cast<unsigned int>(videoOptions->getQuality(7));
-        }
-    }
-
     std::string modPath("mods/bf2");
     if (g_Renderer && static_cast<IRenderer*>(g_Renderer)->isExpansionPack())
         modPath = "mods/xpack";
@@ -2510,7 +2445,10 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
     cachePath += "/cache/";
     {
         char suffix[64];
-        ::sprintf_s(suffix, "_%d_%d", 0xC51, filterQuality);   // sub_10074AB0, "_%d_%d", 3153, q
+        // sub_10074AB0, "_%d_%d", 3153, q: retail keys the directory by VideoOptions quality 7.
+        // [RENDER] No define depends on it any more (samplers state their own filter), so q is
+        // fixed at 0 and one cache serves every setting.
+        ::sprintf_s(suffix, "_%d_%d", 0xC51, 0);
         cachePath += guidText;
         cachePath += suffix;
     }
