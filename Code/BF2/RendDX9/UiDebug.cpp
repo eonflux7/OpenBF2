@@ -16,6 +16,9 @@
 //                       button runs its line as if typed into the console (rcon lines included).
 #ifdef BF2_IMAGE_RENDDX9
 
+#ifndef NOMINMAX
+#define NOMINMAX          // std::min and std::max below
+#endif
 #ifndef PSAPI_VERSION
 #define PSAPI_VERSION 2   // GetProcessMemoryInfo from kernel32 (K32GetProcessMemoryInfo)
 #endif
