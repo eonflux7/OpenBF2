@@ -4283,7 +4283,16 @@ void rendererDepthPrepass(bool drawTerrain, float time)
         stateManagerSetPrepassedDraw(false);
     }
     static const unsigned int key = raHashString(std::string("RaDepthPrepass"));
+    // Alpha-to-coverage: alpha-tested draws turn their alpha into a sample mask here, and their
+    // lit passes test EQUAL against it with no alpha test of their own (stateManagerMapDepthState).
+    // The vendor state (DXVK: NVIDIA's ATOC) acts only while a draw has its alpha test on, so
+    // opaque draws in the bracket are unaffected. Terrain above draws outside it.
+    const bool coverage = shouldToggleTransparencyAA();
+    if (coverage)
+        stateManagerSetTransparencyAA(true);
     renderQueuesDepthPrepass(key);
+    if (coverage)
+        stateManagerSetTransparencyAA(false);
 
     stateManagerSetRenderTarget(0, savedTarget);
     flushRenderTargetsSeam();

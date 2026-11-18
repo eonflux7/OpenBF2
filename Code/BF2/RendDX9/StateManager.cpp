@@ -75,8 +75,11 @@ float stateManagerClearDepth(float depth)
 
 // [RENDER] Prepassed draws (step 8). The depth prepass has already written a prepassed draw's
 // depth into the scene depth, so its lit passes test EQUAL and write nothing, whatever the
-// effect states: each pixel then shades only the samples the prepass left it. The effects' own
-// ZFUNC / ZWRITEENABLE stay in the mirror cells; only the issued values change.
+// effect states: each pixel then shades only the samples the prepass left it. The same holds for
+// coverage: the prepass's alpha test (with alpha-to-coverage) decided which samples the draw
+// owns, so its lit passes run no alpha test and need not agree with the prepass on alpha. The
+// effects' own ZFUNC / ZWRITEENABLE / ALPHATESTENABLE stay in the mirror cells; only the issued
+// values change.
 namespace {
 bool g_prepassedDraw = false;
 }
@@ -88,6 +91,8 @@ unsigned int stateManagerMapDepthState(unsigned int state, unsigned int value)
         if (state == 23u)   // D3DRS_ZFUNC
             return 3u;      // D3DCMP_EQUAL, the same in either depth convention
         if (state == 14u)   // D3DRS_ZWRITEENABLE
+            return 0u;
+        if (state == 15u)   // D3DRS_ALPHATESTENABLE
             return 0u;
     }
     if (!stateManagerReversedDepthBound())
@@ -1434,11 +1439,11 @@ void stateManagerSetPrepassedDraw(bool prepassed)
     g_prepassedDraw = prepassed;
     if (!g_stateManager)
         return;
-    // The device holds the mapped values of the cells' device words; re-send both under the new
+    // The device holds the mapped values of the cells' device words; re-send them under the new
     // mapping (a pending wanted value is issued through the same mapping at the next draw).
     StateManager* const self = sm();
-    static const unsigned int kStates[2] = { 23u, 14u };   // D3DRS_ZFUNC, D3DRS_ZWRITEENABLE
-    for (unsigned int i = 0; i < 2; ++i)
+    static const unsigned int kStates[3] = { 23u, 14u, 15u };   // ZFUNC, ZWRITEENABLE, ALPHATESTENABLE
+    for (unsigned int i = 0; i < 3; ++i)
     {
         const unsigned int st = kStates[i];
         self->device->SetRenderState(static_cast<D3DRENDERSTATETYPE>(st),
