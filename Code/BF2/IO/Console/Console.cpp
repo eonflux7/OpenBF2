@@ -585,6 +585,9 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
         line = line.substr(0, redirect);
     }
 
+    if (consoleTraceEnabled() && cmd.find("->") != std::string::npos)              // [DEV]
+        std::fprintf(stderr, "[CONTRACE] d%d capture line [%s] -> after redirect [%s] file [%s]\n",
+                     m_depth, cmd.c_str(), line.c_str(), m_outputRedirectFile.c_str());
     // trim
     while (!line.empty() && (line[0] == ' ' || line[0] == '\t')) line.erase(0, 1);
     while (!line.empty() && (line[line.size()-1] == ' ' || line[line.size()-1] == '\t' ||
@@ -651,6 +654,9 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
         }
 
         const bool skipping = !stack.empty() && !stack.back().executing;
+        if (consoleTraceEnabled() && line.find("->") != std::string::npos)         // [DEV]
+            std::fprintf(stderr, "[CONTRACE] d%d capture skipping=%d rem=%d noexec=%d\n",
+                         m_depth, skipping ? 1 : 0, remDepth, noExecDepth);
 
         if ((mayBeKeyword && compareIgnoreCase(kw, "if") == 0))
         {
