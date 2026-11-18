@@ -125,7 +125,7 @@ screen-space term cannot be made per-sample; the mask goes instead.
   costs distant detail, which matters for spotting), post-process AA (edges only, unstable in
   motion), supersampling (about 4x the shading).
 
-**9. Draw submission.** The frame is CPU-bound ([frametime.md](frametime.md)): the D3DX effect
+**9. Draw submission.** The frame is CPU-bound ([perf-frame.md](perf-frame.md)): the D3DX effect
 framework's per-draw parameter, pass and commit calls take about 15 % of the main thread, and Ra
 parameter apply and mesh draws about 14 %. The renderer takes over constant uploads and shader
 binding for its draws, keeping the effect files as the shader source. The sun caster pass reuses

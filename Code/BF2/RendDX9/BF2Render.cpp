@@ -3973,7 +3973,7 @@ void* Renderer::tailField(unsigned int retailOffset, TailKind kind, unsigned int
     }
     // [PERF] Answered from kTailOffsets, built once, instead of scanning kTailFields on every
     // call: per-object mesh LOD and fade code reads tail fields, and the scan cost about 6 % of the
-    // main thread (frametime.md). The answer is the scan's: the first row covering the offset.
+    // main thread (perf-frame.md). The answer is the scan's: the first row covering the offset.
     const std::vector<TailOffsetSlot>& slots = tailOffsetSlots();
     if (retailOffset >= slots.size())
         return 0;

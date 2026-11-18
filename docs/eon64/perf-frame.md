@@ -1,7 +1,7 @@
 # Frame time
 
 The `perf` lane ([AGENTS.md](../../AGENTS.md)) for the running game: make frames cheaper without
-changing what is drawn. Load times are in [perf.md](perf.md).
+changing what is drawn. Load times are in [perf-load.md](perf-load.md).
 
 Work in renderer code that is this fork's own (the sun cascades, the depth prepass) is `render`
 work even when its purpose is speed; this document records its cost alongside, so the frame is

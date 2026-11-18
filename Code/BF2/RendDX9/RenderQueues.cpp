@@ -2581,7 +2581,7 @@ void rendererBeginCasterCapture(const Frustum* volume)
 
 // Groups the casters by effect and material, so each cascade switches each once. The keys are
 // the caster's copies: following each entry pointer in every comparison cost about 5 % of the
-// main thread on Muttrah (frametime.md).
+// main thread on Muttrah (perf-frame.md).
 struct CasterDrawOrder
 {
     bool operator()(const ShadowCaster& a, const ShadowCaster& b) const

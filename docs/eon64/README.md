@@ -2,7 +2,8 @@
 
 An x64 Battlefield 2 client, built from OpenBF2, that runs the Project Reality mod (PR) offline
 and replaces its renderer with a modern pipeline. The agent and contributor policy is
-[AGENTS.md](../../AGENTS.md); this directory records the current state of the work.
+[AGENTS.md](../../AGENTS.md); this directory records the current state of the work. What is
+happening now, lane by lane, is in [status.md](status.md).
 
 ## Where it comes from
 
@@ -14,20 +15,6 @@ B2BF/OpenBF2 main ─► kr4uzi/OpenBF2 main ─► + realitymod/OpenBF2 PR #1 �
 Upstream is merged in, never rebased onto. The realitymod port arrived as one merge (`c4a3a850`)
 and is treated as imported code.
 
-## Status
-
-Start here. One row per lane; the linked section has the detail. Update the row in the same commit
-that changes a lane's state.
-
-| Lane | Done | Next | Detail |
-|---|---|---|---|
-| `render` | Steps 1–7 accepted | Step 8, anti-aliasing: sampler policy first | [renderer.md](renderer.md#roadmap) |
-| `ui` | Steps 1–4 accepted | — | [ui.md](ui.md#steps) |
-| `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf.md](perf.md#state) |
-| `perf` (frame) | `/O2` plugins, `tailField` table | Parked until renderer step 9 | [frametime.md](frametime.md#plan) |
-| `compat` | See the list | rhooks client features | [compat.md](compat.md#missing) |
-| `fix` | G–Q fixed | A, C–F open (packaging, build) | [upstream-fixes.md](upstream-fixes.md) |
-
 ## Lanes
 
 Every commit belongs to one lane; the commit subject starts with it (`render(csm): …`).
@@ -37,7 +24,7 @@ Every commit belongs to one lane; the commit subject starts with it (`render(csm
 | `fix` | Bugs in the reconstructed engine | [upstream-fixes.md](upstream-fixes.md) |
 | `compat` | What PR needs from the engine | [compat.md](compat.md) |
 | `render` | The renderer uplift | [renderer.md](renderer.md) (plan), [renderer-pipeline.md](renderer-pipeline.md) (current) |
-| `perf` | Load times and frame time | [perf.md](perf.md), [frametime.md](frametime.md) |
+| `perf` | Load times and frame time | [perf-load.md](perf-load.md), [perf-frame.md](perf-frame.md) |
 | `build` | Toolchain, CMake/Ninja, ABI checks | [building.md](../building.md), below |
 | `dev` | Diagnostics and developer hooks | [flags.md](flags.md) |
 | `ui` | In-game UI on Dear ImGui | [ui.md](ui.md) |
