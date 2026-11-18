@@ -84,6 +84,42 @@ the PBR Neutral tonemap keeps hue as it compresses highlights, where PR's per-ch
 bright orange toward yellow (AgX was tried and not preferred). That is the grade's, not this step's.
 
 
+**8. Anti-aliasing.** Accepted on 2026-11-19 (Saaremaa). Fixed 4x MSAA is the one method; what
+MSAA alone misses is handled where it starts. The passes are in [Frame](#frame).
+- Sampler policy: material samplers 16x anisotropic, data samplers point or linear; the
+  caps-dependent filter defines are gone (`28487a35`).
+- Sun shadows in every lit shader through one include; the screen-space sun mask, its target, s14
+  and the prepass normals (s12) are deleted. `RASM` is a fixed register range set once per frame.
+  Cascade position, lightmap and atlas UVs are `_centroid`, with derivatives from a non-centroid
+  copy (`65760125`).
+- The prepass draws into the 4x scene depth; prepassed draws test EQUAL without writing depth, the
+  position coming from one shared function per effect. Linear depth is resolved to s15
+  (`f11bdfe3`). The resolve averages depth across silhouettes, so soft particles fade against
+  that average.
+- Transparents: first-person models draw into the 4x scene with their own prepass; water adds its
+  linear depth; after the resolve a full-screen pass rebuilds single-sample depth and the world
+  transparents draw against it (`b47ac87f`, `0f10eb41`).
+- Alpha-to-coverage in the mesh prepass (retail's `ATOC` bracket, which DXVK honours); the lit
+  passes drop their alpha test; alpha is sharpened to a one-pixel ramp (`f9086318`). Not done: the
+  mip-loss alpha correction (needs texture sizes from the engine).
+- LOD policy: terrain draws LOD 0 at every distance with no geomorph (`ee0e7ed8`); bundled meshes
+  always LOD 0, static switch distances x3, mesh shading LODs deleted, textures full resolution at
+  quality 3 (`98165f0b`); objects cull only on the frustum, far plane = view distance
+  (`b3e44a8d`). The remaining static mesh and overgrowth switches crossfade with a 4x4 Bayer
+  dither over 10% of the switch distance (`RaLodDither`, c222); far overgrowth cells dissolve over
+  the last tenth of the view distance; near and far overgrowth share one lighting model
+  (`a7d9e0e1`, `1e7a1c89`, `680d8890`).
+- Dropped: thin-geometry widening (cables break into dashes beyond about 100 m, as in retail).
+  Moved to step 10: the compressed (Karis) resolve.
+
+GPU time on Saaremaa (overview camera over forest and buildings, 1600x900): depth prepass 1.47 ms,
+world opaque 1.22, sun cascades 1.53, resolve 0.19, depth rebuild 0.05; frame 8.25 ms, CPU-bound.
+The reference shots against `d3d9.forceSampleRateShading` were not taken (the owner's call).
+
+Limits: shading once per pixel leaves glossy surfaces sparkling (specular AA is step 11). The
+default video profile still picks 8x antialiasing while the scene runs 4x. `Ra_LodDitherClip` runs
+in every lit shader even at (0, 1), costing early depth rejection where there was no clip before.
+
 ## Frame
 
 In draw order, for the main world view:

@@ -24,7 +24,7 @@ does today, and the engine/shader contract, are in [renderer-pipeline.md](render
 | 5. Sun cascaded shadow maps + PCF | Accepted | `271c8d45`, `df9a6a40`, `6261ac82`, `5ccaf770`, `505ca7ab`, `2860a74a` |
 | 6. Shader audit and cleanup | Accepted | `ee33008f`, `7f05cc77`, `88d3b7f1`, `52af0169`, `f6fb255a`, `e7623d07`, `dc97ef7b` |
 | 7. Particle lighting | Accepted | `b1549478`, `25319adf`, `7fcdc848`, `423ac5e0`, `0bffa203`; fix `6eb1a727` |
-| 8. Anti-aliasing | Not started | — |
+| 8. Anti-aliasing | Accepted | `28487a35`, `65760125`, `f11bdfe3`, `b47ac87f`, `0f10eb41`, `f9086318`, `ee0e7ed8`, `98165f0b`, `b3e44a8d`, `a7d9e0e1`, `1e7a1c89`, `680d8890` |
 | 9. Draw submission | Not started | — |
 | 10. Terrain in one pass | Not started | — |
 | 11. Atmosphere, sky IBL, water reflections | Not started | — |
@@ -44,125 +44,6 @@ Bloom and auto-exposure depend only on the HDR scene and can move earlier if nig
 sooner.
 
 What each accepted step changed is described in [renderer-pipeline.md](renderer-pipeline.md#accepted-steps).
-
-**8. Anti-aliasing.** Fixed 4x MSAA as the one anti-aliasing method, with what MSAA alone misses
-covered at its source. Now the prepass depth, normals and sun mask are single sample, so an edge pixel
-reads one mask value for all its samples (halos on silhouettes, mostly foliage against the sky; on
-bright terrain, dark lines along ridge silhouettes, where the edge reads the far slope's N.L and
-shadow, seen on Kashan Desert). D3D9 cannot read individual samples of an MSAA surface, so a
-screen-space term cannot be made per-sample; the mask goes instead.
-- **Fixed 4x.** The scene target is always 4x, whatever the game's anti-aliasing setting; there is
-  no 2x, 8x or off. 2x leaves alpha-to-coverage three levels (banded foliage); 8x doubles the
-  memory and bandwidth of the float scene and its MRT for less than 0x to 4x gave; without MSAA,
-  alpha-to-coverage and the LOD dither degrade to hard edges and raw dither. The sample count is one
-  constant; only the coverage sharpening and the dither depend on it. The HUD's back buffer is
-  single sample.
-- **Prepass into the scene depth.** The prepass draws into the MSAA scene depth, and the opaque
-  world pass tests EQUAL without writing depth, so each pixel shades about once. The StateManager
-  forces the test for prepassed draws, overriding the effects' own `ZFUNC` / `ZWRITEENABLE`. EQUAL
-  needs both passes to produce the same position bit for bit: each effect computes it in one shared
-  function used by both techniques. Skinned meshes, terrain geomorphing and tree and overgrowth wind
-  are the cases to check; a draw that cannot guarantee it is not prepassed. Draws that are not
-  prepassed (undergrowth, first-person models, the sky) test and write depth as before; which queues
-  are which is listed in [Frame](renderer-pipeline.md#frame) when the step lands. Linear depth is written as an MSAA
-  target and resolved to a single-sample texture (s15). The resolve averages depth across a
-  silhouette into a value no surface has, so soft particles fade against that average: the step 7
-  edge fringe changes shape rather than going away.
-- **Sun shadows in the lit shaders.** Every lit shader samples the cascades itself through one
-  shared include (as water and undergrowth already do) and computes N.L and the cascades' weight
-  against baked sun. The sun mask pass, its target and s14 are deleted, and with them the prepass's
-  normals target (s12) until GTAO (step 13) needs one. Each triangle then shades its own edge
-  samples. The cascade constants (`RASM`) are set once per frame as a fixed register range,
-  not per effect through D3DX, which would add to the CPU-bound frame before step 9.
-- **Centroid interpolation.** An edge pixel is shaded at its centre even when the centre lies outside
-  the triangle, so interpolants are extrapolated: lightmap UVs read the neighbouring chart (seams
-  along mesh edges) and the shadow lookup position leaves the surface (acne and leaks on
-  silhouettes). Lightmap and atlas UVs and the world position used for the cascades are `_centroid`.
-  Derivatives of centroid inputs are inexact, so mip selection, the coverage sharpening and the
-  cascades' face normal take theirs from a non-centroid copy. The cascade position went in with the
-  sun shadows sub-step (the owner's call, 2026-11-18), as each lit shader's own `SunPos` interpolant.
-- **Alpha-to-coverage** for alpha-tested materials (foliage, fences, wires), in the prepass only:
-  the main pass's EQUAL test already limits shading to the samples the prepass covered, so its alpha
-  test goes and the two passes need not agree on alpha. Alpha is sharpened by its screen derivative
-  to about a one-pixel edge, and corrected for the alpha the mips lose, so foliage does not thin out
-  with distance. Retail enables it through vendor render-state hacks (NVIDIA `ATOC`); DXVK honours
-  it (active only while a draw alpha-tests), so the whole mesh prepass runs inside retail's bracket.
-- **Dropped: thin geometry** (the owner's call, 2026-11-18). 4x MSAA keeps the 5–7 cm cables solid
-  to about 100 m at 1080p; beyond that they break into dashes, as in retail. Widening them needs a
-  shape classifier at load, since cables share `StaticMesh.fx` materials with everything else: a
-  sweep of PR's statics found it catches planks and roof slats (which would turn see-through at
-  distance) unless strands are required to stand alone, and that test rejects the older cables,
-  which are two crossed strips. The cost was not worth a defect retail also has.
-- **LOD policy and crossfade.** What a player sees at range must not depend on distance-driven
-  simplification, since that shows soldiers and vehicles to whoever is farther away or zoomed in.
-  Full detail wherever it is cheap; a crossfade where a switch has to stay.
-  - *Terrain geometry* (done, `ee0e7ed8`): every visible leaf draws retail's LOD 0 at any distance
-    and zoom, with no geomorph. Retail used LOD 0 within about 75 m (zoom-scaled, plus the camera's
-    height above ground), LOD 1 to 225 m and LOD 2 beyond. A coarser LOD keeps a subset of the grid,
-    so convex crests drew below the collision heightmap and a scoped player saw different hills.
-    The culler keeps one walk (frustum, plus a `detailNear` shading flag); the crack fixup, morph
-    constants and the casters' LOD rule are gone. One constant, `HEIGHTDELTASCALE`, is left:
-    the `MorphDelta.z` term retail's LOD 0 applied to every vertex of 0x1A content.
-  - *Mesh LOD distances* (done, `98165f0b`): PR authors switch distances for almost none of its
-    meshes (80 of 6,949 static templates, 96 of 857 vehicle templates), so most used the engine
-    default, LOD n+1 at 25(n+1) m (static) or 50(n+1) m (bundled) past the bounding sphere,
-    times the geometry quality scale and over zoom. Bundled meshes now always draw LOD 0 (Muttrah
-    City: 64k primitives against 45k). Static meshes switch at three times their distances
-    (`kStaticMeshLodDistanceScale`; 1.9x the primitives of x1, about 0.6 ms on Muttrah; LOD 0
-    everywhere would be 4.2x and 1.6 ms, mostly occluded buildings). The factor sits in the
-    selection, since PR's level init resets `renderer.global*MeshLodDistanceScale` to 1 per map.
-    `BF2_DRAW_STATS` counts the static primitives at x1..x4 and full per frame ("lod static" rows).
-  - *Shading LODs on meshes* (done, `98165f0b`): the distance shader-quality buckets and their
-    console commands are deleted (PR left them off), as is the static mask keyed to the LOD index.
-    PR's mesh shaders have no distance fade of detail or normal maps.
-  - *Texture resolution* (confirmed): at texture quality 3 every mip class skips 0 levels.
-    Mip selection stays: it is filtering, not a LOD, and 16x anisotropic keeps distance sharp.
-  - *Distance culling* (removed, `b3e44a8d`, seen in game): retail faded each object out at d² > π (r·s)² · c² · 10 · zoom
-    (r its visual radius, s its template's `cullRadiusScale`), never closer than `minCullDistance`,
-    with c 8 for ordinary objects and 10 for soldiers and PlayerControlObjects (video quality 3).
-    PR tunes s per template (soldiers 12.5, kits 100000, statics 2 to 9999), so soldiers drew to
-    about 700 m while low-s walls and sandbags faded at 100 to 200 m. Cover culling no earlier than
-    what it hides means cover draws as far as vehicles do, which is the far plane, so objects now
-    cull only on the frustum. The constants, their console variables (`renderer.distanceCullConst`,
-    `...PCO`, `minCullDistance`), the video-option writes and the hemi bake's swap are deleted; the
-    ObjectManager and IRenderer vtable slots stay for the ABI. Measured at Muttrah City's spawn
-    with the console constants raised: +600 draws (5,240 to 5,840), +2% primitives, about
-    +0.25 ms prepass and +0.25 ms opaque.
-  - *Crossfade*: the mesh and overgrowth LOD switches that remain become
-    a dithered crossfade instead of popping: one screen-space Bayer threshold, `clip()` against it
-    for the outgoing LOD and against its complement for the incoming one. Alpha-to-coverage cannot
-    do this, because the masks it gives for a and 1 - a are not guaranteed complementary (holes and
-    double cover). Overgrowth's far cells compute a fade and ignore it (`OverGrowthCell::draw`).
-- **Transparents and depth.** D3D9 binds a depth buffer only with a render target of the same
-  sample count and cannot resolve depth. Water stays in the MSAA scene, drawn before the resolve, so
-  its shoreline keeps its edge samples (and step 11's reflections and refraction read the resolved
-  opaque scene plus water's own pass). After the resolve, a full-screen pass rebuilds a single-sample
-  depth buffer from the resolved linear depth (`oDepth`), and the remaining transparents (particles,
-  decals, effects) draw against it. Its edge depth is averaged, as for soft particles.
-- **Sampler policy** (shader contract). Every material sampler (albedo, normal, detail, gloss) is
-  16x anisotropic; data samplers state point or linear. The caps-dependent filter defines
-  (`FILTER_*_MIN` / `_MAG`, `IS_NV4X`) are deleted.
-- **Other views.** First-person models draw into the MSAA scene. Render-to-texture views (vehicle
-  and guided-weapon cameras, scopes where they render the world) state whether they are MSAA or
-  single sample. Tinnitus and thermals read the resolved linear scene; thermals keep their output.
-- **Expected, not a bug.** Shading once per pixel leaves glossy surfaces sparkling; specular
-  anti-aliasing is step 11.
-- **Acceptance.** GPU timer spans for the 4x prepass, the resolve and the depth rebuild. Reference
-  shots: foliage against the sky, a fence at 50 m and 200 m, Kashan Desert ridge lines, power lines,
-  the edges of a lightmapped building (centroid), each compared with DXVK's
-  `d3d9.forceSampleRateShading`, which turns 4x MSAA into 4x supersampling without engine changes:
-  a reference to compare against, not a mode.
-- **Order within the step**, each seen in game before the next: sampler policy; shadows in the lit
-  shaders and the mask deleted, with the centroid cascade position; prepass into the MSAA depth with
-  EQUAL, centroid UVs and the transparent depth rebuild; alpha-to-coverage; LOD policy and
-  crossfade.
-- **Moved to step 10: the compressed resolve.** Averaging linear HDR leaves high-contrast edges
-  aliased; writing colour compressed (Karis, 1 / (1 + luma)) before the resolve and expanding after
-  fixes that. It cannot land before terrain is one pass: terrain's detail and point-light passes add
-  (`ONE,ONE`) onto the scene, and a sum of compressed values is not the compressed sum.
-- Not used: TAA and upscalers (motion vectors for skinned meshes, vehicles and particles; blur
-  costs distant detail, which matters for spotting), post-process AA (edges only, unstable in
-  motion), supersampling (about 4x the shading).
 
 **9. Draw submission.** The frame is CPU-bound ([perf-frame.md](perf-frame.md)): the D3DX effect
 framework's per-draw parameter, pass and commit calls take about 15 % of the main thread, and Ra
