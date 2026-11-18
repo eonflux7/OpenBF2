@@ -2506,7 +2506,7 @@ void lightShadowTraceRegister(world::LightSource* light, const char* outcome)
     std::fprintf(stderr, "[LSHADOW] register %s: %s (type %d enabled %d dynamic %d flags 0x%X "
                  "castsDynamicShadow %d xpack %d)\n",
                  t->getName().c_str(), outcome, t->getLightTypeEnum(), t->getEnabled() ? 1 : 0,
-                 t->getIsDynamic() ? 1 : 0, t->getFlags(), t->getCastsDynamicShadow() ? 1 : 0,
+                 t->getIsDynamic() ? 1 : 0, t->getFlags(), (t->getFlags() & 0x800u) ? 1 : 0,
                  dx9rend::rendererIsExpansionPack() ? 1 : 0);
 }
 
@@ -2593,6 +2593,8 @@ struct LightShadowDropCounts
 {
     unsigned int disabled, tooFar, culled, noCandidates;                 // lights
     unsigned int records, casters, noGeometry, localView, noEffect, outside, draws;   // casters
+    unsigned int built, candidates, predFlags, predGeometry, predType, predEffect, predStaticSource,
+                 predStaticFeature, predAccepts, accepted, tempRecords, tempNoCasters, tempDegenerate;
 };
 LightShadowDropCounts g_lightShadowDrops = LightShadowDropCounts();
 
@@ -2869,33 +2871,61 @@ bool supportedShadowGeometry(unsigned int type)
 bool xpShadowPredicate(void* manager, world::LightSource* source,
                        world::IObject* candidate, bool point)
 {
+    // [DEV] BF2_LIGHT_SHADOW_TRACE counts which test rejects a candidate.
+    const bool trace = lightShadowTraceOn();
     void* geometry = point ? 0 : candidateGeometry(candidate);
     if (!point && !geometry)
+    {
+        if (trace) ++g_lightShadowDrops.predGeometry;
         return false;
+    }
     const unsigned int flags = candidateFlags(candidate);
     if ((flags & 2u) == 0 || (flags & 0x0A000000u) != 0)
+    {
+        if (trace) ++g_lightShadowDrops.predFlags;
         return false;
+    }
     if (point)
         geometry = candidateGeometry(candidate);
     if (!geometry)
+    {
+        if (trace) ++g_lightShadowDrops.predGeometry;
         return false;
+    }
     const unsigned int type = geometryReflectionType(geometry);
     if (!supportedShadowGeometry(type))
+    {
+        if (trace) ++g_lightShadowDrops.predType;
         return false;
+    }
     const ShadowEffectMap& effects = lm(manager).shadowEffects;
     if (effects.find(type) == effects.end())
+    {
+        if (trace) ++g_lightShadowDrops.predEffect;
         return false;
+    }
 
     // PE globals 0x1023A09C/0x1023A0A0 both ship as mode 2. Point adds the
     // manager +0xC8 feature test; Spot deliberately does not.
     const bool dynamicSource = lightSourceTemplatePointer(source)->getIsDynamic();
     if (type == kStaticMeshReflectionType && !dynamicSource)
+    {
+        if (trace) ++g_lightShadowDrops.predStaticSource;
         return false;
+    }
     if (point && !g_LightManager->getShadowStaticFeature())
+    {
+        if (trace) ++g_lightShadowDrops.predStaticFeature;
         return false;
+    }
     if (type == kStaticMeshReflectionType)
+    {
+        if (trace) ++g_lightShadowDrops.accepted;
         return true;
-    return geometryAcceptsXpShadow(geometry);
+    }
+    const bool accepts = geometryAcceptsXpShadow(geometry);
+    if (trace) ++(accepts ? g_lightShadowDrops.accepted : g_lightShadowDrops.predAccepts);
+    return accepts;
 }
 
 Vec3 transformPoint(const Mat4& matrix, const Vec3& point)
@@ -3311,7 +3341,11 @@ void materializeShadowRecords(void* manager, XpLight* light, ShadowBuildContext&
     {
         const bool showFrustum = lm(manager).showFrustums != 0;
         if (it->record.casters.size() == 0)
+        {
+            if (lightShadowTraceOn())   // [DEV]
+                ++g_lightShadowDrops.tempNoCasters;
             continue;
+        }
         ShadowProjectionLayout projection(it->projection.getTransform(), false);
         projection.copyCurrentToSaved(it->projection);
         // PE data dword 0x1023A0AC ships as policy 1: restore all fitted bounds.
@@ -3324,7 +3358,11 @@ void materializeShadowRecords(void* manager, XpLight* light, ShadowBuildContext&
         }
         projection.getExtents(extents);
         if (degenerate(extents))
+        {
+            if (lightShadowTraceOn())   // [DEV]
+                ++g_lightShadowDrops.tempDegenerate;
             continue;
+        }
 
         LightShadowRecord record;
         record.source = light->source;
@@ -3352,6 +3390,12 @@ void buildPointLightRecords(void* manager, XpLight* light, bool adaptive)
         buildAdaptivePoint(manager, context, xpLightCandidates(light));
     else
         buildPointFan(manager, context, xpLightCandidates(light));
+    if (lightShadowTraceOn())   // [DEV] BF2_LIGHT_SHADOW_TRACE
+    {
+        ++g_lightShadowDrops.built;
+        g_lightShadowDrops.candidates += static_cast<unsigned int>(xpLightCandidates(light).size());
+        g_lightShadowDrops.tempRecords += static_cast<unsigned int>(context.records.size());
+    }
     materializeShadowRecords(manager, light, context);
 }
 
@@ -5231,6 +5275,17 @@ void RD9_THUNK lm_renderShadowMaps(void* self RD9_THUNK_EDX)
                          g_lightShadowDrops.noGeometry, g_lightShadowDrops.localView,
                          g_lightShadowDrops.noEffect, g_lightShadowDrops.outside,
                          g_lightShadowDrops.draws);
+        if ((frames - 1) % 300 == 0)
+            std::fprintf(stderr, "[LSHADOW]   build: lights %u candidates %u | rejected: flags %u "
+                         "geometry %u type %u effect %u static-source %u static-feature %u accepts %u | "
+                         "accepted %u | temp records %u: no casters %u degenerate %u\n",
+                         g_lightShadowDrops.built, g_lightShadowDrops.candidates,
+                         g_lightShadowDrops.predFlags, g_lightShadowDrops.predGeometry,
+                         g_lightShadowDrops.predType, g_lightShadowDrops.predEffect,
+                         g_lightShadowDrops.predStaticSource, g_lightShadowDrops.predStaticFeature,
+                         g_lightShadowDrops.predAccepts, g_lightShadowDrops.accepted,
+                         g_lightShadowDrops.tempRecords, g_lightShadowDrops.tempNoCasters,
+                         g_lightShadowDrops.tempDegenerate);
         g_lightShadowDrops = LightShadowDropCounts();   // counts cover the frame just prepared
     }
     if (!lm(self).skyLight
