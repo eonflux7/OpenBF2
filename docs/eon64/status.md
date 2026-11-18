@@ -63,6 +63,13 @@ when it started is not known). GPU spans there sum to about 5.7 ms of a 12.6 ms 
 the `hud` span (present wait), so likely CPU: more draws from full-detail terrain, LOD 0 bundled
 meshes, static switch distances x3 and no object distance cull. For the optimization pass.
 
+Open (sun shadows, seen on Saaremaa 2026-11-19): a band without tree shadows between the
+near overgrowth radius and the cascade end, and the cascade-to-baked edge sliding as the camera
+turned. Fixed, loaded on Saaremaa, not yet seen: far cells cast (`980b32aa`), the blend to baked
+goes by camera distance (shaders). Still open: overgrowth too dark at range (its baked
+`sampleShadow` value multiplies sun and sky on top of the cascades; drop it as for vehicles), and
+the overgrowth crossfade below.
+
 Open: the default video profile picks 8x antialiasing (log) while the scene runs 4x; settle with fixed 4x
 (single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
 
