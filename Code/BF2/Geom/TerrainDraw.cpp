@@ -452,6 +452,14 @@ void Terrain::applyFrameConstants()
         m_cameraPosition[3] = static_cast<float>(d + 1.0);
     }
     param(m_hCameraPos)->setValue(m_cameraPosition, 0);
+    {
+        // [RENDER] Terrain is drawn at full detail (retail's LOD 0) with no geomorph. What remains
+        // of retail's morph constants at LOD 0 is the MorphDelta.z term every vertex of 0x1A
+        // content takes (the morphdeltaadder rows were all (0, 0, primary.y) at LOD 0): the
+        // shader subtracts MorphDelta.z times this. Older content has no such term.
+        const float scale = (m_rawHasVersion && m_rawVersion >= 0x1Au) ? m_primaryWorldScale.y : 0.0f;
+        param(m_hHeightDeltaScale)->setFloat(scale);
+    }
     param(m_hAmbientColor)->setValue(&m_ambientColor, 0);
     {
         Vec3 sun;
@@ -515,39 +523,6 @@ void Terrain::applyFrameConstants()
         return;
     m_lightingDirty = 0;
     param(m_hTexLayer[4])->setValue(m_lowDetailTexture, 0);
-    {
-        const TerrainCuller* const culler = m_culler;
-        const double lod = static_cast<double>(culler->lodDistance);
-        const float near0 = static_cast<float>(lod * culler->lodFactor20);
-        const float far0  = static_cast<float>(lod * culler->lodFactor24);
-        const float near1 = static_cast<float>(lod * culler->lodFactor28);
-        const double far1 = lod * culler->lodFactor2C;
-        const double inv0 = 1.0 / (far0 - near0);
-        if (kSquaredMorphLimits)
-        {
-            const double a = inv0;
-            const double b = near0 * inv0;
-            m_morphLimits[0] = static_cast<float>(a * a);
-            m_morphLimits[1] = static_cast<float>(b * b);
-            const double inv1 = 1.0 / (far1 - near1);
-            const double c = near1 * inv1;
-            m_morphLimits[2] = static_cast<float>(inv1 * inv1);
-            m_morphLimits[3] = static_cast<float>(c * c);
-            m_morphLimits[4] = 0.0f;
-            m_morphLimits[5] = 0.0f;
-        }
-        else
-        {
-            m_morphLimits[0] = static_cast<float>(inv0);
-            m_morphLimits[1] = static_cast<float>(inv0 * near0);
-            const double inv1 = 1.0 / (far1 - near1);
-            m_morphLimits[2] = static_cast<float>(inv1);
-            m_morphLimits[3] = static_cast<float>(inv1 * near1);
-            m_morphLimits[4] = -1.0f;
-            m_morphLimits[5] = -1.0f;
-        }
-    }
-    m_currentLod = -1;
     if (m_drawMain)
     {
         dx9rend::EngineTexture* const accumulation = dx9rend::rendererGetHemiScratchTexture();   // Renderer +0x774
@@ -673,54 +648,6 @@ void Terrain::applyFrameConstants()
             dx9rend::effectGetShaderParameterBorrowedTyped(fx, std::string("STLOWDETAILTEX"))->setValue(value, 0);
         }
     }
-}
-
-// The block every patch draw inlines when the LOD changes: morphdeltaselector (one-hot LOD times
-// primary.y), nearfarmorphlimits (this LOD's pair) and the morphdeltaadder rows, which exist only
-// for version 0x1A content.
-void Terrain::setMorphConstants(int lod)
-{
-    m_currentLod = lod;
-    const float py = m_primaryWorldScale.y;
-    float selector[4];
-    selector[0] = static_cast<float>(lod == 0);
-    selector[1] = static_cast<float>(lod == 1);
-    selector[2] = static_cast<float>(lod == 2);
-    selector[3] = static_cast<float>(lod == 3);
-    selector[0] = selector[0] * py;
-    selector[1] = selector[1] * py;
-    selector[2] = selector[2] * py;
-    selector[3] = selector[3] * py;
-    param(m_hMorphDeltaSelector)->setValue(selector, 0);
-    param(m_hNearFarMorphLimits)->setValue(&m_morphLimits[2 * lod], 0);
-    float adder[12];
-    for (int i = 0; i < 12; ++i)
-        adder[i] = 0.0f;
-    if (m_rawHasVersion && m_rawVersion >= 0x1Au)
-    {
-        const float zero = 0.0f * py;
-        if (lod)
-        {
-            adder[2] = py;  adder[0] = zero; adder[1] = zero; adder[3] = zero;
-            if (lod == 1)
-            {
-                adder[4] = py;  adder[5] = py * 0.0f; adder[6] = adder[5]; adder[7] = adder[5];
-                adder[10] = py; adder[8] = zero; adder[9] = zero; adder[11] = zero;
-            }
-            else
-            {
-                adder[6] = py;  adder[4] = zero; adder[5] = zero; adder[7] = zero;
-                adder[9] = py;  adder[8] = zero; adder[10] = zero; adder[11] = zero;
-            }
-        }
-        else
-        {
-            adder[2] = py;  adder[0] = zero; adder[1] = zero; adder[3] = zero;
-            adder[6] = py;  adder[4] = zero; adder[5] = zero; adder[7] = zero;
-            adder[10] = py; adder[8] = zero; adder[9] = zero; adder[11] = zero;
-        }
-    }
-    param(m_hMorphDeltaAdder)->setValue(adder, 0);
 }
 
 // sub_100D8570 - the discard lock of the dynamic index buffer, once per frame.
@@ -938,42 +865,17 @@ void Terrain::drawMain()
 
 // [RENDER] Depth prepass: the visible patches through the
 // effect's RaDepthPrepass technique into the renderer's linear depth target. It uses the patch
-// draw of drawMain's pass 0, so positions and LOD morphing match the passes that follow.
+// draw of drawMain's pass 0, so positions match the passes that follow.
 // [RENDER] Sun shadow casters, see Terrain.h.
 namespace {
 struct TerrainCaster
 {
     TerrainCullerNode* node;
-    int                lod;
-    int                crackMask;
     float              sphere[4];
 };
 std::vector<TerrainCaster> g_terrainCasters;
 
-// The camera walk's LOD rule (walkMode3) for a node it did not reach this frame.
-int terrainCasterLod(const TerrainCuller& culler, const Terrain& terrain, const TerrainAabb& box)
-{
-    const float* const cam = culler.cameraPosition;
-    double dx = 0.0;
-    if (cam[0] < box.min.x)
-        dx = static_cast<double>(box.min.x) - cam[0];
-    else if (cam[0] > box.max.x)
-        dx = static_cast<double>(cam[0]) - box.max.x;
-    double dz = 0.0;
-    if (cam[2] < box.min.z)
-        dz = static_cast<double>(box.min.z) - cam[2];
-    else if (cam[2] > box.max.z)
-        dz = static_cast<double>(cam[2]) - box.max.z;
-    const double distance = std::sqrt(dz * dz + dx * dx) + terrain.m_cameraHeightAboveTerrain;
-    const double lodDist = static_cast<double>(culler.lodDistance);
-    if (distance > lodDist)
-        return distance > lodDist * culler.lodFactor30 ? 2 : 1;
-    return 0;
-}
-
-void gatherTerrainCasterNode(const Terrain& terrain, const TerrainCuller& culler,
-                             TerrainCullerNode* node, const Frustum& volume,
-                             const std::vector<TerrainCullerNode*>& drawn)
+void gatherTerrainCasterNode(TerrainCullerNode* node, const Frustum& volume)
 {
     TerrainAabb& box = node->bounds;
     if (box.dirty)
@@ -984,23 +886,13 @@ void gatherTerrainCasterNode(const Terrain& terrain, const TerrainCuller& culler
     {
         if (node->child[0])
             for (int c = 0; c < 4; ++c)
-                gatherTerrainCasterNode(terrain, culler, node->child[c], volume, drawn);
+                gatherTerrainCasterNode(node->child[c], volume);
         return;
     }
     if (!node->patch)
         return;
     TerrainCaster caster;
     caster.node = node;
-    if (std::binary_search(drawn.begin(), drawn.end(), node))
-    {
-        caster.lod = node->lod;
-        caster.crackMask = node->crackMask;
-    }
-    else
-    {
-        caster.lod = terrainCasterLod(culler, terrain, box);
-        caster.crackMask = 0;
-    }
     caster.sphere[0] = box.centre.x;
     caster.sphere[1] = box.centre.y;
     caster.sphere[2] = box.centre.z;
@@ -1014,10 +906,7 @@ void Terrain::gatherShadowCasters(const Frustum& volume)
     g_terrainCasters.clear();
     if (!m_drawMain || m_lowQuality || !m_culler || !m_culler->nodes || !m_culler->cameraPosition)
         return;
-    static std::vector<TerrainCullerNode*> drawn;
-    drawn.assign(m_culler->visiblePatches()->begin(), m_culler->visiblePatches()->end());
-    std::sort(drawn.begin(), drawn.end());
-    gatherTerrainCasterNode(*this, *m_culler, m_culler->nodes, volume, drawn);
+    gatherTerrainCasterNode(m_culler->nodes, volume);
 }
 
 void Terrain::drawShadowCasters(const float* viewProjection, const dx9rend::ShadowCascadeCull& cull)
@@ -1046,7 +935,6 @@ void Terrain::drawShadowCasters(const float* viewProjection, const dx9rend::Shad
     dx9rend::effectBegin(m_effect);
     viewProjectionParameter->setValue(viewProjection, 0);
     dx9rend::indexBufferBind(m_lodIndexBuffer);
-    m_currentLod = -1;                     // the morph constants belong to this pass now
     dx9rend::effectBeginPass(m_effect, 0u);
     QuadPatch* bound = 0;
     for (size_t i = 0; i < g_terrainCasters.size(); ++i)
@@ -1060,10 +948,9 @@ void Terrain::drawShadowCasters(const float* viewProjection, const dx9rend::Shad
             patch->beginCasterDraw();
             bound = patch;
         }
-        patch->drawCasterNode(caster.node, caster.lod, caster.crackMask);
+        patch->drawCasterNode(caster.node);
     }
     dx9rend::effectEnd(m_effect);
-    m_currentLod = -1;
     if (!savedTechnique.empty())
         dx9rend::effectSetTechniqueByName(m_effect, savedTechnique);
     dx9rend::stateManagerPop();

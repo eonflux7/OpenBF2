@@ -440,7 +440,6 @@ public:
 
     // the per-frame bodies - TerrainDraw.cpp
     void  applyFrameConstants();                                     // sub_100D95D0  the +0xB8 arm's constants worker
-    void  setMorphConstants(int lod);                                // the morphdeltaselector / nearfarmorphlimits / morphdeltaadder block every draw inlines
     void  lockDynamicIndexBuffer();                                  // sub_100D8570  discard-lock of +0x368 into +0x484
     // Unreachable in 1.50 (no code or data references); recovered from the listings, names [INFERRED].
     void  unlockDynamicIndexBuffer();                                // the unlock half of the frame's lock
@@ -582,9 +581,8 @@ public:
     void*          m_hAmbientIlluminationColor; // +0x230  AmbientIlluminationColor
     void*          m_hWaterFogRange;        // +0x234  WaterFogRange
     void*          m_hWaterFogColor;        // +0x238  WaterFogColor
-    void*          m_hMorphDeltaSelector;   // +0x23C  morphdeltaselector
-    void*          m_hMorphDeltaAdder;      // +0x240  morphdeltaadder
-    void*          m_hNearFarMorphLimits;   // +0x244  nearfarmorphlimits
+    void*          m_hHeightDeltaScale;     // +0x23C  [RENDER] heightdeltascale; was morphdeltaselector (morphdeltaadder, nearfarmorphlimits followed)
+    void*          m_unused240[2];          // +0x240
     void*          m_hFarTexTiling;         // +0x248  fartextiling
     void*          m_hStFarTexTiling;       // +0x24C  stfartextiling
     void*          m_hNearTexTiling;        // +0x250  neartextiling
@@ -680,8 +678,8 @@ public:
     unsigned char  m_lightingDirty;         // +0x41C  1; the sun/GI setters and the culler's LOD-distance change raise it; applyFrameConstants clears it
     unsigned char  m_pad41D[3];
     int            m_currentDetailLayer;    // +0x420  -1; drawFinal's per-frame layer cache (TEXLAYER3/6, neartextiling, componentselector)
-    int            m_currentLod;            // +0x424  -1; setMorphConstants' cache; applyFrameConstants resets it with the lighting
-    float          m_morphLimits[6];        // +0x428  0; applyFrameConstants: nearfarmorphlimits per LOD (two floats each, LOD 0..2)
+    int            m_unused424;             // +0x424  [RENDER] was the morph constants' LOD cache
+    float          m_unused428[6];          // +0x428  [RENDER] were the morph limits per LOD
     float          m_unresolved440;         // +0x440  -1.0f [UNRESOLVED] (the LOD-3 pair's first word, never set by a draw)
     int            m_unresolved444;         // +0x444  not touched
     // +0x448: the patches whose shadow gather produced ranges this frame; the pass-7 draw walks it.

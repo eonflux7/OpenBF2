@@ -435,7 +435,7 @@ Terrain::Terrain()
     m_hSinglePointColor1X = 0; m_hDynamicPointColor = 0; m_hFogRange = 0;
     m_hFogColor = 0; m_hAmbientIlluminationRange = 0; m_hAmbientIlluminationColor = 0;
     m_hWaterFogRange = 0; m_hWaterFogColor = 0;
-    m_hMorphDeltaSelector = 0; m_hMorphDeltaAdder = 0; m_hNearFarMorphLimits = 0;
+    m_hHeightDeltaScale = 0; m_unused240[0] = 0; m_unused240[1] = 0;
     m_hFarTexTiling = 0; m_hStFarTexTiling = 0; m_hNearTexTiling = 0;
     m_hLightViewProj = 0; m_hLightViewProjOrtho = 0; m_hViewportMap = 0; m_hStTransXZ = 0;
     m_hPointLight = 0; m_hSpotLight = 0;
@@ -486,8 +486,8 @@ Terrain::Terrain()
     m_streamedPatchCount = 0;
     m_lightingDirty = 1;
     m_currentDetailLayer = -1;
-    m_currentLod = -1;
-    for (int i = 0; i < 6; ++i) m_morphLimits[i] = 0.0f;
+    m_unused424 = 0;
+    for (int i = 0; i < 6; ++i) m_unused428[i] = 0.0f;
     m_unresolved440 = -1.0f;
     // m_shadowPatches (+0x448) default-constructs empty
     m_indexBufferCount = 49152u;
@@ -796,9 +796,7 @@ void Terrain::init()
     TERRAIN_PARAM(m_hAmbientIlluminationColor,  "AmbientIlluminationColor");
     TERRAIN_PARAM(m_hWaterFogRange,             "WaterFogRange");
     TERRAIN_PARAM(m_hWaterFogColor,             "WaterFogColor");
-    TERRAIN_PARAM(m_hMorphDeltaSelector,        "MORPHDELTASELECTOR");
-    TERRAIN_PARAM(m_hMorphDeltaAdder,           "MORPHDELTAADDER");
-    TERRAIN_PARAM(m_hNearFarMorphLimits,        "NEARFARMORPHLIMITS");
+    TERRAIN_PARAM(m_hHeightDeltaScale,          "HEIGHTDELTASCALE");      // [RENDER] replaces the three morph constants
     TERRAIN_PARAM(m_hFarTexTiling,              "FARTEXTILING");
     TERRAIN_PARAM(m_hStFarTexTiling,            "STFARTEXTILING");
     TERRAIN_PARAM(m_hNearTexTiling,             "NEARTEXTILING");
@@ -2487,9 +2485,7 @@ Terrain::~Terrain()
     releaseParameter(m_hAmbientIlluminationColor);       // +0x230
     releaseParameter(m_hWaterFogRange);                  // +0x234
     releaseParameter(m_hWaterFogColor);                  // +0x238
-    releaseParameter(m_hMorphDeltaSelector);             // +0x23C
-    releaseParameter(m_hMorphDeltaAdder);                // +0x240
-    releaseParameter(m_hNearFarMorphLimits);             // +0x244
+    releaseParameter(m_hHeightDeltaScale);               // +0x23C
     releaseParameter(m_hFarTexTiling);                   // +0x248
     releaseParameter(m_hStFarTexTiling);                 // +0x24C
     releaseParameter(m_hNearTexTiling);                  // +0x250

@@ -113,15 +113,15 @@ inline int cornersInFront(const TerrainAabb& b, const float* p)
     return n;
 }
 
-// The LOD-table lookup every patch draw makes: the 400-byte record's rows of 16 masks, starts in
-// row `lod`, counts in row `lod + 3`.
+// The index range every patch draw takes from the node's 400-byte LOD record: [RENDER] always
+// LOD 0 (full detail), crack column 0 - full detail has no neighbour of another LOD to stitch to.
 inline unsigned int lodStart(const TerrainCullerNode* node)
 {
-    return reinterpret_cast<const unsigned int*>(node->lodTable)[node->crackMask + 16 * node->lod];
+    return reinterpret_cast<const TerrainLodRecord*>(node->lodTable)->starts[0][0];
 }
 inline unsigned int lodCount(const TerrainCullerNode* node)
 {
-    return reinterpret_cast<const unsigned int*>(node->lodTable)[node->crackMask + 16 * (node->lod + 3)];
+    return reinterpret_cast<const TerrainLodRecord*>(node->lodTable)->counts[0][0];
 }
 
 // The (w - 1) / w, 1 / (2w) pair of a texture's width that colorlighttex takes (sub_10014940's
@@ -134,11 +134,6 @@ inline void colorLightTexOf(void* texture, float out[2])
     out[0] = static_cast<float>((w - 1.0) / w);
     out[1] = static_cast<float>(1.0 / (w + w));
 }
-
-inline bool lod0(const TerrainCullerNode* n) { return n->visible && n->lod == 0; }
-inline bool lod1(const TerrainCullerNode* n) { return n->visible && n->lod == 1; }
-inline bool lod0n(const TerrainCullerNode* n) { return n && n->visible && n->lod == 0; }
-inline bool lod1n(const TerrainCullerNode* n) { return n && n->visible && n->lod == 1; }
 
 // [CHOSEN, not recovered] Native arithmetic support for the retained x87 walk expressions.
 #if defined(__APPLE__)
@@ -972,9 +967,8 @@ TerrainCullerNode::TerrainCullerNode()
     childrenWalked = 0;
     visible = 0;
     cameraInside = 0;
-    crackMask = 0;
     legacyParent = 0;
-    lod = 2;
+    detailNear = 0;
     legacyGridIndex = -1;
     child[0] = 0; child[1] = 0; child[2] = 0; child[3] = 0;
 }
@@ -987,23 +981,18 @@ TerrainCuller::TerrainCuller()
     param10 = 1;
     param14 = 1;
     param18 = 100;
-    {
-        // Default LOD factor is the exact float bit pattern for 0.4.
-        const unsigned int u = 0x3ECCCCCDu;
-        ::memcpy(&lodFactor20, &u, sizeof(u));
-    }
-    lodFactor24 = 0.9f;
-    lodFactor28 = 2.0f;
-    lodFactor2C = 2.7f;
-    lodFactor30 = 3.0f;
+    unused1C = 0;
+    lodFactor20 = 0.4f;
+    for (int i = 0; i < 4; ++i)
+        unused24[i] = 0.0f;
     frustum = 0;
     cameraPosition = 0;
     gatherCentre = 0;
     gatherRadius = 0.0f;
     gatherRadiusSq = 0.0f;
     param68 = 2;
-    param6C = 3;
-    flag70 = 1;
+    unused6C = 0;
+    unused70 = 0;
     flag71 = 1;
     versionFlag78 = 0;
 }
@@ -1157,7 +1146,7 @@ void TerrainCuller::load(TerrainRawReader& reader)
         }
         loadNode(reader, node);
         node->childrenWalked = 0;
-        node->lod = 0;
+        node->detailNear = 0;
         if (node->hasPatchList)
         {
             node->lodTable = terrain->m_lodTables;
@@ -1298,27 +1287,21 @@ void TerrainAabb::refresh()
 
 // TerrainCuller - the per-frame walk.
 
-// clear the visible list, take the view's frustum and camera, the LOD distance from
-// the zoom (floored at param14), the root walk, the crack fixup.
+// clear the visible list, take the view's frustum and camera, the detail distance from
+// the zoom (floored at param14), the root walk. [RENDER] No LOD choice and no crack fixup: every
+// visible leaf draws at full detail (see QuadPatch.h).
 void TerrainCuller::update()
 {
     visible.clear();                                                              // sub_100E7520(0, 0)
     dx9rend::IRenderView* const view = dx9rend::rendererGetRenderView();                   // base +0x48
     frustum = view->getFrustumPtr();                                              // +0x74
     cameraPosition = view->getViewMatrixPtr()->m + 12;                            // +0x64, row 3
-    int lod = static_cast<int>(static_cast<long long>(
+    int distance = static_cast<int>(static_cast<long long>(
         view->getZoom() * static_cast<double>(param18) * 0.75));                  // +0x28
-    if (param14 >= lod)
-        lod = param14;
-    lodDistance = lod;
-    if (lastLodDistance != lod)
-    {
-        terrain->m_lightingDirty = 1;
-        lastLodDistance = lodDistance;
-    }
+    if (param14 >= distance)
+        distance = param14;
+    detailDistance = distance;
     walkRoot(nodes);
-    if (flag70)
-        fixCracks();
 }
 
 // the root: the bounding sphere against the frustum, the camera's xz against the box
@@ -1387,36 +1370,15 @@ int TerrainCuller::walkRoot(TerrainCullerNode* node)
                 return 1;
         }
     }
-    switch (param6C)
-    {
-    case 1:
-        walkMode1(node);
-        break;
-    case 2:
-        walkMode2(node);
-        break;
-    case 3:
-        walkMode3(node);
-        break;
-    case 4:
-        walkMode4(node);
-        break;
-    case 5:
-        walkMode5(node);
-        break;
-    case 6:
-        walkMode6(node);
-        break;
-    default:
-        break;
-    }
+    walk(node);
     return 1;
 }
 
-// mode 3, per child: the sphere, the camera's xz when the parent held it, else the
-// corner planes; the LOD from the xz distance to the box plus the camera's height above the
-// terrain; then a push (fileByteEE) or a descent.
-void TerrainCuller::walkMode3(TerrainCullerNode* parent)
+// [RENDER] The one walk (retail's default mode 3 without its LOD choice), per child: the sphere,
+// the camera's xz when the parent held it, else the corner planes; the shading flag from the xz
+// distance to the box plus the camera's height above the terrain; then a push (fileByteEE) or a
+// descent. Retail's modes 1, 2 and 4-6 (console cullerType) only reordered the same tests.
+void TerrainCuller::walk(TerrainCullerNode* parent)
 {
     parent->childrenWalked = 0;
     for (int c = 0; c < 4; ++c)
@@ -1426,21 +1388,18 @@ void TerrainCuller::walkMode3(TerrainCullerNode* parent)
         TerrainAabb& box = child->bounds;
         if (box.dirty)
             box.refresh();
-        const float radius = box.radius;
-        if (box.dirty)
-            box.refresh();
-        const bool inSphere = rendmath::frustumInside(*frustum, box.centre, radius);
+        const bool inSphere = rendmath::frustumInside(*frustum, box.centre, box.radius);
         child->visible = inSphere ? 1 : 0;
         if (!inSphere)
             continue;
-        bool lodBlock = false;
+        bool accepted = false;
         const float* const cam = cameraPosition;
         if (parentCameraInside
             && cam[0] >= box.min.x && cam[0] <= box.max.x && cam[2] >= box.min.z && cam[2] <= box.max.z)
         {
             child->visible = 1;
             child->cameraInside = 1;
-            lodBlock = true;
+            accepted = true;
         }
         else
         {
@@ -1460,7 +1419,7 @@ void TerrainCuller::walkMode3(TerrainCullerNode* parent)
                 if (n)
                 {
                     child->visible = 1;
-                    lodBlock = true;
+                    accepted = true;
                     decided = true;
                     break;
                 }
@@ -1469,748 +1428,29 @@ void TerrainCuller::walkMode3(TerrainCullerNode* parent)
             if (!decided)
             {
                 child->visible = (inside == 6) ? 1 : 0;
-                lodBlock = (inside == 6);
+                accepted = (inside == 6);
             }
         }
-        if (!lodBlock)
+        if (!accepted)
             continue;
 
-        // The xz distance from the camera to the box (0 inside), plus the camera's height above
-        // the terrain; the FPU C0|C2 test is "below min or unordered".
-        double dx;
-        if (!(cam[0] >= box.min.x))
-            dx = static_cast<double>(cam[0]) - box.min.x;
-        else if (cam[0] <= box.max.x)
-            dx = 0.0;
-        else
-            dx = static_cast<double>(box.max.x) - cam[0];
-        double dz;
-        if (!(cam[2] >= box.min.z))
-            dz = static_cast<double>(cam[2]) - box.min.z;
-        else if (cam[2] <= box.max.z)
-            dz = 0.0;
-        else
-            dz = static_cast<double>(box.max.z) - cam[2];
+        double dx = 0.0;
+        if (cam[0] < box.min.x)
+            dx = static_cast<double>(box.min.x) - cam[0];
+        else if (cam[0] > box.max.x)
+            dx = static_cast<double>(cam[0]) - box.max.x;
+        double dz = 0.0;
+        if (cam[2] < box.min.z)
+            dz = static_cast<double>(box.min.z) - cam[2];
+        else if (cam[2] > box.max.z)
+            dz = static_cast<double>(cam[2]) - box.max.z;
         const double distance = std::sqrt(dz * dz + dx * dx) + terrain->m_cameraHeightAboveTerrain;
-        const double lodDist = static_cast<double>(lodDistance);
-        if (distance > lodDist)
-        {
-            if (distance > lodDist * lodFactor30)
-                setLod(child, 2);
-            else
-                setLod(child, 1);
-        }
-        else
-        {
-            if (child->child[0])
-            {
-                for (int g = 0; g < 4; ++g)
-                    if (child->child[g]->visible)
-                        setLod(child->child[g], 0);
-            }
-            child->lod = 0;
-        }
+        child->detailNear = distance <= static_cast<double>(detailDistance) ? 1 : 0;
         if (child->fileByteEE)
             visible.push_back(child);
         else
-            walkMode3(child);
+            walk(child);
         ++parent->childrenWalked;
-    }
-}
-
-// PE 0x100E4F10. [INFERRED] Placement with the existing TerrainCuller bodies.
-void TerrainCuller::walkMode1(TerrainCullerNode* parent)
-{
-    parent->childrenWalked = 0;
-    TerrainCullerNode* candidates[4];
-    float distances[4];
-    for (int childIndex = 0; childIndex < 4; ++childIndex)
-    {
-        TerrainCullerNode* const child = parent->child[childIndex];
-        TerrainAabb& bounds = child->bounds;
-        if (bounds.dirty)
-            bounds.refresh();
-        const float radius = bounds.radius;
-        if (bounds.dirty)
-            bounds.refresh();
-        child->visible = rendmath::frustumInside(*frustum, bounds.centre, radius) ? 1 : 0;
-        if (!child->visible)
-        {
-            candidates[childIndex] = 0;
-            continue;
-        }
-        child->cameraInside = 0;
-        int inside = 0;
-        for (int planeIndex = 0; planeIndex < 6; ++planeIndex)
-        {
-            const Plane3& plane = frustum->m_planes[planeIndex];
-            int inFront = 0;
-            for (int corner = 0; corner < 8; ++corner)
-            {
-                const CullerWalkReal x = (corner & 4) ? bounds.max.x : bounds.min.x;
-                const CullerWalkReal y = (corner & 2) ? bounds.max.y : bounds.min.y;
-                const CullerWalkReal z = (corner & 1) ? bounds.max.z : bounds.min.z;
-                const CullerWalkReal nx = plane.normal.x, ny = plane.normal.y, nz = plane.normal.z;
-                CullerWalkReal dot;
-                if (corner == 0)
-                    dot = (x * nx + y * ny) + z * nz + CullerWalkReal(plane.d);
-                else if (corner < 4)
-                    dot = (y * ny + z * nz) + x * nx + CullerWalkReal(plane.d);
-                else
-                    dot = (y * ny + x * nx) + z * nz + CullerWalkReal(plane.d);
-                inFront += cullerWalkGreater(dot, CullerWalkReal(0));
-            }
-            if (inFront == 8)
-            {
-                child->visible = 0;
-                break;
-            }
-            if (inFront)
-            {
-                child->visible = 1;
-                break;
-            }
-            ++inside;
-        }
-        if (inside == 6)
-            child->visible = 1;
-        if (!child->visible)
-        {
-            candidates[childIndex] = 0;
-            continue;
-        }
-        candidates[childIndex] = parent->child[childIndex];
-        TerrainCullerNode* const lodNode = parent->child[childIndex];
-        const TerrainAabb& lodBounds = lodNode->bounds;
-        const float* const camera = cameraPosition;
-        CullerWalkReal dx = CullerWalkReal(0), dz = CullerWalkReal(0);
-        if (cullerWalkLess(CullerWalkReal(camera[0]), CullerWalkReal(lodBounds.min.x)))
-            dx = CullerWalkReal(camera[0]) - CullerWalkReal(lodBounds.min.x);
-        else if (cullerWalkGreater(CullerWalkReal(camera[0]), CullerWalkReal(lodBounds.max.x)))
-            dx = CullerWalkReal(lodBounds.max.x) - CullerWalkReal(camera[0]);
-        if (cullerWalkLess(CullerWalkReal(camera[2]), CullerWalkReal(lodBounds.min.z)))
-            dz = CullerWalkReal(camera[2]) - CullerWalkReal(lodBounds.min.z);
-        else if (cullerWalkGreater(CullerWalkReal(camera[2]), CullerWalkReal(lodBounds.max.z)))
-            dz = CullerWalkReal(lodBounds.max.z) - CullerWalkReal(camera[2]);
-        const CullerWalkReal distance = cullerWalkSqrt(dz * dz + dx * dx)
-            + CullerWalkReal(terrain->m_cameraHeightAboveTerrain);
-        const CullerWalkReal limit = CullerWalkReal(lodDistance);
-        if (!cullerWalkLessEqual(distance, limit))
-        {
-            setLod(lodNode, !cullerWalkLessEqual(distance, limit * CullerWalkReal(lodFactor30)) ? 2 : 1);
-            distances[childIndex] = static_cast<float>(distance);
-        }
-        else
-        {
-            if (lodNode->child[0])
-                for (int grandchild = 0; grandchild < 4; ++grandchild)
-                    if (lodNode->child[grandchild]->visible)
-                        setLod(lodNode->child[grandchild], 0);
-            distances[childIndex] = static_cast<float>(distance);
-            lodNode->lod = 0;
-        }
-        ++parent->childrenWalked;
-    }
-    if (!parent->childrenWalked)
-        return;
-    for (;;)
-    {
-        int selected = -1;
-        for (int index = 0; index < 4; ++index)
-            if (candidates[index])
-            {
-                selected = index;
-                break;
-            }
-        if (selected < 0)
-            break;
-        for (int index = selected + 1; index < 4; ++index)
-            if (candidates[index] &&
-                cullerWalkLess(CullerWalkReal(distances[index]), CullerWalkReal(distances[selected])))
-                selected = index;
-        if (candidates[selected]->fileByteEE)
-            visible.push_back(candidates[selected]);
-        else
-            walkMode1(candidates[selected]);
-        candidates[selected] = 0;
-    }
-}
-
-// PE 0x100E53A0. [INFERRED] Placement with the existing TerrainCuller bodies.
-void TerrainCuller::walkMode2(TerrainCullerNode* parent)
-{
-    for (;;)
-    {
-        parent->childrenWalked = 0;
-        TerrainCullerNode* candidates[4];
-        for (int childIndex = 0; childIndex < 4; ++childIndex)
-        {
-            TerrainCullerNode* const child = parent->child[childIndex];
-            TerrainAabb& bounds = child->bounds;
-            if (bounds.dirty)
-                bounds.refresh();
-            const float radius = bounds.radius;
-            if (bounds.dirty)
-                bounds.refresh();
-            child->visible = rendmath::frustumInside(*frustum, bounds.centre, radius) ? 1 : 0;
-            if (!child->visible)
-            {
-                candidates[childIndex] = 0;
-                continue;
-            }
-            child->cameraInside = 0;
-            int inside = 0;
-            for (int planeIndex = 0; planeIndex < 6; ++planeIndex)
-            {
-                const Plane3& plane = frustum->m_planes[planeIndex];
-                int inFront = 0;
-                for (int corner = 0; corner < 8; ++corner)
-                {
-                    const CullerWalkReal x = (corner & 4) ? bounds.max.x : bounds.min.x;
-                    const CullerWalkReal y = (corner & 2) ? bounds.max.y : bounds.min.y;
-                    const CullerWalkReal z = (corner & 1) ? bounds.max.z : bounds.min.z;
-                    const CullerWalkReal nx = plane.normal.x, ny = plane.normal.y, nz = plane.normal.z;
-                    CullerWalkReal dot;
-                    if (corner < 4)
-                        dot = (y * ny + z * nz) + x * nx + CullerWalkReal(plane.d);
-                    else if (corner < 7)
-                        dot = (y * ny + x * nx) + z * nz + CullerWalkReal(plane.d);
-                    else
-                        dot = (z * nz + x * nx) + y * ny + CullerWalkReal(plane.d);
-                    inFront += cullerWalkGreater(dot, CullerWalkReal(0));
-                }
-                if (inFront == 8)
-                {
-                    child->visible = 0;
-                    break;
-                }
-                if (inFront)
-                {
-                    child->visible = 1;
-                    break;
-                }
-                ++inside;
-            }
-            if (inside == 6)
-                child->visible = 1;
-            if (!child->visible)
-            {
-                candidates[childIndex] = 0;
-                continue;
-            }
-            candidates[childIndex] = parent->child[childIndex];
-            TerrainCullerNode* const lodNode = parent->child[childIndex];
-            const TerrainAabb& lodBounds = lodNode->bounds;
-            const float* const camera = cameraPosition;
-            CullerWalkReal dx = CullerWalkReal(0), dz = CullerWalkReal(0);
-            if (cullerWalkLess(CullerWalkReal(camera[0]), CullerWalkReal(lodBounds.min.x)))
-                dx = CullerWalkReal(camera[0]) - CullerWalkReal(lodBounds.min.x);
-            else if (cullerWalkGreater(CullerWalkReal(camera[0]), CullerWalkReal(lodBounds.max.x)))
-                dx = CullerWalkReal(lodBounds.max.x) - CullerWalkReal(camera[0]);
-            if (cullerWalkLess(CullerWalkReal(camera[2]), CullerWalkReal(lodBounds.min.z)))
-                dz = CullerWalkReal(camera[2]) - CullerWalkReal(lodBounds.min.z);
-            else if (cullerWalkGreater(CullerWalkReal(camera[2]), CullerWalkReal(lodBounds.max.z)))
-                dz = CullerWalkReal(lodBounds.max.z) - CullerWalkReal(camera[2]);
-            const CullerWalkReal distance = cullerWalkSqrt(dx * dx + dz * dz)
-                + CullerWalkReal(terrain->m_cameraHeightAboveTerrain);
-            const CullerWalkReal limit = CullerWalkReal(lodDistance);
-            if (!cullerWalkLessEqual(distance, limit))
-            {
-                setLod(lodNode, !cullerWalkLessEqual(distance, limit * CullerWalkReal(lodFactor30)) ? 2 : 1);
-            }
-            else
-            {
-                if (lodNode->child[0])
-                    for (int grandchild = 0; grandchild < 4; ++grandchild)
-                        if (lodNode->child[grandchild]->visible)
-                            setLod(lodNode->child[grandchild], 0);
-                lodNode->lod = 0;
-            }
-            ++parent->childrenWalked;
-        }
-        // Shipped defect: three accepted children select all four original child slots.
-        const bool useAllChildren = parent->childrenWalked > 2;
-        if (!useAllChildren && !parent->childrenWalked)
-            return;
-        for (int index = 0; index < 3; ++index)
-        {
-            TerrainCullerNode* const selected = useAllChildren ? parent->child[index] : candidates[index];
-            if (!useAllChildren && !selected)
-                continue;
-            if (selected->fileByteEE)
-                visible.push_back(selected);
-            else
-                walkMode2(selected);
-        }
-        TerrainCullerNode* const last = useAllChildren ? parent->child[3] : candidates[3];
-        if (!useAllChildren && !last)
-            return;
-        if (last->fileByteEE)
-        {
-            visible.push_back(last);
-            return;
-        }
-        parent = last; // The fourth-child descent is a tail loop in the image.
-    }
-}
-
-// PE 0x100E5DD0. [INFERRED] Placement with the existing TerrainCuller bodies.
-int TerrainCuller::walkMode4(TerrainCullerNode* parent)
-{
-    parent->childrenWalked = 0;
-    TerrainCullerNode* candidates[4];
-    bool childComplete[4];
-    bool allComplete = true;
-    for (int childIndex = 0; childIndex < 4; ++childIndex)
-    {
-        TerrainCullerNode* const child = parent->child[childIndex];
-        TerrainAabb& bounds = child->bounds;
-        if (bounds.dirty)
-            bounds.refresh();
-        const float radius = bounds.radius;
-        if (bounds.dirty)
-            bounds.refresh();
-        child->visible = rendmath::frustumInside(*frustum, bounds.centre, radius) ? 1 : 0;
-        if (!child->visible)
-        {
-            allComplete = false;
-            candidates[childIndex] = 0;
-            continue;
-        }
-        child->cameraInside = 0;
-        int inside = 0;
-        for (int planeIndex = 0; planeIndex < 6; ++planeIndex)
-        {
-            const Plane3& plane = frustum->m_planes[planeIndex];
-            int inFront = 0;
-            for (int corner = 0; corner < 8; ++corner)
-            {
-                const CullerWalkReal x = (corner & 4) ? bounds.max.x : bounds.min.x;
-                const CullerWalkReal y = (corner & 2) ? bounds.max.y : bounds.min.y;
-                const CullerWalkReal z = (corner & 1) ? bounds.max.z : bounds.min.z;
-                const CullerWalkReal nx = plane.normal.x, ny = plane.normal.y, nz = plane.normal.z;
-                CullerWalkReal dot;
-                if (corner < 3)
-                    dot = (z * nz + x * nx) + y * ny + CullerWalkReal(plane.d);
-                else if (corner < 5)
-                    dot = (x * nx + z * nz) + y * ny + CullerWalkReal(plane.d);
-                else
-                    dot = (z * nz + y * ny) + x * nx + CullerWalkReal(plane.d);
-                inFront += cullerWalkGreater(dot, CullerWalkReal(0));
-            }
-            if (inFront == 8)
-            {
-                child->visible = 0;
-                break;
-            }
-            if (inFront)
-            {
-                child->visible = 1;
-                break;
-            }
-            ++inside;
-        }
-        if (inside == 6)
-            child->visible = 1;
-        if (!child->visible)
-        {
-            allComplete = false;
-            candidates[childIndex] = 0;
-            continue;
-        }
-        TerrainCullerNode* const lodNode = parent->child[childIndex];
-        const TerrainAabb& lodBounds = lodNode->bounds;
-        const float* const camera = cameraPosition;
-        CullerWalkReal dx = CullerWalkReal(0), dz = CullerWalkReal(0);
-        if (cullerWalkLess(CullerWalkReal(camera[0]), CullerWalkReal(lodBounds.min.x)))
-            dx = CullerWalkReal(camera[0]) - CullerWalkReal(lodBounds.min.x);
-        else if (cullerWalkGreater(CullerWalkReal(camera[0]), CullerWalkReal(lodBounds.max.x)))
-            dx = CullerWalkReal(lodBounds.max.x) - CullerWalkReal(camera[0]);
-        if (cullerWalkLess(CullerWalkReal(camera[2]), CullerWalkReal(lodBounds.min.z)))
-            dz = CullerWalkReal(camera[2]) - CullerWalkReal(lodBounds.min.z);
-        else if (cullerWalkGreater(CullerWalkReal(camera[2]), CullerWalkReal(lodBounds.max.z)))
-            dz = CullerWalkReal(lodBounds.max.z) - CullerWalkReal(camera[2]);
-        const CullerWalkReal distance = cullerWalkSqrt(dz * dz + dx * dx)
-            + CullerWalkReal(terrain->m_cameraHeightAboveTerrain);
-        const CullerWalkReal limit = CullerWalkReal(lodDistance);
-        if (!cullerWalkLessEqual(distance, limit))
-        {
-            setLod(lodNode, !cullerWalkLessEqual(distance, limit * CullerWalkReal(lodFactor30)) ? 2 : 1);
-        }
-        else
-        {
-            if (lodNode->child[0])
-                for (int grandchild = 0; grandchild < 4; ++grandchild)
-                    if (lodNode->child[grandchild]->visible)
-                        setLod(lodNode->child[grandchild], 0);
-            lodNode->lod = 0;
-        }
-        TerrainCullerNode* const selected = parent->child[childIndex];
-        if (!selected->fileByteEE)
-        {
-            const bool complete = walkMode4(selected) != 0;
-            allComplete = allComplete & complete;
-            childComplete[childIndex] = complete;
-        }
-        else
-            childComplete[childIndex] = true;
-        ++parent->childrenWalked;
-        candidates[childIndex] = parent->child[childIndex];
-    }
-    if (!parent->patch)
-        return 0;
-    if (!allComplete)
-    {
-        for (int index = 0; index < 4; ++index)
-            if (candidates[index] && childComplete[index])
-                visible.push_back(candidates[index]);
-        return 0;
-    }
-    if (!parent->hasPatchList)
-        return 1;
-    visible.push_back(parent);
-    return 0;
-}
-
-
-// PE 0x100E6270. [INFERRED] Placement with the existing TerrainCuller bodies.
-void TerrainCuller::walkMode5(TerrainCullerNode* parent)
-{
-    parent->childrenWalked = 0;
-    for (int childIndex = 0; childIndex < 4; ++childIndex)
-    {
-        TerrainCullerNode* const child = parent->child[childIndex];
-        TerrainAabb& bounds = child->bounds;
-        if (bounds.dirty)
-            bounds.refresh();
-        const float radius = bounds.radius;
-        if (bounds.dirty)
-            bounds.refresh();
-        child->visible = rendmath::frustumInside(*frustum, bounds.centre, radius) ? 1 : 0;
-        if (!child->visible)
-            continue;
-
-        child->cameraInside = 0;
-        int inside = 0;
-        for (int planeIndex = 0; planeIndex < 6; ++planeIndex)
-        {
-            const Plane3& plane = frustum->m_planes[planeIndex];
-            int inFront = 0;
-            for (int corner = 0; corner < 8; ++corner)
-            {
-                const CullerWalkReal x = (corner & 4) ? bounds.max.x : bounds.min.x;
-                const CullerWalkReal y = (corner & 2) ? bounds.max.y : bounds.min.y;
-                const CullerWalkReal z = (corner & 1) ? bounds.max.z : bounds.min.z;
-                const CullerWalkReal nx = plane.normal.x, ny = plane.normal.y, nz = plane.normal.z;
-                // The first three corners sum y/z/x; the remaining five sum y/x/z.
-                const CullerWalkReal dot = corner < 3
-                    ? (y * ny + z * nz) + x * nx + CullerWalkReal(plane.d)
-                    : (y * ny + x * nx) + z * nz + CullerWalkReal(plane.d);
-                inFront += cullerWalkGreater(dot, CullerWalkReal(0));
-            }
-            if (inFront == 8)
-            {
-                child->visible = 0;
-                break;
-            }
-            if (inFront)
-            {
-                child->visible = 1;
-                break;
-            }
-            ++inside;
-        }
-        if (inside == 6)
-            child->visible = 1;
-        if (!child->visible)
-            continue;
-
-        TerrainCullerNode* const lodNode = parent->child[childIndex];
-        const TerrainAabb& lodBounds = lodNode->bounds;
-        const float* const camera = cameraPosition;
-        CullerWalkReal dx = CullerWalkReal(0), dz = CullerWalkReal(0);
-        if (cullerWalkLess(CullerWalkReal(camera[0]), CullerWalkReal(lodBounds.min.x)))
-            dx = CullerWalkReal(camera[0]) - CullerWalkReal(lodBounds.min.x);
-        else if (cullerWalkGreater(CullerWalkReal(camera[0]), CullerWalkReal(lodBounds.max.x)))
-            dx = CullerWalkReal(lodBounds.max.x) - CullerWalkReal(camera[0]);
-        if (cullerWalkLess(CullerWalkReal(camera[2]), CullerWalkReal(lodBounds.min.z)))
-            dz = CullerWalkReal(camera[2]) - CullerWalkReal(lodBounds.min.z);
-        else if (cullerWalkGreater(CullerWalkReal(camera[2]), CullerWalkReal(lodBounds.max.z)))
-            dz = CullerWalkReal(lodBounds.max.z) - CullerWalkReal(camera[2]);
-
-        const CullerWalkReal distance = cullerWalkSqrt(dz * dz + dx * dx)
-            + CullerWalkReal(terrain->m_cameraHeightAboveTerrain);
-        const CullerWalkReal limit = CullerWalkReal(lodDistance);
-        if (!cullerWalkLessEqual(distance, limit))
-            setLod(lodNode, !cullerWalkLessEqual(distance, limit * CullerWalkReal(lodFactor30)) ? 2 : 1);
-        else
-        {
-            if (lodNode->child[0])
-                for (int grandchild = 0; grandchild < 4; ++grandchild)
-                    if (lodNode->child[grandchild]->visible)
-                        setLod(lodNode->child[grandchild], 0);
-            lodNode->lod = 0;
-        }
-        TerrainCullerNode* const selected = parent->child[childIndex];
-        if (selected->fileByteEE)
-            visible.push_back(selected);
-        else
-            walkMode5(selected);
-        ++parent->childrenWalked;
-    }
-}
-
-// PE 0x100E6640. [INFERRED] Placement with the existing TerrainCuller bodies.
-int TerrainCuller::walkMode6(TerrainCullerNode* node)
-{
-    node->childrenWalked = 0;
-    TerrainAabb& bounds = node->bounds;
-    if (bounds.dirty)
-        bounds.refresh();
-    const float radius = bounds.radius;
-    if (bounds.dirty)
-        bounds.refresh();
-    node->visible = rendmath::frustumInside(*frustum, bounds.centre, radius) ? 1 : 0;
-    bool accepted = node->visible != 0;
-    if (accepted && node->lod == 0)
-    {
-        // PE 0x101C6A90, the pure eight-corner test at 0x100E66AC.
-        for (int planeIndex = 0; planeIndex < 6; ++planeIndex)
-        {
-            const Plane3& plane = frustum->m_planes[planeIndex];
-            int inFront = 0;
-            for (int corner = 0; corner < 8; ++corner)
-            {
-                const CullerWalkReal x = node->corners[3 * corner];
-                const CullerWalkReal y = node->corners[3 * corner + 1];
-                const CullerWalkReal z = node->corners[3 * corner + 2];
-                const CullerWalkReal nx = plane.normal.x, ny = plane.normal.y, nz = plane.normal.z;
-                const CullerWalkReal dot = corner == 0
-                    ? (z * nz + x * nx) + y * ny + CullerWalkReal(plane.d)
-                    : (y * ny + z * nz) + x * nx + CullerWalkReal(plane.d);
-                inFront += cullerWalkGreater(dot, CullerWalkReal(0));
-            }
-            if (inFront == 8)
-            {
-                accepted = false;
-                break;
-            }
-        }
-    }
-    node->visible = accepted ? 1 : 0;
-    if (!node->visible)
-        return static_cast<int>(node->visible);
-
-    if (node->child[0])
-        for (int child = 0; child < 4; ++child)
-            if (walkMode6(node->child[child]))
-                ++node->childrenWalked;
-    if (!node->patch && !node->childrenWalked)
-    {
-        node->visible = 0;
-        return 0;
-    }
-    if (node->fileByteEE)
-    {
-        const float* const camera = cameraPosition;
-        CullerWalkReal dx = CullerWalkReal(0), dz = CullerWalkReal(0);
-        if (cullerWalkLess(CullerWalkReal(camera[0]), CullerWalkReal(bounds.min.x)))
-            dx = CullerWalkReal(camera[0]) - CullerWalkReal(bounds.min.x);
-        else if (cullerWalkGreater(CullerWalkReal(camera[0]), CullerWalkReal(bounds.max.x)))
-            dx = CullerWalkReal(bounds.max.x) - CullerWalkReal(camera[0]);
-        if (cullerWalkLess(CullerWalkReal(camera[2]), CullerWalkReal(bounds.min.z)))
-            dz = CullerWalkReal(camera[2]) - CullerWalkReal(bounds.min.z);
-        else if (cullerWalkGreater(CullerWalkReal(camera[2]), CullerWalkReal(bounds.max.z)))
-            dz = CullerWalkReal(bounds.max.z) - CullerWalkReal(camera[2]);
-        const CullerWalkReal distance = cullerWalkSqrt(dz * dz + dx * dx)
-            + CullerWalkReal(terrain->m_cameraHeightAboveTerrain);
-        if (cullerWalkLessEqual(distance, CullerWalkReal(lodDistance)))
-            setLod(node, 0);
-        else
-        {
-            // The image's LEA triples the signed integer threshold with 32-bit wrap.
-            const int farLimit = static_cast<int>(3u * static_cast<unsigned int>(lodDistance));
-            setLod(node, cullerWalkLessEqual(distance, CullerWalkReal(farLimit)) ? 1 : 2);
-        }
-        visible.push_back(node);
-    }
-    return static_cast<int>(node->visible);
-}
-
-// the node's visible children first, then the node; 3 and above clamp to 2.
-void TerrainCuller::setLod(TerrainCullerNode* node, int lod)
-{
-    if (node->child[0])
-    {
-        for (int c = 0; c < 4; ++c)
-            if (node->child[c]->visible)
-                setLod(node->child[c], lod);
-    }
-    node->lod = lod;
-    if (lod >= 3)
-        node->lod = 2;
-}
-
-// the crack mask. Version 0x1A content: per visible node, the neighbours 1 (bit 1),
-// 6 (bit 2), 3 (bit 4) and 4 (bit 8) that sit one LOD finer decide the mask; a LOD-2 node with any
-// LOD-0 neighbour drops to LOD 1 first. Older content: a LOD-2 node with a null or LOD-0 neighbour
-// drops to LOD 1 and the mask stays 0.
-void TerrainCuller::fixCracks()
-{
-    TerrainCullerNode** const first = visible.data();
-    TerrainCullerNode** const last  = first + visible.size();
-    if (versionFlag78)
-    {
-        for (TerrainCullerNode** it = first; it != last; ++it)
-        {
-            TerrainCullerNode* const n = *it;
-            const int lod = n->lod;
-            n->crackMask = 0;
-            TerrainCullerNode* const nb1 = n->neighbour[1];
-            TerrainCullerNode* const nb3 = n->neighbour[3];
-            TerrainCullerNode* const nb4 = n->neighbour[4];
-            TerrainCullerNode* const nb6 = n->neighbour[6];
-            if (n->allNeighbours)
-            {
-                if (lod == 1)
-                {
-                    if (lod0(nb1))
-                    {
-                        n->crackMask = 1;
-                        if (lod0(nb3))       n->crackMask = 5;
-                        else if (lod0(nb4))  n->crackMask = 9;
-                    }
-                    else if (lod0(nb6))
-                    {
-                        n->crackMask = 2;
-                        if (lod0(nb3))       n->crackMask = 6;
-                        else if (lod0(nb4))  n->crackMask = 10;
-                    }
-                    else if (lod0(nb3))      n->crackMask = 4;
-                    else if (lod0(nb4))      n->crackMask = 8;
-                }
-                else if (lod == 2)
-                {
-                    bool anyLod0 = false;
-                    for (int i = 0; i < 8; ++i)
-                        if (n->neighbour[i]->lod == 0) { anyLod0 = true; break; }
-                    if (anyLod0)
-                    {
-                        n->lod = 1;
-                        if (lod0(nb1))
-                        {
-                            n->crackMask = 1;
-                            if (lod0(nb3))       n->crackMask = 1 | 4;
-                            else if (lod0(nb4))  n->crackMask = 1 | 8;
-                        }
-                        else if (lod0(nb6))
-                        {
-                            n->crackMask = 2;
-                            if (lod0(nb3))       n->crackMask = 2 | 4;
-                            else if (lod0(nb4))  n->crackMask = 2 | 8;
-                        }
-                        else if (lod0(nb3))      n->crackMask = 4;
-                        else if (lod0(nb4))      n->crackMask = 8;
-                    }
-                    if (lod1(nb1))
-                    {
-                        n->crackMask |= 1;
-                        if (lod1(nb3))       n->crackMask |= 4;
-                        else if (lod1(nb4))  n->crackMask |= 8;
-                    }
-                    else if (lod1(nb6))
-                    {
-                        n->crackMask |= 2;
-                        if (lod1(nb3))       n->crackMask |= 4;
-                        else if (lod1(nb4))  n->crackMask |= 8;
-                    }
-                    else if (lod1(nb3))      n->crackMask |= 4;
-                    else if (lod1(nb4))      n->crackMask |= 8;
-                }
-            }
-            else
-            {
-                if (lod == 1)
-                {
-                    if (lod0n(nb1))
-                    {
-                        n->crackMask = 1;
-                        if (lod0n(nb3))      n->crackMask = 5;
-                        else if (nb4 && nb4->visible && nb4->lod == 0) n->crackMask = 9;
-                    }
-                    else if (lod0n(nb6))
-                    {
-                        n->crackMask = 2;
-                        if (lod0n(nb3))      n->crackMask = 6;
-                        else if (lod0n(nb4)) n->crackMask = 10;
-                    }
-                    else if (lod0n(nb3))     n->crackMask = 4;
-                    else if (lod0n(nb4))     n->crackMask = 8;
-                }
-                else if (lod == 2)
-                {
-                    bool anyLod0 = false;
-                    for (int i = 0; i < 8; ++i)
-                    {
-                        TerrainCullerNode* const nb = n->neighbour[i];
-                        if (nb && nb->lod == 0) { anyLod0 = true; break; }
-                    }
-                    if (anyLod0)
-                    {
-                        n->lod = 1;
-                        if (lod0n(nb1))
-                        {
-                            n->crackMask = 1;
-                            if (lod0n(nb3))      n->crackMask = 1 | 4;
-                            else if (lod0n(nb4)) n->crackMask = 1 | 8;
-                        }
-                        else if (lod0n(nb6))
-                        {
-                            n->crackMask = 2;
-                            if (lod0n(nb3))      n->crackMask = 2 | 4;
-                            else if (lod0n(nb4)) n->crackMask = 2 | 8;
-                        }
-                        else if (lod0n(nb3))     n->crackMask = 4;
-                        else if (lod0n(nb4))     n->crackMask = 8;
-                    }
-                    if (lod1n(nb1))
-                    {
-                        n->crackMask |= 1;
-                        if (lod1n(nb3))      n->crackMask |= 4;
-                        else if (lod1n(nb4)) n->crackMask |= 8;
-                    }
-                    else if (lod1n(nb6))
-                    {
-                        n->crackMask |= 2;
-                        if (lod1n(nb3))      n->crackMask |= 4;
-                        else if (lod1n(nb4)) n->crackMask |= 8;
-                    }
-                    else if (lod1n(nb3))     n->crackMask |= 4;
-                    else if (lod1n(nb4))     n->crackMask |= 8;
-                }
-            }
-        }
-    }
-    else
-    {
-        for (TerrainCullerNode** it = first; it != last; ++it)
-        {
-            TerrainCullerNode* const n = *it;
-            const bool lod2 = n->lod == 2;
-            n->crackMask = 0;
-            if (lod2)
-            {
-                for (int i = 0; i < 8; ++i)
-                {
-                    TerrainCullerNode* const nb = n->neighbour[i];
-                    if (nb && nb->lod == 0)
-                    {
-                        n->lod = 1;
-                        break;
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -2444,8 +1684,8 @@ void TerrainCuller::buildLegacyTree()
     if (nodes->child[0])
         for (int quadrant = 0; quadrant < 4; ++quadrant)
             if (nodes->child[quadrant]->visible)
-                setLod(nodes->child[quadrant], 0);
-    nodes->lod = 0;
+                nodes->child[quadrant]->detailNear = 1;
+    nodes->detailNear = 1;
     linkLegacyNeighbours(nodes);
 }
 
@@ -2744,74 +1984,28 @@ void QuadPatch::drawTechniquePass(TerrainCullerNode**& it, std::vector<TerrainCu
         TerrainCullerNode* const node = *it;
         if (node->patch != this)
             return;
-        const int lod = node->lod;
-        if (t->m_currentLod != lod)
-        {
-            t->m_currentLod = lod;
-            float selector[4] = { static_cast<float>(lod == 0), static_cast<float>(lod == 1),
-                                  static_cast<float>(lod == 2), static_cast<float>(lod == 3) };
-            const float scaleY = t->m_primaryWorldScale.y;
-            for (int i = 0; i < 4; ++i)
-                selector[i] *= scaleY;
-            param(t->m_hMorphDeltaSelector)->setValue(selector, 0);
-            param(t->m_hNearFarMorphLimits)->setValue(&t->m_morphLimits[2 * lod], 0);
-            float adder[12] = {};
-            if (t->m_rawHasVersion >= 1u && t->m_rawVersion >= 0x1Au)
-            {
-                const float y0 = t->m_primaryWorldScale.y;
-                const float zero0 = 0.0f * y0;
-                adder[0] = zero0; adder[1] = zero0; adder[2] = y0; adder[3] = zero0;
-                const float y1 = t->m_primaryWorldScale.y;
-                const float zero1 = (lod == 1) ? y1 * 0.0f : 0.0f * y1;
-                if (lod == 1)
-                {
-                    adder[4] = y1; adder[5] = zero1; adder[6] = zero1; adder[7] = zero1;
-                }
-                else
-                {
-                    adder[4] = zero1; adder[5] = zero1; adder[6] = y1; adder[7] = zero1;
-                }
-                const float y2 = t->m_primaryWorldScale.y;
-                const float zero2 = 0.0f * y2;
-                if (lod == 0 || lod == 1)
-                {
-                    adder[8] = zero2; adder[9] = zero2; adder[10] = y2; adder[11] = zero2;
-                }
-                else
-                {
-                    adder[8] = zero2; adder[9] = y2; adder[10] = zero2; adder[11] = zero2;
-                }
-            }
-            param(t->m_hMorphDeltaAdder)->setValue(adder, 0);
-        }
         param(t->m_hTexLayer[0])->setValue(lightmap, 0);
-        const TerrainLodRecord* const table = reinterpret_cast<const TerrainLodRecord*>(node->lodTable);
-        const int primitives = static_cast<int>(table->counts[node->lod][0]) / 3;
-        drawPatchRange(t, static_cast<unsigned int>(primitives), vertexCount, table->starts[node->lod][0]);
+        const int primitives = static_cast<int>(lodCount(node)) / 3;
+        drawPatchRange(t, static_cast<unsigned int>(primitives), vertexCount, lodStart(node));
         terrainRendererStat(624) += static_cast<unsigned int>(primitives);
         ++it;
     }
 }
 
-// pass 0: every visible node of this patch, by its LOD range; the "TerrainLightmap"
-// arm merges contiguous ranges of one LOD, the "TerrainMorphing" arm draws them one by one.
-// [RENDER] See QuadPatch.h; the range is lodStart/lodCount at a chosen column.
+// [RENDER] See QuadPatch.h.
 void QuadPatch::beginCasterDraw()
 {
     beginPatchDraw(this);
 }
 
-void QuadPatch::drawCasterNode(const TerrainCullerNode* node, int lod, int crackMask)
+void QuadPatch::drawCasterNode(const TerrainCullerNode* node)
 {
     static unsigned int s_vertexCount = 0;
     Terrain* const t = terrain;
     if (!s_vertexCount)
         s_vertexCount = static_cast<unsigned int>((t->m_patchSize + 1) * (t->m_patchSize + 1));
-    const unsigned int* const table = reinterpret_cast<const unsigned int*>(node->lodTable);
-    const unsigned int start = table[crackMask + 16 * lod];
-    const unsigned int count = table[crackMask + 16 * (lod + 3)];
-    if (t->m_currentLod != lod)
-        t->setMorphConstants(lod);
+    const unsigned int start = lodStart(node);
+    const unsigned int count = lodCount(node);
     if (count >= 3)
         drawPatchRange(t, count / 3, s_vertexCount, start);
 }
@@ -2837,9 +2031,6 @@ void QuadPatch::draw(TerrainCullerNode**& it)
             TerrainCullerNode* const node = *it;
             if (node->patch != this)
                 break;
-            const int lod = node->lod;
-            if (t->m_currentLod != lod)
-                t->setMorphConstants(lod);
             const unsigned int count = lodCount(node);
             const unsigned int start = lodStart(node);
             const unsigned int prims = count / 3;
@@ -2855,11 +2046,8 @@ void QuadPatch::draw(TerrainCullerNode**& it)
         TerrainCullerNode* const node = *it;
         if (node->patch != this)
             break;
-        const int lod = node->lod;
         unsigned int start = lodStart(node);
         unsigned int count = lodCount(node);
-        if (t->m_currentLod != lod)
-            t->setMorphConstants(lod);
         ++it;
         bool flushed = false;
         while (it != end)
@@ -2869,9 +2057,9 @@ void QuadPatch::draw(TerrainCullerNode**& it)
                 break;
             const unsigned int nextStart = lodStart(next);
             const unsigned int nextCount = lodCount(next);
-            if (lod != next->lod || nextStart != start + count)
+            if (nextStart != start + count)
             {
-                if (lod != next->lod || nextCount + nextStart != start)
+                if (nextCount + nextStart != start)
                 {
                     drawPatchRange(t, count / 3, s_vertexCount, start);
                     flushed = true;
@@ -2890,11 +2078,10 @@ void QuadPatch::draw(TerrainCullerNode**& it)
 // Draws gathered nodes while advancing it, switching passes and morph constants as needed.
 // The default mode uses uncracked index ranges. Counts primitives, without merging ranges.
 void QuadPatch::drawGatheredNodes(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,
-                                  int passLod0, int passOther)
+                                  int passNear, int passFar)
 {
     static unsigned int s_once = 0;                                               // dword_10261A0C
     static unsigned int s_vertexCount = 0;                                        // dword_10261A08
-    static const int kRangeMode = 1;                                              // dword_1023A5D0 [.data 1, no writer]
     Terrain* const t = terrain;
     if ((s_once & 1u) == 0)
     {
@@ -2910,25 +2097,14 @@ void QuadPatch::drawGatheredNodes(TerrainCullerNode**& it, std::vector<TerrainCu
         TerrainCullerNode* const node = *it;
         if (node->patch != this)
             break;
-        const int pass = (node->lod == 0) ? passLod0 : passOther;
+        const int pass = node->detailNear ? passNear : passFar;
         if (t->m_currentPass != pass)
         {
             t->m_currentPass = pass;                                              // stored first, as shipped
             dx9rend::effectBeginPass(t->m_effect, static_cast<unsigned int>(pass));
         }
-        const int lod = node->lod;
-        if (t->m_currentLod != lod)
-            t->setMorphConstants(lod);
-        unsigned int start = lodStart(node);                                      // the crack-fixed pair,
-        unsigned int count = lodCount(node);                                      //   loaded first
-        if (kRangeMode == 1)
-        {
-            // 0x10189697: MaxPrimitiveCount is read here and its result discarded, as shipped.
-            (void)dx9rend::deviceCapsMaxPrimitiveCount();
-            const unsigned int* const table = reinterpret_cast<const unsigned int*>(node->lodTable);
-            start = table[16 * lod];
-            count = table[16 * (lod + 3)];
-        }
+        const unsigned int start = lodStart(node);
+        const unsigned int count = lodCount(node);
         const int prims = static_cast<int>(count) / 3;
         drawPatchRange(t, static_cast<unsigned int>(prims), s_vertexCount, start);
         terrainRendererStat(0x270) += static_cast<unsigned int>(prims);           // Renderer +0x6C, then +0x270
@@ -2947,96 +2123,6 @@ void QuadPatch::drawPointLight(TerrainCullerNode**& it)
     drawGatheredNodes(it, terrain->m_culler->gatheredPatches(), 13, 1);
 }
 
-// PE 0x1018BB70, "TerrainOccluderShadows": this patch's run of the culler's gathered list drawn from
-// the index ranges of one fixed LOD row, the light manager's terrain shadow LOD (slot +0x278), not
-// the node's own LOD. With the terrain's merge flag set, the first node binds the scale/translate
-// constant and the vertex stream, and contiguous ranges (the next range starting where the run
-// ends, or ending where it starts) are merged into one draw; a run that cannot be merged is drawn
-// without the empty-count test. Without the flag every node is drawn on its own and nothing is
-// bound. [INFERRED] name (the profiler string and the sibling drawPointLight);
-// unreachable in 1.50: no code or data references.
-void QuadPatch::drawOccluderShadows(TerrainCullerNode**& it)
-{
-    static unsigned int s_once = 0;                                               // dword_10261C8C bit 0
-    static unsigned int s_vertexCount = 0;                                        // dword_10261C88
-    Terrain* const t = terrain;
-    if ((s_once & 1u) == 0)
-    {
-        const int n = t->m_patchSize;
-        s_once |= 1u;
-        s_vertexCount = static_cast<unsigned int>((n + 1) * (n + 1));
-    }
-    static dx9rend::QueueProfiler profiler(std::string("TerrainOccluderShadows")); // PE 0x10261A20
-    profiler.begin();
-    const int lod = g_LightManager->getTerrainShadowLod();
-    std::vector<TerrainCullerNode*>* const list = t->m_culler->gatheredPatches();
-    TerrainCullerNode** const end = list->data() + list->size();
-    if (t->m_mergeDrawRanges)
-    {
-        bool bound = false;
-        while (it != end)
-        {
-            TerrainCullerNode* const node = *it;
-            if (node->patch != this)
-                break;
-            const unsigned int* const table = reinterpret_cast<const unsigned int*>(node->lodTable);
-            int start = static_cast<int>(table[16 * lod]);
-            int count = static_cast<int>(table[16 * (lod + 3)]);
-            if (!bound)
-            {
-                float scaleTrans[4];
-                scaleTrans[0] = static_cast<float>(t->m_primaryWorldScale.x * 255.0);
-                scaleTrans[1] = static_cast<float>(t->m_primaryWorldScale.z * 255.0);
-                scaleTrans[2] = worldXf;
-                scaleTrans[3] = worldZf;
-                bound = true;
-                param(t->m_hScaleTransXZ)->setValue(scaleTrans, 0);
-                dx9rend::vertexBufferBindStream(vertexBuffer, t->m_compactVertices ? 1u : 0u);
-            }
-            ++it;
-            bool drawnUnmerged = false;
-            while (it != end)
-            {
-                TerrainCullerNode* const next = *it;
-                if (next->patch != this)
-                    break;
-                const unsigned int* const nextTable = reinterpret_cast<const unsigned int*>(next->lodTable);
-                const int nextStart = static_cast<int>(nextTable[16 * lod]);
-                const int nextCount = static_cast<int>(nextTable[16 * (lod + 3)]);
-                if (nextStart != start + count)
-                {
-                    if (nextStart + nextCount != start)
-                    {
-                        drawPatchRange(t, static_cast<unsigned int>(count / 3), s_vertexCount,
-                                       static_cast<unsigned int>(start));
-                        drawnUnmerged = true;
-                        break;
-                    }
-                    start -= nextCount;
-                }
-                count += nextCount;
-                ++it;
-            }
-            if (!drawnUnmerged && count > 0)
-                drawPatchRange(t, static_cast<unsigned int>(count / 3), s_vertexCount,
-                               static_cast<unsigned int>(start));
-        }
-    }
-    else
-    {
-        while (it != end)
-        {
-            TerrainCullerNode* const node = *it;
-            if (node->patch != this)
-                break;
-            const unsigned int* const table = reinterpret_cast<const unsigned int*>(node->lodTable);
-            const int count = static_cast<int>(table[16 * (lod + 3)]);
-            drawPatchRange(t, static_cast<unsigned int>(count / 3), s_vertexCount, table[16 * lod]);
-            ++it;
-        }
-    }
-    dx9rend::QueueProfiler::end();
-}
 
 // the diffuse passes. "TerrainDiffusePassLod0": per detail layer (the cached layer
 // first, then the rest, one hidden by +0x3C0), this patch's LOD-0 nodes through the layer's index
@@ -3088,7 +2174,7 @@ void QuadPatch::drawFinal(TerrainCullerNode**& it)
                 TerrainCullerNode* const node = *it;
                 if (node->patch != this)
                     break;
-                if (node->lod != 0)
+                if (!node->detailNear)
                 {
                     ++it;
                     continue;
@@ -3097,8 +2183,6 @@ void QuadPatch::drawFinal(TerrainCullerNode**& it)
                 {
                     TerrainDetailTexture* const record =
                         t->m_detailTextures.data()[detailLayer->detailIndex];
-                    if (t->m_currentLod != 0)
-                        t->setMorphConstants(0);
                     dx9rend::indexBufferBind(detailLayer->indexBuffer);
                     int pass;
                     if (layer == 6)
@@ -3185,7 +2269,7 @@ void QuadPatch::drawFinal(TerrainCullerNode**& it)
                     if (next->patch != this)
                         break;
                     const unsigned int nextCount = table[48];
-                    if (next->lod != 0)
+                    if (!next->detailNear)
                     {
                         flushed = true;
                         drawPatchRange(t, total / 3, s_vertexCount, start);
@@ -3231,11 +2315,9 @@ void QuadPatch::drawFinal(TerrainCullerNode**& it)
         TerrainCullerNode* const node = *it;
         if (node->patch != this)
             break;
-        const int lod = node->lod;
-        if (lod || t->m_lowQualityB)
+        // [RENDER] Retail drew LOD 1 and 2 here; now the far nodes, at full detail.
+        if (!node->detailNear || t->m_lowQualityB)
         {
-            if (t->m_currentLod != lod)
-                t->setMorphConstants(lod);
             if ((t->m_drawDebugFlags & 1) == 0)
             {
                 unsigned int count = lodCount(node);
@@ -3249,9 +2331,11 @@ void QuadPatch::drawFinal(TerrainCullerNode**& it)
                         break;
                     const unsigned int nextStart = lodStart(next);
                     const unsigned int nextCount = lodCount(next);
-                    if (lod != next->lod || nextStart != start + count)
+                    // A near node after a far one is not drawn by this pass (unless low quality).
+                    const bool sameRun = next->detailNear == node->detailNear || t->m_lowQualityB;
+                    if (!sameRun || nextStart != start + count)
                     {
-                        if (lod != next->lod || nextCount + nextStart != start)
+                        if (!sameRun || nextCount + nextStart != start)
                         {
                             drawPatchRange(t, count / 3, s_vertexCount, start);
                             flushed = true;
@@ -3372,9 +2456,9 @@ void QuadPatch::drawWater(TerrainCullerNode**& it, std::vector<TerrainCullerNode
                     break;
                 const unsigned int nextStart = lodStart(next);
                 const unsigned int nextCount = lodCount(next);
-                if (node->lod != next->lod || start + count != nextStart)
+                if (start + count != nextStart)
                 {
-                    if (node->lod != next->lod || nextStart + nextCount != start)
+                    if (nextStart + nextCount != start)
                     {
                         // Shipped behavior: a discontinuity submits even a nonpositive count.
                         raQuadPatchAdapterSubmit(static_cast<int>(count) / 3, s_vertexCount,

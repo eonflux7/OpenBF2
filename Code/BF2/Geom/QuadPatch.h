@@ -108,20 +108,19 @@ public:
     // the per-frame bodies. Each takes the visible-list iterator by reference and
     //      consumes every entry that belongs to this patch.
     // [RENDER] Sun shadow casters: the patch constants and stream, then one node's
-    // index range at (lod, crackMask) with the matching morph constants, under the caller's pass.
+    // full-detail index range, under the caller's pass.
     void beginCasterDraw();
-    void drawCasterNode(const TerrainCullerNode* node, int lod, int crackMask);
+    void drawCasterNode(const TerrainCullerNode* node);
     void draw(TerrainCullerNode**& it);                              // 0x1018BE20  the Hi_/Low_Terrain pass-0 draw (accumulation target)
-    void drawFinal(TerrainCullerNode**& it);                         // 0x1018C910  the diffuse detail passes (LOD 0 per layer, then the lower LODs)
+    void drawFinal(TerrainCullerNode**& it);                         // 0x1018C910  the diffuse passes: detail layers on near nodes, then the low-detail pass
     void drawWater(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,
                    void* materialParameters, void* objectParameters); // 0x1018D800  the Ra water submit - see the body
 
     // the light passes' draws over the culler's gathered list
     void drawGatheredNodes(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,
-                           int passLod0, int passOther);            // 0x10189210  per node: its pass, the morph constants, one uncracked range
+                           int passNear, int passFar);              // 0x10189210  per node: its pass by detailNear, one full-detail range
     void drawPointLight(TerrainCullerNode**& it);                    // 0x1018C7F0  "TerrainPointLight": drawGatheredNodes, pass 13 / 1
-    void drawOccluderShadows(TerrainCullerNode**& it);               // 0x1018BB70  [INFERRED] name; "TerrainOccluderShadows", unreachable in 1.50
-    // Draws this patch's uncracked LOD ranges for the selected terrain technique pass.
+    // Draws this patch's full-detail ranges for the selected terrain technique pass.
     void drawTechniquePass(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list);
     // Emits the shipped obsolete-depth-draw error; the iterator and pass are unused.
     void drawDepthComplexity(TerrainCullerNode**& it, int pass);
@@ -275,13 +274,16 @@ struct TerrainCullerNode
     unsigned char         hasPatchList;         // +0x0ED  file: a patch-level node - take the LOD tables from the terrain and the patch's layers
     unsigned char         fileByteEE;           // +0x0EE  file: the walk pushes this node into the visible list instead of descending
     unsigned char         padEF;
-    int                   childrenWalked;       // +0x0F0  0; the walk counts the children it took through the LOD block
+    int                   childrenWalked;       // +0x0F0  0; the walk counts the visible children it took
     unsigned char         visible;              // +0x0F4  0; the walk's frustum answer
     unsigned char         padF5[3];
-    int                   lod;                  // +0x0F8  2 (constructor), 0 (load); the walk's 0..2
+    // [RENDER] Terrain geometry is always full detail (retail's LOD 0; see TerrainCuller). What
+    // remains of retail's per-node LOD is the shading choice it was tied to: detail layers within
+    // the detail distance, the low-detail pass beyond it.
+    int                   detailNear;           // +0x0F8  1 within TerrainCuller::detailDistance
     unsigned char         cameraInside;         // +0x0FC  0; the camera's xz lies inside the bounds
     unsigned char         padFD[3];
-    int                   crackMask;            // +0x100  0; the crack fixup's neighbour bits (1, 2, 4, 8) that pick the LOD table column
+    unsigned char         pad100[4];            // +0x100  [RENDER] was the crack mask
     // Legacy grid metadata; names are [INFERRED].
     int                   legacyGridIndex;      // +0x104  constructor -1; the legacy root is 0
     int                   legacyLevel;          // +0x108  legacy root 1; constructor leaves uninitialized
@@ -315,22 +317,16 @@ public:
     std::vector<TerrainCullerNode*>* gatheredPatches() { return &gathered; }
 
     // the per-frame bodies
-    void update();                                                   // 0x100E7080  slot +0x28 of Terrain calls it: LOD distance, the walk, the crack fixup
-    // Tests the root and dispatches the selected walk. Returns the shipped constant one.
+    // [RENDER] Every visible leaf draws at full detail. Retail picked LOD 0..2 per node by distance
+    // (plus the camera's height above the terrain, scaled by zoom) and geomorphed between them;
+    // a coarser LOD keeps a subset of the grid, so convex crests drew below the collision
+    // heightmap and anything just behind a ridge showed over it at range. The walk now only culls
+    // and sets each node's detailNear shading flag.
+    void update();                                                   // 0x100E7080  slot +0x28 of Terrain calls it
+    // Tests the root, then walks its children.
     int walkRoot(TerrainCullerNode* node);
-    // Visits accepted children by increasing stored camera distance.
-    void walkMode1(TerrainCullerNode* parent);
-    // Visits candidates in array order, retaining the three-child fallback quirk.
-    void walkMode2(TerrainCullerNode* parent);
-    void walkMode3(TerrainCullerNode* parent);                       // 0x100E59A0  mode 3 (the shipped default): per child - tests, LOD, push or descend
-    // Defers complete child groups so a patch-level parent can replace them in the visible list.
-    int walkMode4(TerrainCullerNode* parent);
-    // Traverses children in array order without the camera-inside shortcut.
-    void walkMode5(TerrainCullerNode* parent);
-    // Returns the node's final visibility after visiting its children and selecting leaf LODs.
-    int walkMode6(TerrainCullerNode* node);
-    static void setLod(TerrainCullerNode* node, int lod);            // 0x100E2D00  the node and its visible children; 3+ clamps to 2
-    void fixCracks();                                                // 0x100E34E0  the neighbour-LOD mask per visible node
+    // Per child: the frustum tests, the shading flag, then push (leaf) or descend.
+    void walk(TerrainCullerNode* parent);
     // Removes recently occluded nodes; the native renderer age-limit read remains a frontier.
     void filterOccluded();
     void gatherSphere(const float* centre, float radius);            // 0x100E6D10  every node with a patch within `radius` into `gathered`
@@ -341,19 +337,16 @@ public:
     void gatherVisibleFrustum(Frustum* source);
     void gatherVisibleFrustumNode(TerrainCullerNode* node);
 
-    int                   lodDistance;          // +0x000  not touched by the constructor; update: the current LOD distance
+    int                   detailDistance;       // +0x000  update: zoom * param18 * 0.75, floored at param14; detailNear within it
     Terrain*              terrain;              // +0x004
     TerrainCullerNode*    nodes;                // +0x008  nodeCount x 272 B (a count word sits ahead of them)
     int                   unresolved0C;         // +0x00C  not touched
     int                   param10;              // +0x010  1; init: 32
-    int                   param14;              // +0x014  1; init: 64 - the LOD distance floor
-    int                   param18;              // +0x018  100 - the LOD distance per unit of zoom (x 0.75)
-    int                   lastLodDistance;      // +0x01C  not touched by the constructor; update dirties the terrain lighting when it changes
-    float                 lodFactor20;          // +0x020  (0.4039..)  morph limit factors, see Terrain::applyFrameConstants
-    float                 lodFactor24;          // +0x024  0.9f
-    float                 lodFactor28;          // +0x028  2.0f
-    float                 lodFactor2C;          // +0x02C  2.7f
-    float                 lodFactor30;          // +0x030  3.0f - LOD 2 beyond lodDistance * this
+    int                   param14;              // +0x014  1; init: 64 - the detail distance floor; the leaf cell size
+    int                   param18;              // +0x018  100 - console lodSwitchDistance: the detail distance per unit of zoom (x 0.75), and the roads' view distance
+    int                   unused1C;             // +0x01C  [RENDER] was the last LOD distance
+    float                 lodFactor20;          // +0x020  0.4 - console lod0SwitchStart: where the roads' fade starts, as a fraction of their view distance
+    float                 unused24[4];          // +0x024  [RENDER] were the morph and LOD 2 factors
     std::vector<TerrainCullerNode*> visible;    // +0x034  the visible node list the draws walk
     std::vector<TerrainCullerNode*> gathered;   // +0x044  the sphere gathers' node list
     Frustum*              frustum;              // +0x054  update: the render view's frustum
@@ -362,12 +355,12 @@ public:
     float                 gatherRadius;         // +0x060
     float                 gatherRadiusSq;       // +0x064
     int                   param68;              // +0x068  2
-    int                   param6C;              // +0x06C  3 - the walk mode (1..6)
-    unsigned char         flag70;               // +0x070  1 - run the crack fixup
+    int                   unused6C;             // +0x06C  [RENDER] was the walk mode (1..6); one walk remains
+    unsigned char         unused70;             // +0x070  [RENDER] was the crack fixup switch
     unsigned char         flag71;               // +0x071  1 - test the camera against the root's box
     unsigned char         pad72[2];
     int                   nodeCount;            // +0x074  file
-    unsigned char         versionFlag78;        // +0x078  1 when the file version >= 0x1A
+    unsigned char         versionFlag78;        // +0x078  1 when the file version >= 0x1A; console useStitchedLods, no reader since the crack fixup went
     unsigned char         pad79[3];
 };
 

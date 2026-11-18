@@ -27,49 +27,21 @@ TerrainCuller* consoleTerrainCuller()
 } // namespace
 
 // PE 0x100E2EF0. Also called directly by VideoOptions' three terrain-quality arms (100, 80, 64).
+// [RENDER] Sets the detail-layer shading distance and the roads' view distance; terrain geometry
+// has no LOD distance any more, so the morph limits it dirtied are gone.
 void RD9_THUNK setCullerLodSwitchDistance(TerrainCuller* self RD9_THUNK_EDX, int value)
 {
     if (value < self->param14 || value > 1000)
         return;
-    self->terrain->m_lightingDirty = 1;
     self->param18 = value;
 }
 
 namespace {
 
-// PE 0x100E2F10.
+// PE 0x100E2F10. [RENDER] Only the roads' fade start reads it now.
 void RD9_THUNK setCullerLod0Start(TerrainCuller* self RD9_THUNK_EDX, float value)
 {
     self->lodFactor20 = value;
-    self->terrain->m_lightingDirty = 1;
-}
-
-// PE 0x100E2F30.
-void RD9_THUNK setCullerLod0Stop(TerrainCuller* self RD9_THUNK_EDX, float value)
-{
-    self->lodFactor24 = value;
-    self->terrain->m_lightingDirty = 1;
-}
-
-// PE 0x100E2F50.
-void RD9_THUNK setCullerLod1Start(TerrainCuller* self RD9_THUNK_EDX, float value)
-{
-    self->lodFactor28 = value;
-    self->terrain->m_lightingDirty = 1;
-}
-
-// PE 0x100E2F70.
-void RD9_THUNK setCullerLod1Stop(TerrainCuller* self RD9_THUNK_EDX, float value)
-{
-    self->lodFactor2C = value;
-    self->terrain->m_lightingDirty = 1;
-}
-
-// PE 0x100E2F90.
-void RD9_THUNK setCullerLod2Start(TerrainCuller* self RD9_THUNK_EDX, float value)
-{
-    self->lodFactor30 = value;
-    self->terrain->m_lightingDirty = 1;
 }
 
 // PE 0x100E3400. Shipped defect: the initial node is dereferenced without a null check.
@@ -131,10 +103,6 @@ void RD9_THUNK setCullerStitchedLods(TerrainCuller* self RD9_THUNK_EDX, bool val
 // Console setter adapters keep the executable's repeated owner lookup at execution time.
 void consoleLodSwitchDistance(int value) { setCullerLodSwitchDistance(consoleTerrainCuller() RD9_THUNK_ARG, value); }
 void consoleLod0Start(float value) { setCullerLod0Start(consoleTerrainCuller() RD9_THUNK_ARG, value); }
-void consoleLod0Stop(float value) { setCullerLod0Stop(consoleTerrainCuller() RD9_THUNK_ARG, value); }
-void consoleLod1Start(float value) { setCullerLod1Start(consoleTerrainCuller() RD9_THUNK_ARG, value); }
-void consoleLod1Stop(float value) { setCullerLod1Stop(consoleTerrainCuller() RD9_THUNK_ARG, value); }
-void consoleLod2Start(float value) { setCullerLod2Start(consoleTerrainCuller() RD9_THUNK_ARG, value); }
 void consoleBaseCellSize(int value) { setCullerBaseCellSize(consoleTerrainCuller() RD9_THUNK_ARG, value); }
 void consoleStitchedLods(bool value) { setCullerStitchedLods(consoleTerrainCuller() RD9_THUNK_ARG, value); }
 
@@ -148,30 +116,16 @@ BF2_CONSOLE_PROPERTY_FN(lodSwitchDistance, int, consoleTerrainCuller() != 0,
 // PE 0x100B6AFA, 0x100B6BC8
 BF2_CONSOLE_PROPERTY_FN(lod0SwitchStart, float, consoleTerrainCuller() != 0,
                         consoleTerrainCuller()->lodFactor20, consoleLod0Start, kTerrainCullerConsoleTag)
-// PE 0x100B6C5A, 0x100B6CCB
-BF2_CONSOLE_PROPERTY_FN(lod0SwitchStop, float, consoleTerrainCuller() != 0,
-                        consoleTerrainCuller()->lodFactor24, consoleLod0Stop, kTerrainCullerConsoleTag)
-// PE 0x100B6D5D, 0x100B6DCE
-BF2_CONSOLE_PROPERTY_FN(lod1SwitchStart, float, consoleTerrainCuller() != 0,
-                        consoleTerrainCuller()->lodFactor28, consoleLod1Start, kTerrainCullerConsoleTag)
-// PE 0x100B6E60, 0x100B6ED1
-BF2_CONSOLE_PROPERTY_FN(lod1SwitchStop, float, consoleTerrainCuller() != 0,
-                        consoleTerrainCuller()->lodFactor2C, consoleLod1Stop, kTerrainCullerConsoleTag)
-// PE 0x100B6F63, 0x100B6FD4
-BF2_CONSOLE_PROPERTY_FN(lod2Start, float, consoleTerrainCuller() != 0,
-                        consoleTerrainCuller()->lodFactor30, consoleLod2Start, kTerrainCullerConsoleTag)
 // PE 0x100B7124 / 0x100B721F.
 // PE 0x100B7066, 0x100B70D7
 BF2_CONSOLE_FIELD(detailCullMaxLevel, int, consoleTerrainCuller(), param68, kTerrainCullerConsoleTag)
-// PE 0x100B7161, 0x100B71D2
-BF2_CONSOLE_FIELD(cullerType, int, consoleTerrainCuller(), param6C, kTerrainCullerConsoleTag)
 // PE 0x100B731A.
 // PE 0x100B725C, 0x100B72CD
 BF2_CONSOLE_PROPERTY_FN(baseCellSize, int, consoleTerrainCuller() != 0,
                         consoleTerrainCuller()->param14, consoleBaseCellSize, kTerrainCullerConsoleTag)
 // PE 0x100B741A / 0x100B7515 / 0x100B761C.
-// PE 0x100B735C, 0x100B73CD
-BF2_CONSOLE_FIELD(updateLodLevel, bool, consoleTerrainCuller(), flag70, kTerrainCullerConsoleTag)
+// [RENDER] lod0SwitchStop, lod1SwitchStart, lod1SwitchStop, lod2Start, cullerType and
+// updateLodLevel are gone with the terrain LODs; see TerrainCuller in QuadPatch.h.
 // PE 0x100B7457, 0x100B74C8
 BF2_CONSOLE_FIELD(checkInside, bool, consoleTerrainCuller(), flag71, kTerrainCullerConsoleTag)
 // PE 0x100B7552, 0x100B75CF
