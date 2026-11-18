@@ -66,22 +66,33 @@ are listed in [renderer.md](renderer.md#sun-shadows).
 `RendDX9/UiDebug.cpp`. The game image tells the UI the mod directory, map and game mode through
 `IUiHost` (`IRendererUi::uiSetHost`, from `BF2Engine`).
 
-**Menu** (the menu key):
+**Menu** (the menu key): a header with the frame rate, the map and an overlay switch, then tabs.
 
-- **Performance overlay:** a checkbox for `renderer.uiOverlay`.
-- **Commands:** a button per line of `<mod>/settings/eon64-commands.txt`, read when the game hands
-  the UI its host: `label = console line`, `#` starts a comment. A button runs its line as if typed
-  into the console and entered (the console's access rules, echo and history; `rcon` lines go to
-  the server). The file is the owner's, outside this repository; without it the section says where
-  it is looked for.
-- **Variables:** widgets generated from the console registry for every `renderer.*` set/get
-  property: a checkbox for `bool`, a slider for a number with a range, otherwise a text field
-  applied with Enter. A widget sets its variable through the registry, as the console does. The
-  sun shadow variables come first; the rest have a filter. A tooltip gives the help line
-  (`rendererVariableHelp`), the console name, the type and the range.
+- **Commands:** a button per command of `<mod>/settings/eon64-commands.txt`, read when the game
+  hands the UI its host and again with Reload. `[Section]` lines group them under a heading;
+  `label = console line | help` makes a button with that tooltip; `{name}` or `{name=default}`
+  in the line adds a text field for an argument (Enter in a field also runs it); `#` starts a
+  comment. Commands without arguments sit in a grid of equal buttons, those with arguments one
+  per row. A filter searches labels, lines and help. A button runs its line as if typed into the
+  console and entered (the console's access rules, echo and history; `rcon` lines go to the
+  server). The file is the owner's, outside this repository; without it the tab says where it is
+  looked for and what it holds.
+- **Shadows:** the `renderer.sunShadow*` variables.
+- **Renderer:** every other `renderer.*` set/get property, with a filter.
+- **Settings:** the overlay, the console height, the menu key, and the paths of the two files.
+
+Variable rows are generated from the console registry: a checkbox for `bool`, a slider for a
+number with a range, otherwise a text field applied with Enter. A widget sets its variable through
+the registry, as the console does. Reset appears while a value differs from the one the menu
+first showed. The tooltip gives the help line (`rendererVariableHelp`), the console name, the
+type, the range and the value.
 
 **Saved:** `<mod>/settings/eon64-ui.con`, console lines run when the game hands the UI its host,
-rewritten when `renderer.uiOverlay` changes. Nothing else is written.
+rewritten when `renderer.uiOverlay`, `renderer.uiConsoleHeight` or `renderer.uiMenuKey` changes.
+Nothing else is written.
+
+**Look:** ImGui's dark style on a slate background with one teal accent and rounded frames, sized
+at 1080p and scaled with the back-buffer height.
 
 **Overlay**, top right, while `renderer.uiOverlay` is on. It takes no input; the system cursor is
 left alone.
@@ -111,8 +122,8 @@ and typing with an ImGui window over the same backend: BF2.exe's `io::Console` a
 object registry.
 
 - **Shown** while the game's console is active; the game's console key still toggles it, and the
-  character that key types never reaches the window. Top of the screen, full width, 45 % of the
-  height.
+  character that key types never reaches the window. Top of the screen, full width;
+  `renderer.uiConsoleHeight` sets its share of the height (0.2-0.9, 0.45 by default, saved).
 - **Typing:** a line entered in the window runs as if typed into the retail console and entered
   (`setCurrentLine`, then Enter through `updateAsciiKey`), so access rules, echo, the console's
   own history, `.con` execution and `rcon` are unchanged. Lines hold 127 characters, as the
@@ -121,11 +132,12 @@ object registry.
   releases the mouse, as for the menu.
 - **Completion:** while typing the first word, a list under the input line shows the registry's
   matching `object.function` names with their argument types or the property's type and range,
-  and the help line for the fork's renderer variables. Tab completes to the only match, or as far
-  as all matches agree.
+  and the help line for the fork's renderer variables. Tab completes as far as all matches agree,
+  then steps through them with the current one highlighted (Shift+Tab steps back).
 - **History:** Up and Down recall the window's own entered lines (200 kept).
 - **Log:** the console's output history (`getLines`), scrollable, following new output while
-  scrolled to the end; a filter shows only the lines containing its text.
+  scrolled to the end; a filter shows only the lines containing its text. Lines entered in the
+  window are teal, lines with error, unknown, failed, invalid or not found red, warnings amber.
 - **Copy and paste:** Copy puts the lines shown on the clipboard; Ctrl+V pastes into the input.
 - `renderer.drawConsole` gated only the retail drawing; the window does not read it.
 

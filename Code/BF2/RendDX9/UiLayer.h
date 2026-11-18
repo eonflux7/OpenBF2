@@ -21,6 +21,8 @@ IRendererUi* uiLayerInterface();   // what Renderer::queryInterface(IID_IRendere
 
 int  uiLayerGetMenuKey();          // renderer.uiMenuKey: the Win32 virtual-key code toggling the menu
 void uiLayerSetMenuKey(int key);
+float uiLayerGetConsoleHeight();   // renderer.uiConsoleHeight: the console window's share of the height
+void  uiLayerSetConsoleHeight(float share);
 bool uiLayerGetOverlay();          // renderer.uiOverlay: the performance overlay (UiDebug.cpp)
 void uiLayerSetOverlay(bool on);
 

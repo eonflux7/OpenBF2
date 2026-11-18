@@ -23,6 +23,8 @@ void uiDebugDrawOverlay();
 // Runs a line as if typed into the console and entered (the console's access rules, echo,
 // history; rcon lines go to the server).
 void uiRunTyped(const std::string& line);
+// Rewrites <mod>/settings/eon64-ui.con with the UI's settings (not while it is being read).
+void uiSaveSettings();
 
 // UiConsole.cpp: the console window.
 bool uiConsoleShown();               // the game's console is active

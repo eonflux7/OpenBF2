@@ -1388,6 +1388,9 @@ BF2_CONSOLE_PROPERTY_FN(roadLodDistMod, float, consoleRoadCompiledRenderer() != 
 // 45 (Insert) by default.
 BF2_CONSOLE_PROPERTY_FN(uiMenuKey, int, true, uiLayerGetMenuKey(), uiLayerSetMenuKey,
                         kRendererConsoleTag)
+// [UI] The console window's share of the screen height (docs/eon64/ui.md); saved like uiOverlay.
+BF2_CONSOLE_PROPERTY_FN_RANGED_T(uiConsoleHeight, float, true, uiLayerGetConsoleHeight(),
+                                 uiLayerSetConsoleHeight, 0.2f, 0.9f, kRendererConsoleTag)
 // [UI] The performance overlay, top right (docs/eon64/ui.md); kept between sessions in the mod's
 // settings/eon64-ui.con.
 BF2_CONSOLE_PROPERTY_FN(uiOverlay, bool, true, uiLayerGetOverlay(), uiLayerSetOverlay,
@@ -1441,6 +1444,7 @@ const char* rendererVariableHelp(const char* name)
         { "sunShadowDepthBias", "Receiver offset toward the sun, in cascade texels (against acne)" },
         { "uiMenuKey", "Win32 virtual-key code that opens and closes this menu (45 = Insert)" },
         { "uiOverlay", "Performance overlay, top right; kept between sessions" },
+        { "uiConsoleHeight", "Console window height, as a share of the screen; kept between sessions" },
     };
     for (size_t i = 0; i < sizeof(kHelp) / sizeof(kHelp[0]); ++i)
         if (std::strcmp(kHelp[i][0], name) == 0)

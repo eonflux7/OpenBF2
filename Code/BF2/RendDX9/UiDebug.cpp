@@ -1,19 +1,23 @@
 // [UI] The debug menu and the performance overlay (docs/eon64/ui.md, step 3). Not part of retail BF2.
 //
-// Menu (the menu key): the overlay switch, a button per line of the mod's command file, and the
-// renderer's console variables as widgets generated from the console registry (range and help
-// from the registry and rendererVariableHelp). A widget sets its variable through the registry,
-// as the console does; the menu owns no setting.
+// Menu (the menu key), in tabs:
+//   Commands  the mod's command file as buttons, grouped by section, with fields for arguments.
+//   Shadows   the sun shadow variables.   Renderer  every other renderer.* variable, filtered.
+//   Settings  the overlay, the console height, the menu key, the files.
+// Variable widgets are generated from the console registry (range from the registry, help from
+// rendererVariableHelp) and set their variable through the registry, as the console does; the menu
+// owns no setting. Reset restores the value a variable had when the menu first showed it.
 //
 // Overlay (renderer.uiOverlay), top right: frame rate and a frame-time graph (frame, CPU, GPU),
 // GPU time per pass from the timestamp queries (issued only while the overlay is shown), draw
 // calls, process memory, display mode, map, camera and sun. Nothing here runs while it is hidden.
 //
 // Files, in the mod's settings directory (<GSModDirectory>/settings/), never in this repository:
-//   eon64-ui.con        console lines run when the game hands the UI its host; rewritten when the
-//                       overlay is switched, so the switch is kept between sessions.
-//   eon64-commands.txt  one button per line, "label = console line"; '#' starts a comment. Each
-//                       button runs its line as if typed into the console (rcon lines included).
+//   eon64-ui.con        console lines run when the game hands the UI its host; rewritten when a UI
+//                       setting changes (overlay, console height, menu key).
+//   eon64-commands.txt  "[Section]" lines group; "label = console line | help" makes a button;
+//                       "{name}" or "{name=default}" in the line adds a field; '#' starts a
+//                       comment. A button runs its line as if typed into the console (rcon too).
 #ifdef BF2_IMAGE_RENDDX9
 
 #ifndef NOMINMAX
@@ -48,7 +52,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -85,13 +91,6 @@ IUiHost* g_host = 0;
 bool g_overlay = false;
 bool g_loadingSettings = false;
 
-struct Command
-{
-    std::string label;
-    std::string line;
-};
-std::vector<Command> g_commands;
-
 std::string trim(const std::string& s)
 {
     const size_t first = s.find_first_not_of(" \t\r\n");
@@ -123,7 +122,9 @@ bool readLines(const std::string& path, std::vector<std::string>& lines)
     return true;
 }
 
-void saveSettings()
+} // namespace
+
+void uiSaveSettings()
 {
     if (g_loadingSettings || !g_host)
         return;
@@ -133,8 +134,12 @@ void saveSettings()
         return;
     std::fprintf(out, "rem Written by the openbf2-eon64 debug menu.\n");
     std::fprintf(out, "renderer.uiOverlay %d\n", g_overlay ? 1 : 0);
+    std::fprintf(out, "renderer.uiConsoleHeight %g\n", uiLayerGetConsoleHeight());
+    std::fprintf(out, "renderer.uiMenuKey %d\n", uiLayerGetMenuKey());
     std::fclose(out);
 }
+
+namespace {
 
 void loadSettings()
 {
@@ -150,25 +155,6 @@ void loadSettings()
         console()->executeLine(lines[i] + "\n", output, false, true, false, false, true);
     }
     g_loadingSettings = false;
-}
-
-void loadCommands()
-{
-    g_commands.clear();
-    std::vector<std::string> lines;
-    readLines(settingsPath(kCommandsFile), lines);
-    for (size_t i = 0; i < lines.size(); ++i)
-    {
-        const std::string& l = lines[i];
-        const size_t eq = l.find('=');
-        if (l.empty() || l[0] == '#' || eq == std::string::npos)
-            continue;
-        Command c = { trim(l.substr(0, eq)), trim(l.substr(eq + 1)) };
-        if (!c.label.empty() && !c.line.empty())
-            g_commands.push_back(c);
-    }
-    std::fprintf(stderr, "[UI] %u menu commands from %s\n", static_cast<unsigned int>(g_commands.size()),
-                 settingsPath(kCommandsFile).c_str());
 }
 
 } // namespace
@@ -263,7 +249,7 @@ FrameStats frameStats()
 }
 
 // ---------------------------------------------------------------------------------------------
-// Menu: variables
+// Menu
 
 float uiScale()
 {
@@ -272,6 +258,7 @@ float uiScale()
 
 std::vector<ConsoleObject*> g_variables;   // renderer set/get bindings, sorted by name
 size_t g_variablesSeen = 0;                // registry size they were gathered at
+std::map<const ConsoleObject*, std::string> g_firstValues;   // as first shown: what Reset restores
 
 bool lessByName(const ConsoleObject* a, const ConsoleObject* b)
 {
@@ -307,49 +294,95 @@ void setVariable(ConsoleObject* o, const std::string& value)
     o->execute(&arg, 1);
 }
 
-void variableTooltip(ConsoleObject* o, const std::string& type)
+bool containsNoCase(const char* text, const char* part)
 {
-    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+    const size_t n = std::strlen(part);
+    if (!n)
+        return true;
+    for (; *text; ++text)
+        if (_strnicmp(text, part, n) == 0)
+            return true;
+    return false;
+}
+
+// "sunShadowCasterReach" shown as "Caster reach" under its prefix's tab.
+std::string displayName(const char* name, const char* prefix)
+{
+    std::string out;
+    const size_t skip = prefix ? std::strlen(prefix) : 0;
+    for (const char* p = name + skip; *p; ++p)
+    {
+        const char ch = *p;
+        if (out.empty())
+            out += static_cast<char>(toupper(ch));
+        else if (isupper(static_cast<unsigned char>(ch)) && !isupper(static_cast<unsigned char>(p[-1])))
+        {
+            out += ' ';
+            out += static_cast<char>(tolower(ch));
+        }
+        else
+            out += ch;
+    }
+    return out;
+}
+
+void variableTooltip(ConsoleObject* o, const std::string& type, const std::string& value)
+{
+    if (!ImGui::BeginItemTooltip())
         return;
-    ImGui::BeginTooltip();
     const char* const help = rendererVariableHelp(o->getFunctionName());
     if (help)
         ImGui::TextUnformatted(help);
+    ImGui::TextDisabled("renderer.%s", o->getFunctionName());
     if (o->hasRange())
     {
         const std::pair<std::string, std::string> r = o->getRangeAsString();
-        ImGui::TextDisabled("renderer.%s  %s  %s .. %s", o->getFunctionName(), type.c_str(),
-                            r.first.c_str(), r.second.c_str());
+        ImGui::TextDisabled("%s, %s .. %s, now %s", type.c_str(), r.first.c_str(), r.second.c_str(),
+                            value.c_str());
     }
     else
-        ImGui::TextDisabled("renderer.%s  %s", o->getFunctionName(), type.c_str());
+        ImGui::TextDisabled("%s, now %s", type.c_str(), value.c_str());
     ImGui::EndTooltip();
 }
 
-void drawVariable(ConsoleObject* o)
+// One table row: name, widget, and Reset while the value differs from the one first shown.
+void drawVariableRow(ConsoleObject* o, const char* prefix)
 {
-    const char* const name = o->getFunctionName();
     const std::string type = o->getReturnType() ? o->getReturnType() : "";
     ImGui::PushID(o);
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::AlignTextToFramePadding();
+    const std::string label = displayName(o->getFunctionName(), prefix);
     if (!o->isActive())
     {
-        ImGui::TextDisabled("%s (inactive)", name);
-        variableTooltip(o, type);
+        ImGui::TextDisabled("%s", label.c_str());
+        variableTooltip(o, type, "-");
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("inactive");
+        ImGui::TableNextColumn();
         ImGui::PopID();
         return;
     }
     const std::string value = o->execute(0, 0);
+    if (g_firstValues.find(o) == g_firstValues.end())
+        g_firstValues[o] = value;
+    ImGui::TextUnformatted(label.c_str());
+    variableTooltip(o, type, value);
+
+    ImGui::TableNextColumn();
+    ImGui::SetNextItemWidth(-FLT_MIN);
     if (isType(type, "bool"))
     {
         bool v = value == "1" || value == "true";
-        if (ImGui::Checkbox(name, &v))
+        if (ImGui::Checkbox("##v", &v))
             setVariable(o, v ? "1" : "0");
     }
     else if (isType(type, "float", "double") && o->hasRange())
     {
         const std::pair<std::string, std::string> r = o->getRangeAsString();
         float v = static_cast<float>(std::atof(value.c_str()));
-        if (ImGui::SliderFloat(name, &v, static_cast<float>(std::atof(r.first.c_str())),
+        if (ImGui::SliderFloat("##v", &v, static_cast<float>(std::atof(r.first.c_str())),
                                static_cast<float>(std::atof(r.second.c_str())), "%.3g"))
         {
             char text[32];
@@ -361,7 +394,7 @@ void drawVariable(ConsoleObject* o)
     {
         const std::pair<std::string, std::string> r = o->getRangeAsString();
         int v = std::atoi(value.c_str());
-        if (ImGui::SliderInt(name, &v, std::atoi(r.first.c_str()), std::atoi(r.second.c_str())))
+        if (ImGui::SliderInt("##v", &v, std::atoi(r.first.c_str()), std::atoi(r.second.c_str())))
         {
             char text[32];
             std::snprintf(text, sizeof(text), "%d", v);
@@ -373,55 +406,305 @@ void drawVariable(ConsoleObject* o)
         // Anything else is edited as text and applied with Enter, as typed into the console.
         char text[256];
         std::snprintf(text, sizeof(text), "%s", value.c_str());
-        if (ImGui::InputText(name, text, sizeof(text), ImGuiInputTextFlags_EnterReturnsTrue))
+        if (ImGui::InputText("##v", text, sizeof(text), ImGuiInputTextFlags_EnterReturnsTrue))
             setVariable(o, text);
     }
-    variableTooltip(o, type);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        variableTooltip(o, type, value);
+
+    ImGui::TableNextColumn();
+    const std::string& first = g_firstValues[o];
+    if (value != first)
+    {
+        if (ImGui::SmallButton("Reset"))
+            setVariable(o, first);
+        ImGui::SetItemTooltip("Back to %s", first.c_str());
+    }
     ImGui::PopID();
 }
 
-bool isSunShadowVariable(const ConsoleObject* o)
+void drawVariableTable(const char* id, const char* prefix, const char* filter, bool prefixOnly)
 {
-    return std::strncmp(o->getFunctionName(), "sunShadow", 9) == 0;
-}
-
-bool containsNoCase(const char* text, const char* part)
-{
-    if (!*part)
-        return true;
-    for (; *text; ++text)
-        if (_strnicmp(text, part, std::strlen(part)) == 0)
-            return true;
-    return false;
-}
-
-void drawCommands()
-{
-    if (g_commands.empty())
-    {
-        ImGui::TextDisabled("No commands: one \"label = console line\" per line in");
-        ImGui::TextDisabled("%s", settingsPath(kCommandsFile).c_str());
+    const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH
+        | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
+    if (!ImGui::BeginTable(id, 3, flags))
         return;
-    }
-    const ImGuiStyle& style = ImGui::GetStyle();
-    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-    for (size_t i = 0; i < g_commands.size(); ++i)
+    ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthFixed, 190.0f * uiScale());
+    ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("reset", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("Reset").x
+                                                                           + ImGui::GetStyle().FramePadding.x * 2.0f);
+    const size_t prefixLength = std::strlen(prefix);
+    for (size_t i = 0; i < g_variables.size(); ++i)
     {
-        ImGui::PushID(static_cast<int>(i));
-        if (ImGui::Button(g_commands[i].label.c_str()))
-            uiRunTyped(g_commands[i].line);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-            ImGui::SetTooltip("%s", g_commands[i].line.c_str());
-        const float lastRight = ImGui::GetItemRectMax().x;
-        if (i + 1 < g_commands.size())
+        ConsoleObject* const o = g_variables[i];
+        const bool hasPrefix = _strnicmp(o->getFunctionName(), prefix, prefixLength) == 0;
+        if (hasPrefix != prefixOnly || !containsNoCase(o->getFunctionName(), filter))
+            continue;
+        drawVariableRow(o, prefixOnly ? prefix : 0);
+    }
+    ImGui::EndTable();
+}
+
+// Commands ----------------------------------------------------------------------------------
+
+// The arguments of a command line: "{name}" or "{name=default}".
+struct Argument
+{
+    std::string name;
+    char value[96];
+};
+
+struct Command
+{
+    std::string section;
+    std::string label;
+    std::string line;
+    std::string help;
+    std::vector<Argument> args;
+};
+std::vector<Command> g_commands;
+char g_commandFilter[64] = "";
+
+void parseArguments(Command& c)
+{
+    size_t at = 0;
+    while ((at = c.line.find('{', at)) != std::string::npos)
+    {
+        const size_t end = c.line.find('}', at);
+        if (end == std::string::npos)
+            break;
+        const std::string spec = c.line.substr(at + 1, end - at - 1);
+        const size_t eq = spec.find('=');
+        Argument a;
+        a.name = eq == std::string::npos ? spec : spec.substr(0, eq);
+        std::snprintf(a.value, sizeof(a.value), "%s", eq == std::string::npos ? "" : spec.substr(eq + 1).c_str());
+        c.args.push_back(a);
+        at = end + 1;
+    }
+}
+
+// The line with each argument's field in place of its placeholder.
+std::string expand(const Command& c)
+{
+    std::string out;
+    size_t at = 0;
+    size_t arg = 0;
+    while (at < c.line.size())
+    {
+        const size_t open = c.line.find('{', at);
+        const size_t close = open == std::string::npos ? open : c.line.find('}', open);
+        if (close == std::string::npos)
         {
-            const float next = lastRight + style.ItemSpacing.x
-                + ImGui::CalcTextSize(g_commands[i + 1].label.c_str()).x + style.FramePadding.x * 2.0f;
-            if (next < right)
-                ImGui::SameLine();
+            out += c.line.substr(at);
+            break;
+        }
+        out += c.line.substr(at, open - at);
+        if (arg < c.args.size())
+            out += c.args[arg++].value;
+        at = close + 1;
+    }
+    // Arguments left empty leave no trailing spaces.
+    while (!out.empty() && out[out.size() - 1] == ' ')
+        out.erase(out.size() - 1);
+    return out;
+}
+
+void loadCommands()
+{
+    g_commands.clear();
+    std::vector<std::string> lines;
+    readLines(settingsPath(kCommandsFile), lines);
+    std::string section = "Commands";
+    for (size_t i = 0; i < lines.size(); ++i)
+    {
+        const std::string& l = lines[i];
+        if (l.empty() || l[0] == '#')
+            continue;
+        if (l[0] == '[' && l[l.size() - 1] == ']')
+        {
+            section = trim(l.substr(1, l.size() - 2));
+            continue;
+        }
+        const size_t eq = l.find('=');
+        if (eq == std::string::npos)
+            continue;
+        Command c;
+        c.section = section;
+        c.label = trim(l.substr(0, eq));
+        std::string rest = l.substr(eq + 1);
+        const size_t bar = rest.find(" | ");
+        if (bar != std::string::npos)
+        {
+            c.help = trim(rest.substr(bar + 3));
+            rest = rest.substr(0, bar);
+        }
+        c.line = trim(rest);
+        parseArguments(c);
+        if (!c.label.empty() && !c.line.empty())
+            g_commands.push_back(c);
+    }
+    std::fprintf(stderr, "[UI] %u menu commands from %s\n", static_cast<unsigned int>(g_commands.size()),
+                 settingsPath(kCommandsFile).c_str());
+}
+
+bool commandMatches(const Command& c)
+{
+    return containsNoCase(c.label.c_str(), g_commandFilter) || containsNoCase(c.line.c_str(), g_commandFilter)
+        || containsNoCase(c.help.c_str(), g_commandFilter);
+}
+
+void commandTooltip(const Command& c)
+{
+    if (!ImGui::BeginItemTooltip())
+        return;
+    if (!c.help.empty())
+        ImGui::TextUnformatted(c.help.c_str());
+    ImGui::TextDisabled("%s", expand(c).c_str());
+    ImGui::EndTooltip();
+}
+
+// A section: argument-free commands as a grid of equal buttons, then one row per command with
+// arguments (its button, then a field per argument).
+void drawSection(size_t first, size_t end)
+{
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float buttonWidth = 150.0f * uiScale();
+    const int columns = std::max(1, static_cast<int>((avail + spacing) / (buttonWidth + spacing)));
+    const float width = (avail - spacing * (columns - 1)) / columns;
+    int column = 0;
+    for (size_t i = first; i < end; ++i)
+    {
+        Command& c = g_commands[i];
+        if (!c.args.empty() || !commandMatches(c))
+            continue;
+        ImGui::PushID(static_cast<int>(i));
+        if (column)
+            ImGui::SameLine();
+        if (ImGui::Button(c.label.c_str(), ImVec2(width, 0.0f)))
+            uiRunTyped(expand(c));
+        commandTooltip(c);
+        column = (column + 1) % columns;
+        ImGui::PopID();
+    }
+    for (size_t i = first; i < end; ++i)
+    {
+        Command& c = g_commands[i];
+        if (c.args.empty() || !commandMatches(c))
+            continue;
+        ImGui::PushID(static_cast<int>(i));
+        if (ImGui::Button(c.label.c_str(), ImVec2(width, 0.0f)))
+            uiRunTyped(expand(c));
+        commandTooltip(c);
+        const float fieldWidth = std::max(60.0f * uiScale(),
+            (ImGui::GetContentRegionAvail().x - width - spacing * c.args.size()) / c.args.size());
+        for (size_t a = 0; a < c.args.size(); ++a)
+        {
+            ImGui::SameLine();
+            ImGui::PushID(static_cast<int>(a));
+            ImGui::SetNextItemWidth(std::min(fieldWidth, 160.0f * uiScale()));
+            if (ImGui::InputTextWithHint("##arg", c.args[a].name.c_str(), c.args[a].value,
+                                         sizeof(c.args[a].value), ImGuiInputTextFlags_EnterReturnsTrue))
+                uiRunTyped(expand(c));
+            ImGui::SetItemTooltip("%s (Enter runs the command)", c.args[a].name.c_str());
+            ImGui::PopID();
         }
         ImGui::PopID();
     }
+}
+
+void drawCommandsTab()
+{
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Reload").x
+                            - ImGui::GetStyle().FramePadding.x * 2.0f - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::InputTextWithHint("##cmdfilter", "filter commands", g_commandFilter, sizeof(g_commandFilter));
+    ImGui::SameLine();
+    if (ImGui::Button("Reload"))
+        loadCommands();
+    ImGui::SetItemTooltip("Reads %s again", settingsPath(kCommandsFile).c_str());
+
+    if (g_commands.empty())
+    {
+        ImGui::Spacing();
+        ImGui::TextWrapped("No commands. One \"label = console line | help\" per line, \"[Section]\" "
+                           "to group, \"{argument}\" or \"{argument=default}\" for a field, in");
+        ImGui::TextDisabled("%s", settingsPath(kCommandsFile).c_str());
+        return;
+    }
+    if (!ImGui::BeginChild("##commands", ImVec2(0.0f, 0.0f)))
+    {
+        ImGui::EndChild();
+        return;
+    }
+    size_t first = 0;
+    while (first < g_commands.size())
+    {
+        size_t end = first;
+        bool any = false;
+        while (end < g_commands.size() && g_commands[end].section == g_commands[first].section)
+            any = commandMatches(g_commands[end++]) || any;
+        if (any)
+        {
+            ImGui::SeparatorText(g_commands[first].section.c_str());
+            drawSection(first, end);
+        }
+        first = end;
+    }
+    ImGui::EndChild();
+}
+
+// Tabs --------------------------------------------------------------------------------------
+
+void drawShadowsTab()
+{
+    if (ImGui::BeginChild("##shadows", ImVec2(0.0f, 0.0f)))
+        drawVariableTable("##sunvars", "sunShadow", "", true);
+    ImGui::EndChild();
+}
+
+void drawRendererTab()
+{
+    static char filter[64] = "";
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##varfilter", "filter renderer variables", filter, sizeof(filter));
+    if (ImGui::BeginChild("##renderer", ImVec2(0.0f, 0.0f)))
+        drawVariableTable("##vars", "sunShadow", filter, false);
+    ImGui::EndChild();
+}
+
+std::string keyName(int vk)
+{
+    char name[64] = "";
+    const UINT scan = ::MapVirtualKeyA(static_cast<UINT>(vk), MAPVK_VK_TO_VSC);
+    LONG lParam = static_cast<LONG>(scan << 16);
+    if (vk == VK_INSERT || vk == VK_DELETE || vk == VK_HOME || vk == VK_END || vk == VK_PRIOR || vk == VK_NEXT)
+        lParam |= 1 << 24;   // the extended keys, not their numeric-pad twins
+    if (!::GetKeyNameTextA(lParam, name, sizeof(name)))
+        std::snprintf(name, sizeof(name), "key %d", vk);
+    return name;
+}
+
+void drawSettingsTab()
+{
+    bool overlay = g_overlay;
+    if (ImGui::Checkbox("Performance overlay", &overlay))
+        uiLayerSetOverlay(overlay);
+    ImGui::SetItemTooltip("renderer.uiOverlay: top right; fps, frame-time graph, GPU passes, draws, memory");
+
+    float height = uiLayerGetConsoleHeight();
+    ImGui::SetNextItemWidth(220.0f * uiScale());
+    if (ImGui::SliderFloat("Console height", &height, 0.2f, 0.9f, "%.2f"))
+        uiLayerSetConsoleHeight(height);
+    ImGui::SetItemTooltip("renderer.uiConsoleHeight: the console window's share of the screen height");
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Menu key: %s", keyName(uiLayerGetMenuKey()).c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("(renderer.uiMenuKey %d)", uiLayerGetMenuKey());
+
+    ImGui::SeparatorText("Files");
+    ImGui::TextDisabled("Saved settings  %s", settingsPath(kSettingsFile).c_str());
+    ImGui::TextDisabled("Commands        %s", settingsPath(kCommandsFile).c_str());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -593,7 +876,7 @@ void uiLayerSetOverlay(bool on)
     gpuTimersSetLive(on);
     g_sampleCount = 0;
     g_frameStart = 0;
-    saveSettings();
+    uiSaveSettings();
 }
 
 void uiDebugFrameStart()
@@ -639,38 +922,60 @@ void uiDebugDrawMenu()
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
                                    viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
                             ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(520.0f * uiScale(), viewport->WorkSize.y * 0.75f),
-                             ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("openbf2-eon64"))
+    ImGui::SetNextWindowSize(ImVec2(640.0f * uiScale(), viewport->WorkSize.y * 0.72f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(420.0f * uiScale(), 300.0f * uiScale()),
+                                        ImVec2(FLT_MAX, FLT_MAX));
+    if (!ImGui::Begin("openbf2-eon64", 0, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::End();
         return;
     }
+    // Header: frame rate, map, and the overlay switch on the right.
     const ImGuiIO& io = ImGui::GetIO();
-    ImGui::Text("%.1f fps  %.2f ms", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%.0f fps", io.Framerate);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%.2f ms", io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
+    const char* const map = g_host ? g_host->uiMapName() : "";
+    if (map && *map)
+    {
+        ImGui::SameLine();
+        ImGui::TextDisabled("  %s  %s", map, g_host->uiGameMode());
+    }
+    const char* const overlayLabel = "Overlay";
+    const float checkWidth = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x
+        + ImGui::CalcTextSize(overlayLabel).x;
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - checkWidth));
     bool overlay = g_overlay;
-    if (ImGui::Checkbox("Performance overlay", &overlay))
+    if (ImGui::Checkbox(overlayLabel, &overlay))
         uiLayerSetOverlay(overlay);
 
-    if (ImGui::CollapsingHeader("Commands", ImGuiTreeNodeFlags_DefaultOpen))
-        drawCommands();
-
     gatherVariables();
-    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
-    if (ImGui::CollapsingHeader("Sun shadows", ImGuiTreeNodeFlags_DefaultOpen))
-        for (size_t i = 0; i < g_variables.size(); ++i)
-            if (isSunShadowVariable(g_variables[i]))
-                drawVariable(g_variables[i]);
-    if (ImGui::CollapsingHeader("Renderer"))
+    if (ImGui::BeginTabBar("##tabs"))
     {
-        static char filter[64] = "";
-        ImGui::InputTextWithHint("##filter", "filter", filter, sizeof(filter));
-        for (size_t i = 0; i < g_variables.size(); ++i)
-            if (!isSunShadowVariable(g_variables[i])
-                && containsNoCase(g_variables[i]->getFunctionName(), filter))
-                drawVariable(g_variables[i]);
+        if (ImGui::BeginTabItem("Commands"))
+        {
+            drawCommandsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Shadows"))
+        {
+            drawShadowsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Renderer"))
+        {
+            drawRendererTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Settings"))
+        {
+            drawSettingsTab();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
-    ImGui::PopItemWidth();
     ImGui::End();
 }
 

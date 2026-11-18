@@ -5,8 +5,9 @@
 // console key still toggles it). The log is the console's own history; a line entered here runs as
 // if typed into the retail console and entered (setCurrentLine, then Enter through
 // updateAsciiKey), so access rules, echo, history, .con execution and rcon are the console's.
-// Here: completion from the registry with types, ranges and help, the window's own command
-// history, a filter over the log, and copy and paste.
+// Here: completion from the registry with types, ranges and help (Tab completes, then cycles),
+// the window's own command history, a filter over the log, colours for entered lines, errors and
+// warnings, copy and paste, and the window height (renderer.uiConsoleHeight).
 #ifdef BF2_IMAGE_RENDDX9
 
 #ifndef NOMINMAX
@@ -19,6 +20,7 @@
 #include "../../RendDX9Abi/ModuleCommon.h"
 #include "../../RendDX9Abi/D3dx9Sdk.h"
 #include "RendDX9Base.h"
+#include "UiLayer.h"
 #include "UiPanels.h"
 #include "../Core/ConsoleObject.h"
 #include "../Core/ConsoleObjects.h"
@@ -131,9 +133,11 @@ int g_historyPos = -1;                // -1: editing a new line
 std::vector<std::string> g_lines;
 std::vector<int> g_matches;           // into g_names, for the first word of the input
 std::string g_matchedFor;
+int g_selected = -1;                  // the match Tab last put in the input, or -1
 bool g_wasShown = false;
 bool g_refocus = false;
 bool g_scrollToEnd = false;
+float g_heightShare = 0.45f;
 
 std::string firstWord(const char* text)
 {
@@ -147,6 +151,8 @@ std::string firstWord(const char* text)
 
 void updateMatches()
 {
+    if (g_selected >= 0)
+        return;   // stepping through the matches with Tab: the list stays as it was
     const std::string word = firstWord(g_input);
     if (word == g_matchedFor)
         return;
@@ -159,29 +165,54 @@ void updateMatches()
             g_matches.push_back(static_cast<int>(i));
 }
 
+void replaceInput(ImGuiInputTextCallbackData* data, const std::string& text)
+{
+    data->DeleteChars(0, data->BufTextLen);
+    data->InsertChars(0, text.c_str());
+}
+
 int inputCallback(ImGuiInputTextCallbackData* data)
 {
-    if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion)
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackEdit)
     {
-        // Completes the first word: to the only match and a space, or as far as all matches agree.
-        if (g_matches.empty() || std::strchr(data->Buf, ' '))
+        g_selected = -1;   // typing starts a new completion
+    }
+    else if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion)
+    {
+        // Tab: complete the first word as far as all matches agree; once it can't go further,
+        // step through the matches (Shift+Tab steps back).
+        if (std::strchr(data->Buf, ' ') && g_selected < 0)
             return 0;
-        std::string common = g_names[g_matches[0]].name;
-        for (size_t i = 1; i < g_matches.size(); ++i)
+        if (g_selected >= 0 || g_matches.size() > 1)
         {
-            const std::string& n = g_names[g_matches[i]].name;
-            size_t k = 0;
-            while (k < common.size() && k < n.size() && tolower(common[k]) == tolower(n[k]))
-                ++k;
-            common.resize(k);
+            std::string common;
+            if (g_selected < 0)
+            {
+                common = g_names[g_matches[0]].name;
+                for (size_t i = 1; i < g_matches.size(); ++i)
+                {
+                    const std::string& n = g_names[g_matches[i]].name;
+                    size_t k = 0;
+                    while (k < common.size() && k < n.size() && tolower(common[k]) == tolower(n[k]))
+                        ++k;
+                    common.resize(k);
+                }
+            }
+            if (g_selected < 0 && common.size() > static_cast<size_t>(data->BufTextLen))
+            {
+                replaceInput(data, common);
+                return 0;
+            }
+            const int count = static_cast<int>(g_matches.size());
+            if (!count)
+                return 0;
+            const bool back = ImGui::GetIO().KeyShift;
+            g_selected = g_selected < 0 ? (back ? count - 1 : 0) : (g_selected + (back ? count - 1 : 1)) % count;
+            replaceInput(data, g_names[g_matches[g_selected]].name + " ");
+            return 0;
         }
         if (g_matches.size() == 1)
-            common += ' ';
-        if (common.size() >= static_cast<size_t>(data->BufTextLen))
-        {
-            data->DeleteChars(0, data->BufTextLen);
-            data->InsertChars(0, common.c_str());
-        }
+            replaceInput(data, g_names[g_matches[0]].name + " ");
     }
     else if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory && !g_history.empty())
     {
@@ -191,11 +222,7 @@ int inputCallback(ImGuiInputTextCallbackData* data)
         else if (data->EventKey == ImGuiKey_DownArrow && g_historyPos >= 0)
             g_historyPos = g_historyPos + 1 < static_cast<int>(g_history.size()) ? g_historyPos + 1 : -1;
         if (previous != g_historyPos)
-        {
-            data->DeleteChars(0, data->BufTextLen);
-            if (g_historyPos >= 0)
-                data->InsertChars(0, g_history[g_historyPos].c_str());
-        }
+            replaceInput(data, g_historyPos >= 0 ? g_history[g_historyPos] : std::string());
     }
     return 0;
 }
@@ -206,11 +233,14 @@ void enter()
     const size_t first = line.find_first_not_of(' ');
     g_input[0] = '\0';
     g_historyPos = -1;
+    g_selected = -1;
     g_refocus = true;
     g_scrollToEnd = true;
     if (first == std::string::npos)
         return;
     line = line.substr(first);
+    while (!line.empty() && line[line.size() - 1] == ' ')
+        line.erase(line.size() - 1);
     if (g_history.empty() || g_history.back() != line)
         g_history.push_back(line);
     if (g_history.size() > 200)
@@ -229,38 +259,83 @@ bool containsNoCase(const std::string& text, const char* part)
     return false;
 }
 
+// A log line's colour: lines entered here (the console echoes them), errors, warnings.
+ImU32 lineColour(const std::string& line)
+{
+    for (size_t i = g_history.size(); i-- > 0 && i + 20 >= g_history.size();)
+        if (line == g_history[i])
+            return IM_COL32(110, 205, 200, 255);
+    if (containsNoCase(line, "error") || containsNoCase(line, "unknown") || containsNoCase(line, "failed")
+        || containsNoCase(line, "invalid") || containsNoCase(line, "not found"))
+        return IM_COL32(240, 120, 110, 255);
+    if (containsNoCase(line, "warning"))
+        return IM_COL32(235, 200, 110, 255);
+    return ImGui::GetColorU32(ImGuiCol_Text);
+}
+
 void drawCompletion(const ImVec2& at, float width)
 {
-    const unsigned int kShown = 12;
-    const bool exact = g_matches.size() == 1 && _stricmp(g_names[g_matches[0]].name.c_str(), g_matchedFor.c_str()) == 0;
+    const int kShown = 12;
     if (g_matches.empty())
         return;
+    const int count = static_cast<int>(g_matches.size());
+    // The visible slice keeps the selected match in view.
+    int start = 0;
+    if (g_selected >= kShown)
+        start = g_selected - kShown + 1;
+    const bool exact = count == 1 && _stricmp(g_names[g_matches[0]].name.c_str(), g_matchedFor.c_str()) == 0;
     ImGui::SetNextWindowPos(at);
     ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(width, FLT_MAX));
-    ImGui::SetNextWindowBgAlpha(0.95f);
+    ImGui::SetNextWindowBgAlpha(0.97f);
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize
         | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav
         | ImGuiWindowFlags_NoInputs;
     if (ImGui::Begin("##completion", 0, flags))
     {
         ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
-        for (size_t i = 0; i < g_matches.size() && i < kShown; ++i)
+        if (ImGui::BeginTable("##matches", 2, ImGuiTableFlags_SizingFixedFit))
         {
-            const Name& n = g_names[g_matches[i]];
-            ImGui::TextUnformatted(n.name.c_str());
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", n.signature.c_str());
-            if (n.help && (exact || g_matches.size() <= 3))
-                ImGui::TextColored(ImVec4(0.7f, 0.85f, 1.0f, 1.0f), "    %s", n.help);
+            for (int i = start; i < count && i < start + kShown; ++i)
+            {
+                const Name& n = g_names[g_matches[i]];
+                ImGui::TableNextRow();
+                if (i == g_selected)
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::GetColorU32(ImGuiCol_HeaderActive));
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(n.name.c_str());
+                ImGui::TableNextColumn();
+                ImGui::TextDisabled("%s", n.signature.c_str());
+                if (n.help && (exact || i == g_selected || count <= 3))
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TableNextColumn();
+                    ImGui::TextColored(ImVec4(0.55f, 0.82f, 0.80f, 1.0f), "%s", n.help);
+                }
+            }
+            ImGui::EndTable();
         }
-        if (g_matches.size() > kShown)
-            ImGui::TextDisabled("... %u more (Tab completes the common part)",
-                                static_cast<unsigned int>(g_matches.size() - kShown));
+        if (count > kShown)
+            ImGui::TextDisabled("%d of %d   Tab / Shift+Tab steps through them", std::min(kShown, count - start), count);
     }
     ImGui::End();
 }
 
 } // namespace
+
+float uiLayerGetConsoleHeight()
+{
+    return g_heightShare;
+}
+
+void uiLayerSetConsoleHeight(float share)
+{
+    share = std::max(0.2f, std::min(0.9f, share));
+    if (share == g_heightShare)
+        return;
+    g_heightShare = share;
+    uiSaveSettings();
+}
 
 bool uiConsoleShown()
 {
@@ -290,25 +365,39 @@ void uiConsoleDraw(bool menuOpen)
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
-    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x, viewport->WorkSize.y * 0.45f));
-    ImGui::SetNextWindowBgAlpha(0.88f);
+    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x, viewport->WorkSize.y * g_heightShare));
+    ImGui::SetNextWindowBgAlpha(0.90f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
-        | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
-    if (!ImGui::Begin("##console", 0, flags))
+        | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings
+        | ImGuiWindowFlags_NoScrollbar;
+    const bool open = ImGui::Begin("##console", 0, flags);
+    ImGui::PopStyleVar();
+    if (!open)
     {
         ImGui::End();
         return;
     }
 
-    // Toolbar: the filter and copy.
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
-    ImGui::InputTextWithHint("##filter", "filter the log", g_filter, sizeof(g_filter));
-    ImGui::SameLine();
+    // Toolbar: title, filter, copy, line count, and the keys.
     std::vector<int> shown;
     shown.reserve(g_lines.size());
     for (size_t i = 0; i < g_lines.size(); ++i)
         if (containsNoCase(g_lines[i], g_filter))
             shown.push_back(static_cast<int>(i));
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(ImVec4(0.43f, 0.80f, 0.78f, 1.0f), "Console");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
+    ImGui::InputTextWithHint("##filter", "filter the log", g_filter, sizeof(g_filter));
+    if (g_filter[0])
+    {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x"))
+            g_filter[0] = '\0';
+        ImGui::SetItemTooltip("Clear the filter");
+    }
+    ImGui::SameLine();
     if (ImGui::Button("Copy"))
     {
         std::string text;
@@ -316,11 +405,18 @@ void uiConsoleDraw(bool menuOpen)
             text += g_lines[shown[i]] + "\n";
         ImGui::SetClipboardText(text.c_str());
     }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-        ImGui::SetTooltip("Copies the log lines shown");
+    ImGui::SetItemTooltip("Copies the log lines shown");
     ImGui::SameLine();
-    ImGui::TextDisabled("%u lines   Tab completes, Up/Down recalls, Ctrl+V pastes",
-                        static_cast<unsigned int>(shown.size()));
+    if (g_filter[0])
+        ImGui::TextDisabled("%u of %u lines", static_cast<unsigned int>(shown.size()),
+                            static_cast<unsigned int>(g_lines.size()));
+    else
+        ImGui::TextDisabled("%u lines", static_cast<unsigned int>(g_lines.size()));
+    const char* const keys = "Tab complete   Up/Down history   Ctrl+V paste";
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX()
+                         + std::max(0.0f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(keys).x));
+    ImGui::TextDisabled("%s", keys);
 
     // The log.
     const float footer = ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
@@ -328,11 +424,18 @@ void uiConsoleDraw(bool menuOpen)
                           ImGuiWindowFlags_HorizontalScrollbar))
     {
         const bool atEnd = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 1.0f));
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(shown.size()));
         while (clipper.Step())
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
-                ImGui::TextUnformatted(g_lines[shown[i]].c_str());
+            {
+                const std::string& line = g_lines[shown[i]];
+                ImGui::PushStyleColor(ImGuiCol_Text, lineColour(line));
+                ImGui::TextUnformatted(line.c_str());
+                ImGui::PopStyleColor();
+            }
+        ImGui::PopStyleVar();
         if (g_scrollToEnd || atEnd)
             ImGui::SetScrollHereY(1.0f);
         g_scrollToEnd = false;
@@ -340,15 +443,18 @@ void uiConsoleDraw(bool menuOpen)
     ImGui::EndChild();
 
     // The input line. It keeps the keyboard unless another field (the filter, the menu) has it.
-    ImGui::Separator();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(ImVec4(0.43f, 0.80f, 0.78f, 1.0f), ">");
+    ImGui::SameLine();
     if (g_refocus || (!ImGui::IsAnyItemActive() && !menuOpen))
         ImGui::SetKeyboardFocusHere();
     g_refocus = false;
-    ImGui::SetNextItemWidth(-1.0f);
-    const ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    const ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackEdit
         | ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackHistory;
     updateMatches();
-    if (ImGui::InputText("##input", g_input, sizeof(g_input), inputFlags, &inputCallback))
+    if (ImGui::InputTextWithHint("##input", "type a command; Tab completes", g_input, sizeof(g_input),
+                                 inputFlags, &inputCallback))
         enter();
     const ImVec2 below(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y + 2.0f);
     const float width = ImGui::GetItemRectSize().x;
