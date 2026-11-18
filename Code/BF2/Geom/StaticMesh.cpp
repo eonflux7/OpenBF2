@@ -2436,21 +2436,18 @@ void StaticMesh::drawVanilla()
                     }
                     else if (material->m_vegetationNonTiled)                       // +0x1EC
                     {
-                        const float f = m_float25C;
-                        // [RENDER] One sun: trees take the static sun (retail: treeSunColor, +0x1C8)
+                        // [RENDER] One sun: trees take the static sun (retail: treeSunColor, +0x1C8).
+                        // Retail scaled sun by the overgrowth instance's baked shadow squared and the
+                        // ambient by it once; the sun cascades shadow trees now, so neither is.
                         const Vec3& treeSun = g_LightManager->getStaticSunColor();
-                        const float sx = f * treeSun.x;
-                        const float sy = f * treeSun.y;
-                        const float sz = f * treeSun.z;
-                        sun->color[2] = sz * f;
-                        sun->color[0] = sx * f;
-                        sun->color[1] = sy * f;
+                        sun->color[0] = treeSun.x;
+                        sun->color[1] = treeSun.y;
+                        sun->color[2] = treeSun.z;
                         staticMeshMaterialShader(material) = staticMeshFindShaderBits(
                             qualityMask & 0xF0000000u);
 
                         const Vec3& ambient = g_LightManager->getTreeAmbientColor();  // +0x40
-                        const float scaled[3] = { f * ambient.x, f * ambient.y, f * ambient.z };
-                        const float* const packed = staticMeshPackVec4(scaled, 1.0f);
+                        const float* const packed = staticMeshPackVec4(&ambient.x, 1.0f);
                         entry->lighting.overGrowthAmbient.value[0] = packed[0];
                         entry->lighting.overGrowthAmbient.value[1] = packed[1];
                         entry->lighting.overGrowthAmbient.value[2] = packed[2];
@@ -2469,16 +2466,10 @@ void StaticMesh::drawVanilla()
                         const unsigned int key = (bits & 4u) ? 0xF9000000u : 0xFA000000u;
                         staticMeshMaterialShader(material) = staticMeshFindShaderBits(qualityMask & key);
 
-                        const float f2 = m_float25C * m_float25C;
-                        sun->color[0] *= f2;
-                        sun->color[1] *= f2;
-                        sun->color[2] *= f2;
-                        sun->scaled24 *= f2;
-
+                        // [RENDER] No baked overgrowth shadow (retail: sun x shadow squared, sky x
+                        // shadow); the sun cascades shadow trunks.
                         const Vec3& skyColor = g_LightManager->getStaticSkyColor();   // +0x1E8
-                        const float f = m_float25C;
-                        const float scaled[3] = { f * skyColor.x, f * skyColor.y, f * skyColor.z };
-                        const float* const packed = staticMeshPackVec4(scaled, 1.0f);
+                        const float* const packed = staticMeshPackVec4(&skyColor.x, 1.0f);
                         entry->lighting.overGrowthAmbient.value[0] = packed[0];
                         entry->lighting.overGrowthAmbient.value[1] = packed[1];
                         entry->lighting.overGrowthAmbient.value[2] = packed[2];
@@ -3074,25 +3065,15 @@ void staticMeshDrawExpansion(void* self)
                     {
                         if (material->m_vegetationNonTiled)
                         {
-                            const float f = mesh.m_float25C;
-                            // [RENDER] One sun: the static sun (retail: treeSunColor)
+                            // [RENDER] One sun: the static sun (retail: treeSunColor); no baked
+                            // overgrowth shadow (retail: sun x shadow squared, ambient x shadow).
                             const Vec3& color = g_LightManager->getStaticSunColor();
-                            const ExpansionReal red = ExpansionReal(f) * ExpansionReal(color.x);
-                            const float green = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.y));
-                            const float blue = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.z));
-                            const float second = mesh.m_float25C;
-                            sun->color[2] = static_cast<float>(ExpansionReal(second) * ExpansionReal(blue));
-                            sun->color[0] = static_cast<float>(red * ExpansionReal(second));
-                            sun->color[1] = static_cast<float>(ExpansionReal(second) * ExpansionReal(green));
+                            sun->color[0] = color.x;
+                            sun->color[1] = color.y;
+                            sun->color[2] = color.z;
                             staticMeshMaterialShader(material) = staticMeshFindShaderBits(0xF0000000u & qualityMask);
-                            const float ambientScale = mesh.m_float25C;
                             const Vec3& ambient = g_LightManager->getTreeAmbientColor();
-                            const float scaled[] = {
-                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.x)),
-                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.y)),
-                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.z))
-                            };
-                            std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(scaled,1.0f),
+                            std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(&ambient.x, 1.0f),
                                         sizeof(entry->lighting.overGrowthAmbient.value));
                             IBase* const found = classManager->getSingleton(renddx9abi::HostString("WindManager"));
                             op.windSpeed.value = static_cast<world::WindManager*>(static_cast<void*>(found))
@@ -3103,34 +3084,17 @@ void staticMeshDrawExpansion(void* self)
                         {
                             staticMeshMaterialShader(material) = staticMeshFindShaderBits(
                                 (bits & 4u ? 0xF9000000u : 0xFA000000u) & qualityMask);
+                            // [RENDER] No baked overgrowth shadow (retail: x shadow squared on the
+                            // sun, x shadow on the sky); the sun cascades shadow trunks.
                             if (dx9rend::rendererIsExpansionPack())
                             {
-                                const float f = mesh.m_float25C;
                                 const Vec3& color = g_LightManager->getTreeSkyColor();
-                                const ExpansionReal red = ExpansionReal(f) * ExpansionReal(color.x);
-                                const float green = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.y));
-                                const float blue = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.z));
-                                const float second = mesh.m_float25C;
-                                sun->color[2] = static_cast<float>(ExpansionReal(second) * ExpansionReal(blue));
-                                sun->color[0] = static_cast<float>(red * ExpansionReal(second));
-                                sun->color[1] = static_cast<float>(ExpansionReal(second) * ExpansionReal(green));
+                                sun->color[0] = color.x;
+                                sun->color[1] = color.y;
+                                sun->color[2] = color.z;
                             }
-                            else
-                            {
-                                const float f = mesh.m_float25C;
-                                const ExpansionReal square = ExpansionReal(f) * ExpansionReal(f);
-                                for (unsigned int c = 0; c < 3; ++c)
-                                    sun->color[c] = static_cast<float>(square * ExpansionReal(sun->color[c]));
-                                sun->scaled24 = static_cast<float>(square * ExpansionReal(sun->scaled24));
-                            }
-                            const float ambientScale = mesh.m_float25C;
                             const Vec3& ambient = g_LightManager->getStaticSkyColor();
-                            const float scaled[] = {
-                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.x)),
-                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.y)),
-                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.z))
-                            };
-                            std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(scaled,1.0f),
+                            std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(&ambient.x, 1.0f),
                                         sizeof(entry->lighting.overGrowthAmbient.value));
                         }
                     }

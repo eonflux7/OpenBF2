@@ -63,6 +63,7 @@ inline RaMaterialParameters& streamMaterial(OverGrowthCellMesh* stream)
 struct OverGrowthCellVertex
 {
     short         position[4];     // +0x00 x, y, z = (world - cell centre) * 109.22334; w = shadow * 32767
+                                   //       ([RENDER] step 8: the shaders no longer read w)
     unsigned char normal[4];       // +0x08 D3DCOLOR bytes: [0] z, [1] y, [2] x = (n + 1) * 127.5;
                                    //       [3] (var_17D) is never written by the shipped body
     short         texCoord[2];     // +0x0C u, v = (clamp(t, -1, 1) * atlas scale + atlas offset) * 32767
@@ -184,8 +185,8 @@ void submitCellStream(OverGrowthCellMesh*& stream, const Mat4& world, const Vec3
         record->direction[1] = direction[1];
         record->direction[2] = direction[2];
         record->direction[0] = direction[0];
-        const Vec3& sun = trunk ? g_LightManager->getStaticSunColor()           // +0x1D8
-                                : g_LightManager->getTreeSunColor();            // +0x1C8
+        // [RENDER] One sun, as the near instances (StaticMesh.cpp): leaves took treeSunColor (+0x1C8)
+        const Vec3& sun = g_LightManager->getStaticSunColor();                  // +0x1D8
         dx9rend::Ra::RaLightRecord* const colorRecord =
             static_cast<dx9rend::Ra::RaLightRecord*>(entry->lightArray.lights.value);
         colorRecord->color[0] = sun.x;

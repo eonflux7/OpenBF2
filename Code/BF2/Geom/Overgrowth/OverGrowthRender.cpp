@@ -5,7 +5,7 @@
 #include "OverGrowthCell.h"                  // overGrowthBaseUpdateCells (1015EEB0)
 #include "../GeometryInstanceData.h"          // 100C88A0's +0x28 / +0x2C and the +0xF4 opacity slot
 #include "../MeshTemplate.h"                  // IGeometryTemplate::createInstance (+0x24), MeshBounds
-#include "../StaticMesh.h"                    // StaticMesh::m_float25C - the instance's shadow value
+#include "../StaticMesh.h"
 #include "../StaticMeshTemplate.h"            // the template bounds the shadow walk reads at +0xFC
 #include "../Terrain.h"                       // terrainFrustumIntersectsBox - sub_101C7980
 #include "../XpLightManager.h"                // g_LightManager's type
@@ -332,14 +332,6 @@ void* acquireGeometry(OverGrowthGeometryRecord* pool, OverGrowthInstance* instan
     return geometry;
 }
 
-// StaticMesh +0x25C - the vegetation shadow value the draw hands each geometry (the instance's +0x54,
-// stored as its bits). The pools' geometries are StaticMesh instances.
-inline void geometrySetShadowValue(void* geometry, const OverGrowthInstance* instance)
-{
-    static_cast<StaticMesh*>(static_cast<GeometryInstanceData*>(geometry))->m_float25C = instance->shadow;
-}
-
-
 // ObjectDrawer primary slot +0x38 (PE 0x100F8220), called through the drawer's table exactly as the
 // PE does (`mov ecx, dword_1025A39C; mov edx, [ecx]; push edi; call [edx+38h]` at 0x100CA7E5..0x100CA7EE,
 // AL tested). Its body is ObjectDrawer::isGeometryOccluded (Geom/ObjectDrawer.cpp, the od_slot38
@@ -365,13 +357,34 @@ inline float objectTemplateCullRadiusScale(const void* objectTemplate)
 
 } // namespace
 
+// [RENDER] Step 8: the LOD geometry's share of an instance at ratio (distance / draw radius)
+// squared. Retail's distance fade (1 - x) / closeDistFade * sqrt(distanceScale), x = sqrt(ratio),
+// switches dominance at one half; the share runs 0 to 1 across kOverGrowthLodBand of that switch
+// distance, either side, as static meshes do (StaticMesh.cpp). Without a LOD geometry it is 0.
+namespace {
+const float kOverGrowthLodBand = 0.1f;
+
+float overGrowthLodShare(const OverGrowthGeometryPair* type, float ratio, float closeDistFade)
+{
+    if (!type->lod.geometry)
+        return 0.0f;
+    const float x = std::sqrt(ratio);
+    const float k = std::sqrt(type->full.distanceScale) / closeDistFade;
+    const float xs = 1.0f - 0.5f / k;
+    if (!(xs > 0.0f))
+        return 1.0f;
+    return clampFloat(0.5f + (x - xs) / (2.0f * kOverGrowthLodBand * xs), 0.0f, 1.0f);
+}
+}
+
 // PE 0x100CA580.
 // Updates visible vegetation cells, culls instances and draws their main/LOD cross-fade.
-// view and the initialized geometry/light services must be valid; time is the frame delta.
+// view and the initialized geometry/light services must be valid; time is the frame delta (unused).
 // Main-pool geometry is acquired before culling. LOD geometry draws first and is not
 // registered as a directional-shadow receiver.
 void OverGrowth::render(IRenderView* view, float time)
 {
+    (void)time;   // [RENDER] step 8: the lodTimer ease is gone (overGrowthLodShare)
     if (m_path.empty())
         return;
     if (m_updateBeforeRender)
@@ -444,37 +457,18 @@ void OverGrowth::render(IRenderView* view, float time)
                     continue;
                 // [RENDER] Retail attached the instance to a directional shadow record here.
 
-                float fade = clampFloat((1.0f - std::sqrt(ratio)) / m_closeDistFade
-                                        * std::sqrt(type->full.distanceScale), 0.0f, 1.0f);
-                if (m_lodTimer > 0.0f)                                       // 100CA83B `test ah,41h`
-                {
-                    if (fade < 1.0f)                                         // 100CA852 `test ah,5; jp`
-                    {
-                        const float rate = 1.0f / m_lodTimer;
-                        float& state = instance->lodFadeState;
-                        if (fade > 0.5f)                                    // 100CA876 `test ah,41h`
-                            state = maxFloat(0.0f, minFloat(state - rate * time, 2.0f - (fade + fade)));
-                        else
-                            state = minFloat(1.0f, maxFloat(rate * time + state, 1.0f - (fade + fade)));
-                    }
-                    else
-                    {
-                        instance->lodFadeState = 0.0f;
-                    }
-                    fade = 1.0f - instance->lodFadeState;
-                }
-
                 // [RENDER] Step 8: retail faded the two geometries through their Transparency
                 // (alpha 2(1 - fade) and 2 fade, doubled again under alpha-to-coverage), which sent
-                // every instance in the band to the blended queue. Both now stay opaque and split
-                // the screen's 4x4 Bayer pattern (RaLodDither): the full geometry keeps the pixels
-                // whose threshold is at least the LOD's share 1 - fade, the LOD geometry the rest.
-                const float lodShare = type->lod.geometry ? 1.0f - fade : 0.0f;
+                // every instance in the band to the blended queue, and could ease the fade over
+                // Overgrowth.lodTimer. Both now stay opaque and split the screen's 4x4 Bayer
+                // pattern (RaLodDither) by distance alone: the full geometry keeps the pixels whose
+                // threshold is at least the LOD's share, the LOD geometry the rest. The baked
+                // per-instance shadow is no longer applied (the sun cascades shadow them).
+                const float lodShare = overGrowthLodShare(type, ratio, m_closeDistFade);
                 if (lodShare > 0.0f)
                 {
                     void* const lodGeometry = acquireGeometry(&type->lod, instance);
                     geometrySetDistanceFade(lodGeometry, 1.0f);
-                    geometrySetShadowValue(lodGeometry, instance);
                     if (lodShare < 1.0f)
                         dx9rend::renderEntryPoolSetLodDither(-1.0f, lodShare);
                     geometryDraw(lodGeometry, view);                                   // +0x18
@@ -482,7 +476,6 @@ void OverGrowth::render(IRenderView* view, float time)
                 if (lodShare < 1.0f)
                 {
                     geometrySetDistanceFade(geometry, 1.0f);
-                    geometrySetShadowValue(geometry, instance);
                     if (lodShare > 0.0f)
                         dx9rend::renderEntryPoolSetLodDither(1.0f, -lodShare);
                     geometryDraw(geometry, view);                                      // +0x18
@@ -559,10 +552,8 @@ void OverGrowth::submitShadowCasters(IRenderView* view, const Frustum& volume)
                 if (!(ratio < 1.0f))
                     continue;
 
-                const float fade = clampFloat((1.0f - std::sqrt(ratio)) / m_closeDistFade
-                                              * std::sqrt(type->full.distanceScale), 0.0f, 1.0f);
                 OverGrowthGeometryRecord* const record =
-                    (type->lod.geometry && fade < 0.5f) ? &type->lod : &type->full;
+                    overGrowthLodShare(type, ratio, m_closeDistFade) > 0.5f ? &type->lod : &type->full;
                 void* const geometry = acquireGeometry(record, instance);
                 // The radius call finalises the lod box, so its centre is current below.
                 const float radius = geometryBoundingRadius(geometry);
@@ -578,7 +569,6 @@ void OverGrowth::submitShadowCasters(IRenderView* view, const Frustum& volume)
                     continue;
                 }
                 geometrySetDistanceFade(geometry, 1.0f);
-                geometrySetShadowValue(geometry, instance);
                 const size_t first = dx9rend::rendererShadowCasters().size();
                 geometryDraw(geometry, view);
                 const float sphere[4] = { centre.x, centre.y, centre.z, radius };
