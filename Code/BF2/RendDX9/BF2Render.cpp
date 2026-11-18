@@ -4504,8 +4504,11 @@ void rendererSceneTransparentsEnd()
     g_linearDepthFrame = false;
     if (g_transparentDepth)
     {
+        // Flushed to the device now: the overlay passes save and restore the depth-stencil surface
+        // straight from the device, and would carry the rebuilt one into the next frame.
         g_transparentDepth = false;
         stateManagerSetDepthStencilSurface(publishedRenderer()->m_depthStencil);   // +0x770
+        flushRenderTargetsSeam();
     }
 }
 
