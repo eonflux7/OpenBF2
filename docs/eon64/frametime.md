@@ -78,7 +78,8 @@ Parked on 2026-11-18: at 153 fps there is headroom, so the renderer roadmap goes
    the caster submission, which repeats the culling over the cascades' light volume.
 2. Object culling (17 %): the object manager's grid and cull fade, the object drawer's box tests.
 3. Per-draw cost: D3DX effect calls (15 %) and Ra parameter apply. Replacing D3DX's per-draw
-   parameter and pass handling with the renderer's own constant uploads is `render` work.
+   parameter and pass handling with the renderer's own constant uploads is `render` work: renderer
+   step 9 ([renderer.md](renderer.md)), which also takes the sun caster culling of item 1.
 
 Open:
 - An intermittent stack overflow while loading, seen once with the unoptimised plugins

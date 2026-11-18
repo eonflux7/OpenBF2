@@ -20,13 +20,24 @@ kept in a private repository; this document describes only the contract between 
 | 4. Depth prepass + screen-space sun mask | Accepted | `3a00bf99`, `988774bf`, `82e04f61` |
 | 5. Sun cascaded shadow maps + PCF | Accepted | `271c8d45`, `df9a6a40`, `6261ac82`, `5ccaf770`, `505ca7ab`, `2860a74a` |
 | 6. Shader audit and cleanup | Accepted | `ee33008f`, `7f05cc77`, `88d3b7f1`, `52af0169`, `f6fb255a`, `e7623d07`, `dc97ef7b` |
-| 7. MSAA with the single-sample prepass | Not started | — |
-| 8. Atmosphere, sky IBL, water reflections | Not started | — |
-| 9. HDR bloom + auto-exposure | Not started | — |
-| 10. GTAO + lightmap channel ownership | Not started | — |
+| 7. Particle lighting | Not started | — |
+| 8. MSAA with the single-sample prepass | Not started | — |
+| 9. Draw submission | Not started | — |
+| 10. Terrain in one pass | Not started | — |
+| 11. Atmosphere, sky IBL, water reflections | Not started | — |
+| 12. HDR bloom + auto-exposure | Not started | — |
+| 13. GTAO + lightmap channel ownership | Not started | — |
 
 Each step is accepted in game against the reference views (see [Tooling](#tooling)) before the next
 one starts.
+
+Order (set 2026-11-18): particle lighting first, being small and independent. MSAA stays early
+because it settles how full-screen terms meet MSAA before steps 11 and 13 add more. Draw
+submission comes before terrain and the atmosphere, so the new terrain draw is written once on the
+new path and the parameters steps 11–13 add cost nothing per draw. Terrain comes before the
+atmosphere, so aerial perspective and sky reflections are written once into a single terrain pass.
+Bloom and auto-exposure depend only on the HDR scene and can move earlier if night layers need them
+sooner.
 
 **5. Sun CSM.** Accepted on 2026-11-18 with the values it was developed at (400 m, 2048 per
 cascade, 500 m caster reach, normal offset 1.5 and depth bias 1.0 texels); the owner chose not to
@@ -63,18 +74,36 @@ follows from it:
   standard-depth mark when they restore the scene depth (`e7623d07`).
 - One terrain path. `Low_Terrain` had no `RaDepthPrepass` or `RaShadowDepth` technique, so the
   engine no longer enters it: not at load, not from the terrain-quality video option, not as a
-  fallback. The `m_lowQuality` branches left in the terrain code are always false and go with the
-  terrain rewrite.
+  fallback. The `m_lowQuality` branches left in the terrain code are always false and go in step 10.
 - Liveness comes from `BF2_DRAW_STATS` ([flags.md](flags.md)), run on a set of maps that between them
   cover water, foliage, buildings and vehicles.
 
-**7. MSAA.** The scene draws with 4x MSAA, but the prepass depth, normals and sun mask are single
+**7. Particle lighting.** Particles (`particles.fx`, `nonscreenalignedparticles.fx`, `trail.fx`,
+`meshparticlemesh.fx`) still light in gamma space: they decode the product of vertex colour and
+lighting as a colour. They move onto the shared sun and sky model, so smoke, dust and trails match
+the scene by day and night. The thermals smoke (paused) builds on this.
+
+**8. MSAA.** The scene draws with 4x MSAA, but the prepass depth, normals and sun mask are single
 sample, so an edge pixel reads one mask value for all its samples (halos on silhouettes, mostly
 foliage against the sky; on bright terrain, dark lines along ridge silhouettes, where the edge reads the
 far slope's N.L and shadow, seen on Kashan Desert). Decide how full-screen terms meet MSAA (edge-aware upsampling,
-per-sample evaluation at edges, or another anti-aliasing approach) before step 10 adds a second one.
+per-sample evaluation at edges, or another anti-aliasing approach) before step 13 adds a second one.
 
-**8. Atmosphere, sky IBL, water reflections.**
+**9. Draw submission.** The frame is CPU-bound ([frametime.md](frametime.md)): the D3DX effect
+framework's per-draw parameter, pass and commit calls take about 15 % of the main thread, and Ra
+parameter apply and mesh draws about 14 %. The renderer takes over constant uploads and shader
+binding for its draws, keeping the effect files as the shader source. The sun caster pass reuses
+the camera's object culling instead of culling again over the cascades' light volume (about 7 %).
+Behind a flag selecting the D3DX path until accepted.
+
+**10. Terrain in one pass.** Terrain draws a lightmap accumulation pass, packed to `[0,1]`, and then
+additive detail passes (0, 3, 4, 5 and 14 on the maps measured). One pass replaces them: no packing,
+fog applied once (the additive passes fog every pass, so it stacks where they overlap), fewer passes
+over the largest surface on screen. Roads, which blend into the accumulation target, get their own
+lit path. Deleted with it: the always-false `m_lowQuality` branches and the dynamic shadow-range
+index buffer (+0x368), which nothing reads since step 6.
+
+**11. Atmosphere, sky IBL, water reflections.**
 - One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial
   perspective, so sky, sun near the horizon and haze agree.
 - A sky cubemap prefiltered per level at load (one mip per roughness) gives ambient specular to
@@ -88,21 +117,21 @@ per-sample evaluation at edges, or another anti-aliasing approach) before step 1
   (also the source for refraction); water marches against the prepass depth and falls back to the
   prefiltered sky where the ray leaves the screen.
 
-**9. HDR bloom + auto-exposure.** An energy-conserving bloom without threshold, and exposure that
+**12. HDR bloom + auto-exposure.** An energy-conserving bloom without threshold, and exposure that
 adapts between interiors and open terrain, both before the frame grade. Night layers need it: with
 the fixed exposure (−1.25 stops) The Falklands night terrain reaches the tonemap at about 0.0155, and
 Khronos Neutral's toe (6.25·x² below 0.08) shows it at 5/255, where retail drew about 30/255. The
 adaptation needs an upper limit so night stays dark (about retail's level), and the toe may need
 softening for what stays below 0.08.
 
-**10. GTAO + lightmap channel ownership.** GTAO for small-scale occlusion. Lightmaps are kept, with
+**13. GTAO + lightmap channel ownership.** GTAO for small-scale occlusion. Lightmaps are kept, with
 one owner per channel: inside cascade range the cascades own sun visibility and the baked sun term
 is only the fallback beyond the last cascade (as now); sky visibility and baked point lights stay
 baked. Lightmaps are not re-baked at a higher resolution unless the reference views show the baked
 sky term failing.
 
 Not planned: converting the assets to a PBR material set. The existing maps are interpreted as
-PBR inputs (step 8) instead.
+PBR inputs (step 11) instead.
 
 ### Tooling
 
