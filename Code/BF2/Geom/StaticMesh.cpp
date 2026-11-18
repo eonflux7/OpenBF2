@@ -102,6 +102,14 @@ extern LightManager* g_LightManager;      // XpLightManager.cpp, dword_1024B914
 extern IBase*        g_StaticMeshRenderer; // StaticMeshRenderer.cpp, dword_1024B8F8
 extern IBase*        g_Terrain;            // ModuleGeom.cpp, dword_1024B930
 
+// [RENDER] Step 8: static meshes switch LOD at three times their switch distances. PR authors
+// almost none (80 of 6,949 static templates), so most switch at the engine's 25 m steps past
+// their bounding sphere: a building of radius 15 m dropped to LOD 1 at 40 m. On Muttrah City x3
+// draws 1.9x the primitives of x1 for about 0.6 ms; LOD 0 everywhere draws 4.2x for 1.6 ms.
+// Applied here rather than through renderer.globalStaticMeshLodDistanceScale, which PR's level
+// init resets to 1 on every map.
+const float kStaticMeshLodDistanceScale = 3.0f;
+
 namespace {
 
 
@@ -2063,7 +2071,7 @@ void StaticMesh::drawVanilla()
         if (i >= 0)
         {
             const float* const switchDistances = t->m_geoms[m_dword314].lodDistances.data();
-            const float scale = rendererFloat(0x8B0) * rendererFloat(0x84C);
+            const float scale = rendererFloat(0x8B0) * rendererFloat(0x84C) * kStaticMeshLodDistanceScale;
             for (;;)
             {
                 if (scale * switchDistances[i] < lodDistance)
@@ -2076,30 +2084,15 @@ void StaticMesh::drawVanilla()
             }
         }
 
-        // [DEV] BF2_DRAW_STATS: the primitives this mesh would draw at other switch-distance scales.
+        // [DEV] BF2_DRAW_STATS: the primitives this mesh would draw at other switch-distance scales
+        // (multiples of the unraised distances).
         if (dx9rend::drawStatsOn())
         {
             const unsigned int geom = m_dword314;
-            dx9rend::drawStatsLodScales(0, t->m_geoms[geom].lodDistances.data(),
+            dx9rend::drawStatsLodScales(t->m_geoms[geom].lodDistances.data(),
                 static_cast<int>(m_geomLodDistanceCounts.data()[geom]),
                 rendererFloat(0x8B0) * rendererFloat(0x84C), lodDistance,
                 [t, geom](int lod) { return t->getPrimitiveCount(static_cast<int>(geom), lod, -1); });
-        }
-
-        m_dword320 = 0;
-        if (rendererByte(0x708))
-        {
-            for (int bucket = 3; bucket >= 0; --bucket)
-            {
-                const float threshold = (bucket < 0 || bucket > 3)
-                    ? 0.0f
-                    : rendererFloat(0x70C + 4u * static_cast<unsigned int>(bucket));
-                if (lodDistance > threshold)
-                {
-                    m_dword320 = static_cast<unsigned int>(bucket + 1);
-                    break;
-                }
-            }
         }
 
         if (selected != static_cast<int>(m_dword318))
@@ -2192,18 +2185,9 @@ void StaticMesh::drawVanilla()
     // 7. the materials
     if (!m_byte356)
     {
-        unsigned int maskIndex = rendererDword(0x6CC);
-        if (rendererByte(0x6D0))
-        {
-            const unsigned int maskCount = static_cast<unsigned int>(g_staticMeshQualityMasks.size());
-            // `count` when the lod is past the end - one element past the vector.  Shipped.
-            maskIndex = (maskCount < m_dword318) ? maskCount : m_dword318;
-        }
-        else if (rendererByte(0x708) && m_dword320 > maskIndex)
-        {
-            maskIndex = m_dword320;
-        }
-        const unsigned int qualityMask = g_staticMeshQualityMasks.data()[maskIndex];
+        // [RENDER] Step 8: the shader quality is the renderer's, at every distance. Retail could
+        // raise it by a distance bucket (+0x708 / +0x70C) or key it to the LOD index (+0x6D0).
+        const unsigned int qualityMask = g_staticMeshQualityMasks.data()[rendererDword(0x6CC)];
 
         StaticMeshMaterial* const materialsFirst =
             m_dword310->data();
@@ -2628,7 +2612,7 @@ void staticMeshDrawExpansion(void* self)
         if (i >= 0)
         {
             const float* const switchDistances = t->m_geoms[mesh.m_dword314].lodDistances.data();
-            const float scale = static_cast<float>(ExpansionReal(rendererFloat(0x8B0)) * ExpansionReal(rendererFloat(0x84C)));
+            const float scale = static_cast<float>(ExpansionReal(rendererFloat(0x8B0)) * ExpansionReal(rendererFloat(0x84C)) * ExpansionReal(kStaticMeshLodDistanceScale));
             for (;;)
             {
                 if (ExpansionReal(scale) * ExpansionReal(switchDistances[i]) < ExpansionReal(lodDistance))
@@ -2641,30 +2625,15 @@ void staticMeshDrawExpansion(void* self)
             }
         }
 
-        // [DEV] BF2_DRAW_STATS: the primitives this mesh would draw at other switch-distance scales.
+        // [DEV] BF2_DRAW_STATS: the primitives this mesh would draw at other switch-distance scales
+        // (multiples of the unraised distances).
         if (dx9rend::drawStatsOn())
         {
             const unsigned int geom = mesh.m_dword314;
-            dx9rend::drawStatsLodScales(0, t->m_geoms[geom].lodDistances.data(),
+            dx9rend::drawStatsLodScales(t->m_geoms[geom].lodDistances.data(),
                 static_cast<int>(mesh.m_geomLodDistanceCounts.data()[geom]),
                 rendererFloat(0x8B0) * rendererFloat(0x84C), lodDistance,
                 [t, geom](int lod) { return t->getPrimitiveCount(static_cast<int>(geom), lod, -1); });
-        }
-
-        mesh.m_dword320 = 0;
-        if (rendererByte(0x708))
-        {
-            for (int bucket = 3; bucket >= 0; --bucket)
-            {
-                const float threshold = (bucket < 0 || bucket > 3)
-                    ? 0.0f
-                    : rendererFloat(0x70C + 4u * static_cast<unsigned int>(bucket));
-                if (lodDistance > threshold)
-                {
-                    mesh.m_dword320 = static_cast<unsigned int>(bucket + 1);
-                    break;
-                }
-            }
         }
 
         if (selected != static_cast<int>(mesh.m_dword318))
@@ -2731,18 +2700,9 @@ void staticMeshDrawExpansion(void* self)
     // 7. the materials
     if (!mesh.m_byte356)
     {
-        unsigned int maskIndex = rendererDword(0x6CC);
-        if (rendererByte(0x6D0))
-        {
-            const unsigned int maskCount = static_cast<unsigned int>(g_staticMeshQualityMasks.size());
-            // `count` when the lod is past the end - one element past the vector.  Shipped.
-            maskIndex = (maskCount < mesh.m_dword318) ? maskCount : mesh.m_dword318;
-        }
-        else if (rendererByte(0x708) && mesh.m_dword320 > maskIndex)
-        {
-            maskIndex = mesh.m_dword320;
-        }
-        const unsigned int qualityMask = g_staticMeshQualityMasks.data()[maskIndex];
+        // [RENDER] Step 8: the shader quality is the renderer's, at every distance. Retail could
+        // raise it by a distance bucket (+0x708 / +0x70C) or key it to the LOD index (+0x6D0).
+        const unsigned int qualityMask = g_staticMeshQualityMasks.data()[rendererDword(0x6CC)];
 
         StaticMeshMaterial* const materialsFirst =
             mesh.m_dword310->data();

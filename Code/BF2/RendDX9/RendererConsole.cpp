@@ -236,9 +236,6 @@ void setNightVisionRegenRPS(float value) { rendererTailFloat(0x740) = value; }
 typedef unsigned int uint;
 uint getRenderAheadLimit() { return static_cast<IRenderer*>(static_cast<void*>(g_Renderer))->getRenderAheadLimit(); }
 void setRenderAheadLimit(uint value) { static_cast<IRenderer*>(static_cast<void*>(g_Renderer))->setRenderAheadLimit(value); }
-// PE 0x1005AC80, the shader-LOD byte read by the mesh draw paths.
-bool getQualityLodEnabled() { return rendererTailByte(0x708) != 0; }
-void setQualityLodEnabled(bool value) { rendererTailByte(0x708) = value; }
 
 #define BF2_RENDERER_FLOAT_ACCESSORS(name, offset) \
     float get_##name() { return rendererTailFloat(offset); } \
@@ -280,31 +277,6 @@ void setAmbientSun(bool value) { rendererRenderSwitch(0x69C) = value; }
 
 // PE 0x1005AEA0/0x1005B030, 0x1005B250/0x1005B3E0, 0x1005B620/0x1005B7B0.
 // Invalid indices read as zero and leave a write unchanged; distances are unrestricted.
-float getQualityLodDistance(unsigned int table, int index)
-{
-    return index >= 0 && index <= 3 ? rendererTailFloat(table + 4u * index) : 0.0f;
-}
-void setQualityLodDistance(unsigned int table, int index, float value)
-{
-    if (index >= 0 && index <= 3)
-        rendererTailFloat(table + 4u * index) = value;
-}
-float getQualityLodDistanceSTM(int index) { return getQualityLodDistance(0x70C, index); }
-void setQualityLodDistanceSTM(int index, float value) { setQualityLodDistance(0x70C, index, value); }
-float getQualityLodDistanceSKM(int index) { return getQualityLodDistance(0x71C, index); }
-void setQualityLodDistanceSKM(int index, float value) { setQualityLodDistance(0x71C, index, value); }
-float getQualityLodDistanceBM(int index) { return getQualityLodDistance(0x72C, index); }
-void setQualityLodDistanceBM(int index, float value) { setQualityLodDistance(0x72C, index, value); }
-// PE 0x1005B9E0: store static, skinned, then bundled, retaining the same bounds.
-void setQualityLodDistanceALL(int index, float value)
-{
-    if (index >= 0 && index <= 3)
-    {
-        rendererTailFloat(0x70C + 4u * index) = value;
-        rendererTailFloat(0x71C + 4u * index) = value;
-        rendererTailFloat(0x72C + 4u * index) = value;
-    }
-}
 
 // PE 0x1005BB80, GET via +0xAC; SET inlines 0x10028310, without mounting another shader archive.
 bool getIsNightMap() { return static_cast<IRenderer*>(static_cast<void*>(g_Renderer))->isExpansionPack(); }
@@ -1121,31 +1093,9 @@ BF2_CONSOLE_PROPERTY_FN(globalSkinnedMeshLodDistanceScale, float, g_Renderer != 
 // PE 0x1005A990, 0x1005AA80: renderAheadLimit constructor, converter.
 BF2_CONSOLE_PROPERTY_FN(renderAheadLimit, uint, g_Renderer != 0,
                         getRenderAheadLimit(), setRenderAheadLimit, kRendererConsoleTag)
-// PE 0x1005AB30, 0x1005AC20, 0x1005D050
-BF2_CONSOLE_PROPERTY_FN(qualityLodEnabled, bool, g_Renderer != 0,
-                        getQualityLodEnabled(), setQualityLodEnabled, kRendererConsoleTag)
 
-// PE 0x1005ACD0, 0x1005B560, 0x1005AE00
-BF2_CONSOLE_METHOD_2_STATIC_ACTIVE(setQualityLodDistanceSTM, setQualityLodDistanceSTM,
-                                   g_Renderer != 0, int, float, kRendererConsoleTag)
-// PE 0x1005AEE0, 0x10081F00, 0x1005AFD0
-BF2_CONSOLE_METHOD_1_RET_ACTIVE(getQualityLodDistanceSTM, getQualityLodDistanceSTM,
-                               float, g_Renderer != 0, int, kRendererConsoleTag)
-// PE 0x1005B080, 0x1005B1B0
-BF2_CONSOLE_METHOD_2_STATIC_ACTIVE(setQualityLodDistanceSKM, setQualityLodDistanceSKM,
-                                   g_Renderer != 0, int, float, kRendererConsoleTag)
-// PE 0x1005B290, 0x1005B380
-BF2_CONSOLE_METHOD_1_RET_ACTIVE(getQualityLodDistanceSKM, getQualityLodDistanceSKM,
-                               float, g_Renderer != 0, int, kRendererConsoleTag)
-// PE 0x1005B430, 0x1005B580
-BF2_CONSOLE_METHOD_2_STATIC_ACTIVE(setQualityLodDistanceBM, setQualityLodDistanceBM,
-                                   g_Renderer != 0, int, float, kRendererConsoleTag)
-// PE 0x1005B660, 0x1005B750
-BF2_CONSOLE_METHOD_1_RET_ACTIVE(getQualityLodDistanceBM, getQualityLodDistanceBM,
-                               float, g_Renderer != 0, int, kRendererConsoleTag)
-// PE 0x1005B800, 0x1005B940
-BF2_CONSOLE_METHOD_2_STATIC_ACTIVE(setQualityLodDistanceALL, setQualityLodDistanceALL,
-                                   g_Renderer != 0, int, float, kRendererConsoleTag)
+// [RENDER] Step 8: qualityLodEnabled and get/setQualityLodDistance{STM,SKM,BM,ALL} (PE 0x1005AB30
+// to 0x1005B940) are gone with the distance shading LODs they drove.
 // PE 0x1005BA30, 0x1005BB20
 BF2_CONSOLE_PROPERTY_FN(isNightMap, bool, g_Renderer != 0,
                         getIsNightMap(), setIsNightMap, kRendererConsoleTag)

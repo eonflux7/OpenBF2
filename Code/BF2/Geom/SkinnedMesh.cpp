@@ -1250,10 +1250,8 @@ void SkinnedMesh::draw(void*, void*, void*)
 
     updateLodSelection();
 
-    // The "cheap lighting" flag: past the light manager's threshold, or the renderer is in mode 2.
-    *reinterpret_cast<unsigned char*>(&m_dword348) =
-        (g_LightManager->getSkinnedMeshShaderLodDistance() <= m_distanceToCamera
-         || skinnedMeshRendererMode() == 2) ? 1u : 0u;
+    // [RENDER] Step 8: retail set a "cheap lighting" byte at +0x348 past the light manager's
+    // skinnedMeshShaderLodDistance (or in renderer mode 2). Nothing reads it; the write is gone.
 
     // -- 4. the matrices
     // fullMult, NOT operator* and NOT Mat4::mult - the affine shortcut would destroy the

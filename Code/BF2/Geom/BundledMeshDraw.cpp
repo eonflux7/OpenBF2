@@ -330,8 +330,7 @@ void BundledMesh::draw(void*,void*,void*)
         BundledMeshState* const state=material->m_state;
         unsigned int mask=materialFeatures(material,false,caps);
         if(inside && !(mask&0x1000))mask=(mask&~0x100u)|0x200u;
-        unsigned int quality=dx9rend::rendererRaPath();                         // +0x6CC
-        if(dx9rend::rendererTailByte(0x708) && m_shaderLod>quality)quality=m_shaderLod;
+        const unsigned int quality=dx9rend::rendererRaPath();                   // +0x6CC
         const unsigned int qualityMask=bundledMeshQualityMask(quality);
         mask&=qualityMask;if(!(mask&0x5F))mask|=1;
         RenderQueueEntry* const entry=dx9rend::renderEntryPoolAcquire();

@@ -93,7 +93,7 @@ public:
     unsigned int m_geomIndex;                            // +28C
     unsigned int m_lodIndex;                             // +290
     int m_animationIndex;                               // +294
-    unsigned int m_shaderLod;                            // +298, ctor untouched
+    unsigned int m_unused298;                            // +298, retail's shader-LOD bucket (deleted, step 8)
     int m_dword29C;                                      // +29C
     unsigned int m_dword2A0,m_dword2A4;                  // +2A0,+2A4, unresolved
     Mat4* m_uvMatrices;                                  // +2A8 eight matrices, lazy
@@ -107,7 +107,7 @@ public:
     unsigned char m_animationExplicit;                   // +2DD
     unsigned char m_lodExplicit;                         // +2DE
     unsigned char m_pad2DF;
-    unsigned int m_lodFrame;                             // +2E0
+    unsigned int m_lodFrame;                             // +2E0, retail's LOD frame stamp (unread since step 8)
     unsigned int m_heightFrame;                          // +2E4
     float m_shadowFade;                                  // +2E8
     unsigned char m_pad2EC[4];

@@ -608,7 +608,7 @@ public:
     // ctor 4, 5, 100; VideoOptions::apply rewrites them; the hemi bake treats +0x6C0 as a dword).
     float        m_fogOverride[3];       // +0x6C0 .. +0x6CB
     unsigned int m_raPath;               // +0x6CC  (435) the RAPATH shader define / quality index
-    unsigned char m_byte6D0;             // +0x6D0  [UNRESOLVED] read by the static-mesh draw
+    unsigned char m_byte6D0;             // +0x6D0  [UNRESOLVED] retail keyed static-mesh shader quality to the LOD; unread since step 8
     unsigned char m_pad6D1[3];
     // Statistics overlay mode, 0..4 (setter 0x1002A6A0 clamps it and mirrors "non-zero" into
     // byte_1023E7F0); gates sub_1002E440.
@@ -626,11 +626,11 @@ public:
                                          ? 0x1C - sizeof(std::string) : 1];
     // The overlay draw's scale and offset (sub_10028FD0: x = +0x700, y = -+0x704).
     float        m_f6FC[3];              // +0x6FC .. +0x707 (447..449) ctor 0.125, 0.75, 0.75
-    unsigned char m_meshShaderLodEnabled;// +0x708  the mesh draws' shader-LOD gate
+    unsigned char m_meshShaderLodEnabled;// +0x708  retail's mesh shader-LOD gate; unread since step 8
     unsigned char m_pad709[3];
     // Three four-entry distance tables (451..462, ctor [0] = 10.0): the static-mesh draw reads
     // +0x70C + 4 * bucket, the bundled-mesh LOD +0x72C + 4 * i.
-    float        m_lodDistances70C[4];   // +0x70C
+    float        m_lodDistances70C[4];   // +0x70C  retail's shader-LOD distances (static, skinned, bundled); unread since step 8
     float        m_lodDistances71C[4];   // +0x71C
     float        m_lodDistances72C[4];   // +0x72C
     float        m_f73C;                 // +0x73C  (463) ctor 9999; PostProductionFrameWork +0x54

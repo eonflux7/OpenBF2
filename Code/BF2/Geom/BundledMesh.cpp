@@ -3,7 +3,6 @@
 #ifdef BF2_IMAGE_RENDDX9
 #include "../../RendDX9Abi/ThunkAbi.h"
 #include "BundledMesh.h"
-#include "../RendDX9/DrawStats.h"   // [DEV] BF2_DRAW_STATS
 #include "BundledMeshTemplate.h"
 #include "BundledMeshMaterial.h"
 #include "BundledMeshStateManager.h"
@@ -391,52 +390,15 @@ unsigned int BundledMesh::materialFeatures(BundledMeshMaterial* material,bool ad
     return bits;
 }
 // PE 0x10104AE0
+// [RENDER] Step 8: bundled meshes (vehicles, weapons, kits) draw LOD 0 at any distance and zoom,
+// so a vehicle looks the same to every player. Retail picked a coarser LOD by camera distance
+// over zoom against the template's switch distances (50 m steps unless authored), and its
+// shader-quality bucket (+0x708 / +0x72C) the same way. LOD 0 everywhere costs about 20k
+// primitives on Muttrah City. An explicit LOD (setLod) still wins.
 void BundledMesh::updateLodSelection()
 {
-    const unsigned int frame=dx9rend::rendererFrameOrdinal();
-    if(m_lodFrame==frame || m_lodExplicit)return;
-    m_lodFrame=frame;
-    void* view=dispatch<void*>(dx9rend::g_rendererBase,0x48);
-    BundledMeshGeom& geom=m_template->m_geoms[m_geomIndex];
-    MeshBounds& bounds=geom.lods.data()->bounds;
-    if(bounds.dirty)meshBoundsFinalize(bounds);
-    const float radius=bounds.radius;
-#if defined(__APPLE__)
-    // [CHOSEN, not recovered] Spill the threshold once, retaining each scaled comparison.
-    using namespace bf2x87;
-    const float threshold=store(sub(mul(wide(dispatch<float>(view,0x2C)),wide(m_distanceToCamera)),wide(radius)));
-#else
-    const float threshold=dispatch<float>(view,0x2C)*m_distanceToCamera-radius;
-#endif
-    const unsigned int count=static_cast<unsigned int>(geom.distances.size());
-    const float* distances=geom.distances.data();
-    unsigned int selected=0;
-    for(unsigned int i=0;i<count;++i)
-    {
-#if defined(__APPLE__)
-        const Real a=wide(dx9rend::rendererTailFloat(0x84C));
-        const Real b=wide(dx9rend::rendererTailFloat(0x8B4));
-        // The third lane of each four-element batch multiplies the two scales first.
-        const Real scaled=(i%4==2 && i+1<count) ? mul(mul(a,b),wide(distances[i]))
-            : mul(mul(wide(distances[i]),a),b);
-        if(less(scaled,wide(threshold)))selected=i+1;
-#else
-        if(distances[i]*dx9rend::rendererTailFloat(0x84C)*dx9rend::rendererTailFloat(0x8B4)<threshold)selected=i+1;
-#endif
-    }
-    // [DEV] BF2_DRAW_STATS: the primitives this mesh would draw at other switch-distance scales.
-    if(dx9rend::drawStatsOn())
-    {
-        BundledMeshTemplate* const t=m_template; const int g=static_cast<int>(m_geomIndex);
-        dx9rend::drawStatsLodScales(1,distances,static_cast<int>(count),
-            dx9rend::rendererTailFloat(0x84C)*dx9rend::rendererTailFloat(0x8B4),threshold,
-            [t,g](int lod){ return t->getPrimitiveCount(g,lod,-1); });
-    }
-    if(selected!=m_lodIndex) { m_lodIndex=selected; dispatch<void>(this,0x6C,static_cast<int>(m_geomIndex)); }
-    m_shaderLod=0;
-    if(dx9rend::rendererTailByte(0x708))
-        for(int i=3;i>=0;--i)
-            if(threshold>dx9rend::rendererTailFloat(0x72C+4*i)) { m_shaderLod=i+1; break; }
+    if(m_lodExplicit || m_lodIndex==0)return;
+    m_lodIndex=0; dispatch<void>(this,0x6C,static_cast<int>(m_geomIndex));
 }
 
 namespace {

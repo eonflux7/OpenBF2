@@ -288,10 +288,9 @@ public:
     unsigned int        m_dword314;             // +0x314  ctor 0; the geom index
     unsigned int        m_dword318;             // +0x318  ctor 0; the lod index
     unsigned int        m_dword31C;             // +0x31C  ctor 0; the material the draw is on
-    // +0x320: the distance-quality bucket the draw computes (0..4) from the Renderer's four
-    // thresholds at +0x70C..+0x718; the draw writes it every frame, which is why the constructor
-    // does not.
-    unsigned int        m_dword320;             // +0x320  not written by the ctor
+    // +0x320: retail's distance shader-quality bucket (0..4, from the Renderer's +0x70C..+0x718);
+    // the draw no longer computes it (render step 8).
+    unsigned int        m_dword320;             // +0x320  unread
     unsigned int        m_dword324;             // +0x324  ctor 0
     unsigned int        m_dword328;             // +0x328  ctor 0
     unsigned int        m_dword32C;             // +0x32C  ctor 0; the flags (+0xC0 / +0xC4)
