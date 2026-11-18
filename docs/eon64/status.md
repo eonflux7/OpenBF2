@@ -8,7 +8,7 @@ the next step.
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Steps 1–7 accepted | Step 8, anti-aliasing: sampler policy first | [renderer.md](renderer.md#roadmap) |
+| `render` | Steps 1–7 accepted | Step 8, anti-aliasing: sun shadows in the lit shaders next | [renderer.md](renderer.md#roadmap) |
 | `ui` | Steps 1–4 accepted | — | [ui.md](ui.md#steps) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
 | `perf` (frame) | `/O2` plugins, `tailField` table | Parked until renderer step 9 | [perf-frame.md](perf-frame.md#plan) |
@@ -17,10 +17,10 @@ the next step.
 
 ## Current step: `render` step 8, anti-aliasing
 
-Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: step 7, accepted 2026-11-18.
+Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: sampler policy, Kashan Desert, 2026-11-18.
 
 Sub-steps, in order, each seen in game before the next:
-- [ ] Sampler policy
+- [x] Sampler policy (`28487a35`; seen on Kashan Desert 2026-11-18)
 - [ ] Sun shadows in the lit shaders; screen-space sun mask deleted
 - [ ] Prepass into the MSAA scene depth with EQUAL, centroid interpolation, transparent depth rebuild
 - [ ] Alpha-to-coverage
@@ -28,6 +28,6 @@ Sub-steps, in order, each seen in game before the next:
 - [ ] LOD crossfade
 - [ ] Acceptance: GPU timer spans and the reference views
 
-Open: none.
+Open: the default video profile picks 8x antialiasing (log) while the scene runs 4x; settle with fixed 4x.
 
 Carried over: The Falklands night-layer particle check moved to step 12.
