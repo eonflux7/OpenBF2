@@ -2487,23 +2487,57 @@ void xpEraseRegistration(XpLight* light)
 
 // PE 0x100EF2B0, reached by manager +0x94 for Point/Spot lights. Eligibility, duplicate handling,
 // 0x38-byte construction, collector classification and map publication preserve shipped order.
+// [DEV] BF2_LIGHT_SHADOW_TRACE: where point/spot lights drop out of the shadow-map path. Logs each
+// registration attempt (first 200) and, every 300 shadow frames, the collector and record counts.
+bool lightShadowTraceOn()
+{
+    static const bool on = std::getenv("BF2_LIGHT_SHADOW_TRACE") != 0;
+    return on;
+}
+
+void lightShadowTraceRegister(world::LightSource* light, const char* outcome)
+{
+    static int logged = 0;
+    if (!lightShadowTraceOn() || logged >= 200)
+        return;
+    ++logged;
+    const world::LightSourceTemplate* const t = lightSourceTemplatePointer(light);
+    std::fprintf(stderr, "[LSHADOW] register %s: %s (type %d enabled %d dynamic %d flags 0x%X "
+                 "castsDynamicShadow %d xpack %d)\n",
+                 t->getName().c_str(), outcome, t->getLightTypeEnum(), t->getEnabled() ? 1 : 0,
+                 t->getIsDynamic() ? 1 : 0, t->getFlags(), t->getCastsDynamicShadow() ? 1 : 0,
+                 dx9rend::rendererIsExpansionPack() ? 1 : 0);
+}
+
 void lmRegisterXpLight(world::LightSource* light)
 {
     const world::LightSourceTemplate* const objectTemplate =
         lightSourceTemplatePointer(light);
 
     if (!objectTemplate->getEnabled() && !objectTemplate->getIsDynamic())
+    {
+        lightShadowTraceRegister(light, "rejected, neither enabled nor dynamic");   // [DEV]
         return;
+    }
 
     const int firstType = objectTemplate->getLightTypeEnum();
     if (firstType != 1 && objectTemplate->getLightTypeEnum() != 2)
+    {
+        lightShadowTraceRegister(light, "rejected, not point or spot");   // [DEV]
         return;
+    }
 
     if ((objectTemplate->getFlags() & 0x800u) == 0 && !objectTemplate->getIsDynamic())
+    {
+        lightShadowTraceRegister(light, "rejected, static without flag 0x800");   // [DEV]
         return;
+    }
 
     if (!dx9rend::rendererIsExpansionPack() && !objectTemplate->getIsDynamic())
+    {
+        lightShadowTraceRegister(light, "rejected, static outside the expansion pack");   // [DEV]
         return;
+    }
 
     // Reject a source whose registration count is nonzero.
     if (xpSourceIsRegistered(light))
@@ -2514,6 +2548,7 @@ void lmRegisterXpLight(world::LightSource* light)
     registerWithCollector(xp);
     g_xpCoordinator.bySource.insert(std::make_pair(light, xp));
     g_xpCoordinator.iterationOrder.push_back(xp);
+    lightShadowTraceRegister(light, "registered");   // [DEV]
 }
 
 // PE 0x100EF940 / 0x100EEE90: source lookup, then removal of the registered wrapper.
@@ -5135,6 +5170,23 @@ bool RD9_THUNK lm_getShadowStaticFeature(void* self RD9_THUNK_EDX)
 // step 6).
 void RD9_THUNK lm_renderShadowMaps(void* self RD9_THUNK_EDX)
 {
+    if (lightShadowTraceOn())   // [DEV] BF2_LIGHT_SHADOW_TRACE; record counts are last frame's
+    {
+        static unsigned int frames = 0;
+        if (frames++ % 300 == 0)
+            std::fprintf(stderr, "[LSHADOW] frame %u: skyLight %d dynamicShadows %d updates %d | "
+                         "registered %u (static %u, dynamic %u) | this frame static %u dynamic %u | "
+                         "point records %u spot records %u\n",
+                         frames - 1, lm(self).skyLight ? 1 : 0, lm(self).dynamicShadowsEnabled,
+                         lm(self).shadowUpdatesEnabled,
+                         static_cast<unsigned int>(g_xpCoordinator.bySource.size()),
+                         static_cast<unsigned int>(g_xpCoordinator.staticLights.size()),
+                         static_cast<unsigned int>(g_xpCoordinator.dynamicLights.size()),
+                         static_cast<unsigned int>(g_xpCoordinator.staticFrame.size()),
+                         static_cast<unsigned int>(g_xpCoordinator.dynamicFrame.size()),
+                         static_cast<unsigned int>(lm(self).pointRecords.size()),
+                         static_cast<unsigned int>(lm(self).spotRecords.size()));
+    }
     if (!lm(self).skyLight
         || !lm(self).dynamicShadowsEnabled
         || !lm(self).shadowUpdatesEnabled)
