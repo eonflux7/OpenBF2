@@ -1389,8 +1389,58 @@ BF2_CONSOLE_PROPERTY_FN(roadLodDistMod, float, consoleRoadCompiledRenderer() != 
 BF2_CONSOLE_PROPERTY_FN(uiMenuKey, int, true, uiLayerGetMenuKey(), uiLayerSetMenuKey,
                         kRendererConsoleTag)
 
+// [RENDER] Sun shadow tuning (docs/eon64/renderer.md, sun shadows). Each variable clamps to its
+// range; the defaults are the values the cascades were accepted with.
+#define BF2_SUN_SHADOW_VARIABLE(name, T, field, minValue, maxValue)                                 \
+    T get_##name() { return static_cast<T>(sunShadowSettings().field); }                            \
+    void set_##name(T value)                                                                        \
+    {                                                                                               \
+        sunShadowSettings().field = value < (minValue) ? (minValue)                                 \
+                                  : value > (maxValue) ? (maxValue) : value;                        \
+    }                                                                                               \
+    BF2_CONSOLE_PROPERTY_FN_RANGED_T(name, T, true, get_##name(), set_##name, minValue, maxValue,   \
+                                     kRendererConsoleTag)
+BF2_SUN_SHADOW_VARIABLE(sunShadowDistance, float, distance, 50.0f, 2000.0f)
+BF2_SUN_SHADOW_VARIABLE(sunShadowCasterReach, float, casterReach, 0.0f, 2000.0f)
+BF2_SUN_SHADOW_VARIABLE(sunShadowSplitLambda, float, splitLambda, 0.0f, 1.0f)
+BF2_SUN_SHADOW_VARIABLE(sunShadowCascadeBlend, float, cascadeBlend, 0.0f, 0.5f)
+BF2_SUN_SHADOW_VARIABLE(sunShadowNormalOffset, float, normalOffset, 0.0f, 4.0f)
+BF2_SUN_SHADOW_VARIABLE(sunShadowDepthBias, float, depthBias, 0.0f, 4.0f)
+#undef BF2_SUN_SHADOW_VARIABLE
+
+// Texels per cascade side: the nearest power of two in 512..4096.
+int getSunShadowResolution() { return static_cast<int>(sunShadowSettings().resolution); }
+void setSunShadowResolution(int value)
+{
+    unsigned int size = 512;
+    while (size < 4096 && value > static_cast<int>(size + size / 2))
+        size *= 2;
+    sunShadowSettings().resolution = size;
+}
+BF2_CONSOLE_PROPERTY_FN_RANGED_T(sunShadowResolution, int, true, getSunShadowResolution(),
+                                 setSunShadowResolution, 512, 4096, kRendererConsoleTag)
+
+
 
 } // anonymous namespace
+
+// The help lines of the fork's renderer variables, for the debug menu (docs/eon64/ui.md).
+const char* rendererVariableHelp(const char* name)
+{
+    static const char* const kHelp[][2] = {
+        { "sunShadowDistance", "View depth the sun shadow cascades reach, in metres" },
+        { "sunShadowResolution", "Texels per cascade side (512-4096, a power of two); the atlas holds four" },
+        { "sunShadowCasterReach", "How far toward the sun beyond a cascade casters still draw, in metres" },
+        { "sunShadowSplitLambda", "Cascade splits: 0 uniform, 1 logarithmic (finer near the camera)" },
+        { "sunShadowCascadeBlend", "Part of the next slice each cascade also covers and blends over" },
+        { "sunShadowNormalOffset", "Receiver offset along its normal, in cascade texels (against acne)" },
+        { "sunShadowDepthBias", "Receiver offset toward the sun, in cascade texels (against acne)" },
+    };
+    for (size_t i = 0; i < sizeof(kHelp) / sizeof(kHelp[0]); ++i)
+        if (std::strcmp(kHelp[i][0], name) == 0)
+            return kHelp[i][1];
+    return 0;
+}
 
 bool registerRendererConsoleObjects()
 {

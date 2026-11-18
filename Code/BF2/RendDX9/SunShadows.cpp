@@ -45,18 +45,13 @@ unsigned int raHashString(const std::string& s);
 namespace {
 
 const unsigned int kCascades = 4;
-const float kCascadeBlend = 0.2f;   // the part of each slice the previous cascade blends over
 const DWORD kShadowAtlasSampler = 13;
 
 IDirect3DTexture9* g_atlas = 0;          // R32F, 2 x 2 cascades
 IDirect3DSurface9* g_atlasDepth = 0;     // D24S8, standard (not reversed) depth
 unsigned int g_cascadeSize = 0;
 
-// The view depth the cascades reach (m), each cascade's resolution, and how far toward the sun
-// past a cascade's sphere casters are still drawn (m).
-const float kShadowDistance = 400.0f;
-const unsigned int kCascadeResolution = 2048;
-const float kCasterReach = 500.0f;
+SunShadowSettings g_settings = { 400.0f, 2048u, 500.0f, 0.75f, 0.2f, 1.5f, 1.0f };
 
 IDirect3DDevice9* device()
 {
@@ -65,7 +60,7 @@ IDirect3DDevice9* device()
 
 bool ensureAtlas()
 {
-    const unsigned int size = kCascadeResolution;
+    const unsigned int size = g_settings.resolution;
     if (g_atlas && g_cascadeSize == size)
         return true;
     rendererSunShadowsRelease();
@@ -129,7 +124,8 @@ ShadowCascadeCull cascadeCull(const Cascade& k, const Vec3f& right, const Vec3f&
                               const Vec3f& cameraFwd, float tanX, float tanY, float texel)
 {
     // Receivers on the hull's edge filter over neighbouring texels; casters that close still count.
-    const float margin = 4.0f * texel;
+    // The receivers' filter reaches 2.5 texels; their normal offset adds to it.
+    const float margin = (2.5f + g_settings.normalOffset) * texel;
     ShadowCascadeCull cull;
     cull.right[0] = right.x;     cull.right[1] = right.y;     cull.right[2] = right.z;
     cull.up[0] = up.x;           cull.up[1] = up.y;           cull.up[2] = up.z;
@@ -196,6 +192,11 @@ ShadowCascadeCull cascadeCull(const Cascade& k, const Vec3f& right, const Vec3f&
 
 } // namespace
 
+SunShadowSettings& sunShadowSettings()
+{
+    return g_settings;
+}
+
 void rendererSunShadowsRelease()
 {
     if (g_atlas && g_rendererBase)
@@ -246,11 +247,13 @@ bool rendererSunShadowsRender(float time, float* constants)
     float nearDist = view->getFrustumPtr()->getNearDist();
     if (!(nearDist > 0.05f))
         nearDist = 0.05f;
-    const float farDist = kShadowDistance;
+    const float farDist = g_settings.distance;
 
     // Practical split scheme: a blend of logarithmic and uniform splits. Each cascade but the last
-    // also covers the first kCascadeBlend of the next slice, where the mask blends the two.
-    const float lambda = 0.75f;
+    // also covers the first cascadeBlend of the next slice, where the mask blends the two.
+    const float lambda = g_settings.splitLambda;
+    const float blend = g_settings.cascadeBlend;
+    const float reach = g_settings.casterReach;
     const auto splitDepth = [&](unsigned int n) {
         const float t = static_cast<float>(n) / kCascades;
         return lambda * nearDist * std::pow(farDist / nearDist, t)
@@ -263,7 +266,7 @@ bool rendererSunShadowsRender(float time, float* constants)
     {
         const float splitFar = splitDepth(i + 1);
         const float coverFar = i + 1 < kCascades
-            ? splitFar + kCascadeBlend * (splitDepth(i + 2) - splitFar)
+            ? splitFar + blend * (splitDepth(i + 2) - splitFar)
             : splitFar;
 
         // The smallest sphere around the covered slice's eight corners: its centre lies on the
@@ -282,8 +285,8 @@ bool rendererSunShadowsRender(float time, float* constants)
         k.lightY = std::floor(dot(centre, up) / texel) * texel;
         k.lightZ = dot(centre, forward);
         k.radius = radius;
-        k.nearZ = k.lightZ - radius - kCasterReach;
-        k.rangeZ = 2.0f * radius + kCasterReach;
+        k.nearZ = k.lightZ - radius - reach;
+        k.rangeZ = 2.0f * radius + reach;
         k.splitNear = splitNear;
         k.splitFar = splitFar;
         k.coverFar = coverFar;
@@ -409,6 +412,8 @@ bool rendererSunShadowsRender(float time, float* constants)
     constants[4 * 17 + 2] = -forward.z;
     constants[4 * 17 + 3] = 0.9f * cascades[kCascades - 1].splitFar;
     constants[4 * 20 + 0] = 1.0f / static_cast<float>(size * 2);   // RASM[20]: atlas texel
+    constants[4 * 20 + 1] = g_settings.normalOffset;                 // RASM[20].y, .z: receiver
+    constants[4 * 20 + 2] = g_settings.depthBias;                    //   offsets in cascade texels
 
     stateManagerSetRenderTarget(0, savedTarget);
     stateManagerSetDepthStencilSurface(savedDepth);

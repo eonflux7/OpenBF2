@@ -18,7 +18,7 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 | Step | Commit scope | Status |
 |---|---|---|
 | 1. ImGui layer | `ui(imgui)` | Accepted (`71545137`, `f4a7fd65`, `6604b184`) |
-| 2. Sun shadow tuning as console variables (lane `render`, before step 3) | `render(csm)` | Planned |
+| 2. Sun shadow tuning as console variables (lane `render`, before step 3) | `render(csm)` | Built, not yet seen in game |
 | 3. Debug menu and performance overlay | `ui(debug)` | Planned |
 | 4. Console frontend | `ui(console)` | Planned |
 
@@ -58,8 +58,8 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 The values step 5 was accepted with become console variables with the same defaults, so they can be
 tuned live: distance (400 m), cascade resolution (2048; the atlas is re-created when it changes),
 caster reach (500 m), split lambda (0.75), cascade blend (0.2), normal offset (1.5 texels) and depth
-bias (1.0 texel). Each variable carries its range and a help line for the debug menu. Recorded in
-[renderer.md](renderer.md) when it lands.
+bias (1.0 texel). Each variable carries its range and a help line for the debug menu. The variables
+are listed in [renderer.md](renderer.md#sun-shadows).
 
 ### 3. Debug menu and performance overlay
 

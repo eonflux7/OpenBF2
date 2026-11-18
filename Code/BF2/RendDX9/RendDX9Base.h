@@ -761,6 +761,22 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 bool rendererSunShadowsRender(float time, float* maskConstants /* kSunShadowMaskVec4s float4s */);
 void rendererSunShadowsRelease();
 const unsigned int kSunShadowMaskVec4s = 22;
+// The sun shadow tuning, read each frame: the renderer.sunShadow* console variables
+// (RendererConsole.cpp), which clamp to their ranges. A new resolution re-creates the atlas.
+struct SunShadowSettings
+{
+    float distance;               // m: the view depth the cascades reach
+    unsigned int resolution;      // texels per cascade side, a power of two
+    float casterReach;            // m: how far toward the sun past a cascade casters still draw
+    float splitLambda;            // 0 uniform .. 1 logarithmic splits
+    float cascadeBlend;           // the part of each next slice a cascade also covers and blends over
+    float normalOffset;           // cascade texels: receivers move along their normal
+    float depthBias;              // cascade texels: receivers move toward the sun in depth
+};
+SunShadowSettings& sunShadowSettings();
+// The help line of a fork console variable (renderer.<name>), or 0. For the debug menu; retail
+// console objects carry no help.
+const char* rendererVariableHelp(const char* name);
 // This frame's RASM (kSunShadowMaskVec4s float4s) while the main world pass draws, all zero
 // otherwise (nothing covered: baked sunlight). RaShader::begin sets it on every Ra effect with a
 // parameter of semantic RASM, so receivers without prepass depth (water) sample the cascades.

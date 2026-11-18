@@ -30,7 +30,7 @@ one starts.
 
 **5. Sun CSM.** Accepted on 2026-11-18 with the values it was developed at (400 m, 2048 per
 cascade, 500 m caster reach, normal offset 1.5 and depth bias 1.0 texels); the owner chose not to
-tune further. Caster culling per cascade (`505ca7ab`): each cascade draws the casters of its slice
+tune further. They are console variables since (see [Sun shadows](#sun-shadows)). Caster culling per cascade (`505ca7ab`): each cascade draws the casters of its slice
 swept toward the sun (see [Sun shadows](#sun-shadows)). On Muttrah (skirmish, one frame each,
 different camera positions) caster draws went from 188 / 419 / 1059 / 2348 in cascades 0-3 (4014,
 3.4 times the main prepass) to 152 / 221 / 505 / 1263 (2141, 1.9 times); primitives from 800k to
@@ -157,7 +157,7 @@ Muttrah (`2860a74a`): a supply crate's shadow no longer depends on view directio
 
 Each cascade draws only the casters that can shadow a receiver in its own slice
 (`ShadowCascadeCull`): in light space, the 2D convex hull of the slice's eight corners, pushed out by
-four cascade texels for the receivers' filter and normal offset, and in depth from the projection's
+the receivers' filter (2.5 cascade texels) plus their normal offset, and in depth from the projection's
 sun-side bound to the slice's farthest corner. Casters carry a world bounding sphere; one without
 bounds draws in every cascade.
 
@@ -172,6 +172,21 @@ bounds draws in every cascade.
   Receivers compare and filter (3 x 3 tent PCF) and, past 90 % of the last split, blend to the
   baked lightmap sun.
 
+Tuned live through console variables, which clamp to their ranges and default to the values the
+step was accepted with:
+
+| Variable | Default | Range | What |
+|---|---|---|---|
+| `renderer.sunShadowDistance` | 400 | 50–2000 m | View depth the cascades reach |
+| `renderer.sunShadowResolution` | 2048 | 512–4096 | Texels per cascade side, a power of two; a change re-creates the atlas |
+| `renderer.sunShadowCasterReach` | 500 | 0–2000 m | Caster reach toward the sun past a cascade's sphere |
+| `renderer.sunShadowSplitLambda` | 0.75 | 0–1 | Splits: 0 uniform, 1 logarithmic |
+| `renderer.sunShadowCascadeBlend` | 0.2 | 0–0.5 | Part of the next slice each cascade also covers and blends over |
+| `renderer.sunShadowNormalOffset` | 1.5 | 0–4 texels | Receiver offset along its normal |
+| `renderer.sunShadowDepthBias` | 1.0 | 0–4 texels | Receiver offset toward the sun in depth |
+
+Their help lines, for the debug menu, come from `rendererVariableHelp` (`RendererConsole.cpp`).
+
 ### Mask constants (`RASM`, 22 float4)
 
 | Rows | Contents |
@@ -182,7 +197,7 @@ bounds draws in every cascade.
 | 17 | `.xyz` direction toward the sun; `.w` view depth where the blend to baked sun starts |
 | 18 | Each cascade's texel size in world units |
 | 19 | Each cascade's light depth per metre |
-| 20 | `.x` one atlas texel in UV |
+| 20 | `.x` one atlas texel in UV; `.y` normal offset and `.z` depth bias, in cascade texels |
 | 21 | View depth each cascade's coverage ends at (its blend into the next slice) |
 
 All zero outside the main world pass, and when no cascade was rendered: nothing is covered.
