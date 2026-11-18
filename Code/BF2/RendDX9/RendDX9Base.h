@@ -717,10 +717,28 @@ void rendererDepthPrepass(bool drawTerrain, float time);
 void rendererDepthPrepassEndWorldPass();
 void rendererDepthPrepassRelease();
 IDirect3DTexture9* rendererLinearDepthTexture();
+// [RENDER] Transparent depth rebuild (step 8). The 4x scene holds the opaque world, the sky,
+// decals, the particles drawn before water, water and the first-person passes; water
+// (rendererLinearDepthWater) and the first-person opaque queues (rendererFirstPersonPrepass, a
+// prepass of their own after their depth clear) add their linear depth to the prepass's.
+// rendererSceneResolveForTransparents then resolves the scene colour and the linear depth, and
+// rebuilds a single-sample depth buffer from the linear depth for the world transparents
+// (rendererSceneTransparentsEnd ends that phase). Without multisampling, or without the float
+// scene, the rebuild overwrites the scene depth in place.
+void rendererLinearDepthWater();
+void rendererFirstPersonPrepass();
+void rendererSceneResolveForTransparents();
+void rendererSceneTransparentsEnd();
+bool rendererSceneResolved();          // the scene colour was resolved this frame
 // RenderQueues.cpp: whether this frame's depth prepass drew `entry` into the scene depth.
 struct RenderQueueEntry;
 bool renderQueuesIsPrepassed(const RenderQueueEntry* entry);
 void renderQueuesClearPrepassed();
+// The entries of the queues at `slotByteOffsets` (renderQueueFlush offsets) with technique `key`,
+// without consuming them; `prepass` as renderQueuesDepthPrepass, else no depth-write filter and
+// nothing recorded.
+void renderQueuesDepthPass(unsigned int key, const unsigned int* slotByteOffsets,
+                           unsigned int count, bool prepass);
 
 // [RENDER] Submission context (RenderQueues.cpp). Geometry submission culls against
 // rendererSubmitCullFrustum(): the camera's frustum, or the caster volume while a shadow pass

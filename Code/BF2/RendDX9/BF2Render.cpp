@@ -2769,7 +2769,52 @@ bool Renderer::renderFrame(double time, float deltaTime)
             {
                 geom::asParticleSystemManager(geom::g_ParticleSystemManager)->onPathDraw(false, true);
             }
+            // [RENDER] Step 8: water adds its linear depth before it draws, so the depth rebuilt
+            // after the resolve keeps the transparents behind it.
+            rendererLinearDepthWater();
             renderQueueFlush(0x28, -1);                      // RSMTWater
+
+            // [RENDER] Step 8: the first-person passes draw here, into the 4x scene, where retail
+            // drew them last (after the world transparents and the glow). They prepass like the
+            // world (their own depth after the clear, and their linear depth over the world's),
+            // so the world transparents, drawn after the resolve against the rebuilt depth, stay
+            // behind them by the depth test instead of by draw order. The sun cascades describe
+            // the world view only; the first-person passes keep their baked sunlight.
+            rendererDepthPrepassEndWorldPass();
+            gpuTimerMark("first person");                    // [DEV] BF2_GPU_TIMERS
+
+            if (m_clearDepthBeforeFirstPerson)
+            {
+                // sub_100057E0(2, 0, 1.0f, 0, 0, 0) - the z-only clear before the first-person
+                // passes.
+                flushRenderTargetsSeam();
+                IDirect3DDevice9* dev = static_cast<RendDX9Base*>(g_rendererBase)->device;
+                dev->Clear(0, 0, 2, 0, stateManagerClearDepth(1.0f), 0);   // [RENDER] reversed-Z aware
+            }
+
+            rendererFirstPersonPrepass();
+            renderQueueFlush(0x0C, m_clearDepthBeforeFirstPerson);              // RSMT1Person
+            renderQueueFlush(0x4C, -1);                      // RSMTAux0Person
+            renderQueueFlush(0x1C, m_clearDepthBeforeFirstPerson);              // RSMTDelta1Person
+            renderQueueFlush(0x5C, -1);                      // RSMTAux1Person
+            renderQueuesClearPrepassed();                    // [RENDER] the first-person prepass ends
+            // PE 0x10030658..0x10030666: the first-person particles follow Aux1Person directly;
+            // Aux1PersonTransparency is flushed once, last (0x100306BE).
+            if (sw(1695) && m_clearDepthBeforeFirstPerson && geom::g_ParticleSystemManager)
+            {
+                geom::asParticleSystemManager(geom::g_ParticleSystemManager)->onPathDraw(true, false);
+            }
+            renderQueueFlush(0x10, m_clearDepthBeforeFirstPerson);              // RSMT1PersonTransparency
+            renderQueueFlush(0x50, -1);                      // RSMTAux0PersonTransparency
+            renderQueueFlush(0x20, m_clearDepthBeforeFirstPerson);              // RSMTDelta1PersonTransparency
+            renderQueueFlush(0x60, -1);                      // RSMTAux1PersonTransparency
+
+            // [RENDER] Step 8: resolve the scene and its linear depth, rebuild a single-sample
+            // depth, and draw the world transparents single sample, with the world view's
+            // cascades and soft particles back on.
+            gpuTimerMark("resolve");                         // [DEV] BF2_GPU_TIMERS
+            rendererSceneResolveForTransparents();
+            gpuTimerMark("world transparent 1x");            // [DEV] BF2_GPU_TIMERS
             if (sw(1693))
             {
                 if (!isCameraUnderWater())
@@ -2803,35 +2848,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 gpuTimerMark("post pass");                   // [DEV] BF2_GPU_TIMERS
                 postProductionPass();
             }
-
-            // [RENDER] The sun cascades describe the world pass only; the first-person
-            // passes and every later view keep their baked sunlight.
-            rendererDepthPrepassEndWorldPass();
-            gpuTimerMark("first person");                    // [DEV] BF2_GPU_TIMERS
-
-            if (m_clearDepthBeforeFirstPerson)
-            {
-                // sub_100057E0(2, 0, 1.0f, 0, 0, 0) - the z-only clear before the first-person
-                // passes.
-                flushRenderTargetsSeam();
-                IDirect3DDevice9* dev = static_cast<RendDX9Base*>(g_rendererBase)->device;
-                dev->Clear(0, 0, 2, 0, stateManagerClearDepth(1.0f), 0);   // [RENDER] reversed-Z aware
-            }
-
-            renderQueueFlush(0x0C, m_clearDepthBeforeFirstPerson);              // RSMT1Person
-            renderQueueFlush(0x4C, -1);                      // RSMTAux0Person
-            renderQueueFlush(0x1C, m_clearDepthBeforeFirstPerson);              // RSMTDelta1Person
-            renderQueueFlush(0x5C, -1);                      // RSMTAux1Person
-            // PE 0x10030658..0x10030666: the first-person particles follow Aux1Person directly;
-            // Aux1PersonTransparency is flushed once, last (0x100306BE).
-            if (sw(1695) && m_clearDepthBeforeFirstPerson && geom::g_ParticleSystemManager)
-            {
-                geom::asParticleSystemManager(geom::g_ParticleSystemManager)->onPathDraw(true, false);
-            }
-            renderQueueFlush(0x10, m_clearDepthBeforeFirstPerson);              // RSMT1PersonTransparency
-            renderQueueFlush(0x50, -1);                      // RSMTAux0PersonTransparency
-            renderQueueFlush(0x20, m_clearDepthBeforeFirstPerson);              // RSMTDelta1PersonTransparency
-            renderQueueFlush(0x60, -1);                      // RSMTAux1PersonTransparency
+            rendererSceneTransparentsEnd();                  // [RENDER] the scene depth again
 
             // PE 0x100306D2..0x1003070C: with a multisampled back buffer the overlay passes run
             // without multisampling and without a depth-stencil surface; the surface is put back
@@ -4038,20 +4055,39 @@ IDirect3DSurface9* rendererBackBufferSurface()
 // the back buffer and resolves it into +0x788; here a multisampled float surface stands in for the
 // back buffer from postProductionPrepare until the resolve in postProductionFinish, through the
 // target selector's null-texture fallback (lightManagerSelectRenderTarget).
+// [RENDER] Step 8: rendererSceneResolveForTransparents resolves the scene before the world
+// transparents; from then until rendererHdrEndScene the scene is the resolved single-sample
+// target +0x788 (g_resolvedSceneSurface), and the resolve in postProductionFinish is skipped.
 namespace {
 IDirect3DSurface9* g_hdrSceneSurface = 0;
 bool g_hdrSceneActive = false;
+IDirect3DSurface9* g_resolvedSceneSurface = 0;   // +0x788 level 0, referenced, while resolved
+
+void endResolvedScene()
+{
+    if (g_resolvedSceneSurface)
+        g_resolvedSceneSurface->Release();
+    g_resolvedSceneSurface = 0;
+}
 }
 
 IDirect3DSurface9* rendererSceneColorSurface()
 {
+    if (g_hdrSceneActive && g_resolvedSceneSurface)
+        return g_resolvedSceneSurface;
     if (g_hdrSceneActive && g_hdrSceneSurface)
         return g_hdrSceneSurface;
     return publishedRenderer()->m_backBuffer;                                // +0x76C
 }
 
+bool rendererSceneResolved()
+{
+    return g_hdrSceneActive && g_resolvedSceneSurface != 0;
+}
+
 void rendererHdrBeginScene()
 {
+    endResolvedScene();
     if (!isMultisampleActive())
         return;
     IDirect3DSurface9* const backBuffer = publishedRenderer()->m_backBuffer;
@@ -4084,14 +4120,19 @@ void rendererHdrEndScene()
 {
     if (!g_hdrSceneActive)
         return;
+    IDirect3DSurface9* const current = stateManagerGetRenderTarget(0);
+    const bool sceneCurrent = current == g_hdrSceneSurface
+        || (current && current == g_resolvedSceneSurface);
     g_hdrSceneActive = false;
-    if (stateManagerGetRenderTarget(0) == g_hdrSceneSurface)
+    endResolvedScene();
+    if (sceneCurrent)
         geom::lightManagerSetRenderTargetTexture(0, 0);       // null: the back buffer
 }
 
 void rendererHdrReleaseSurface()
 {
     g_hdrSceneActive = false;
+    endResolvedScene();
     if (g_hdrSceneSurface)
         g_hdrSceneSurface->Release();
     g_hdrSceneSurface = 0;
@@ -4107,8 +4148,15 @@ namespace {
 IDirect3DTexture9* g_linearDepthTexture = 0;
 IDirect3DSurface9* g_linearDepthSamples = 0;   // multisampled, or null when the scene is not
 const DWORD kLinearDepthSampler = 15;
-float g_sunCascadeConstants[kSunCascadeVec4s * 4] = {};   // RASM while the world pass draws
+float g_sunCascadeConstants[kSunCascadeVec4s * 4] = {};   // RASM for this frame's world view
+const float kNoSunCascades[kSunCascadeVec4s * 4] = {};
+bool g_sunCascadesLive = false;     // RASM is published: the world pass or its transparents draw
 bool g_softParticleDepth = false;   // s15 holds this frame's prepass depth and the world pass draws
+// Step 8, transparent depth rebuild.
+IDirect3DSurface9* g_rebuiltDepth = 0;   // single sample, the scene depth's format and size
+bool g_linearDepthFrame = false;    // this frame's prepass drew; water and first person add to it
+bool g_transparentDepth = false;    // the rebuilt depth is bound for the world transparents
+float g_worldDepthProjection[2] = { 0.0f, 0.0f };   // the world view's P22, P32
 float g_softParticleDistance = 1.5f;   // m, renderer.softParticleDistance
 
 void bindSampler(DWORD stage, IDirect3DTexture9* texture, D3DTEXTUREFILTERTYPE filter)
@@ -4125,12 +4173,13 @@ void bindSampler(DWORD stage, IDirect3DTexture9* texture, D3DTEXTUREFILTERTYPE f
 
 // RASM for this frame's world pass, or zero (nothing covered: every receiver keeps its baked
 // sunlight), to the pixel registers and for the particle effects.
+// The frame's values stay in g_sunCascadeConstants while zeros are published, so the world
+// transparents get them back after the first-person passes.
 void publishSunCascadeConstants(bool zero)
 {
-    if (zero)
-        std::memset(g_sunCascadeConstants, 0, sizeof(g_sunCascadeConstants));
+    g_sunCascadesLive = !zero;
     if (g_rendererBase)
-        stateManagerSetSunCascadeConstants(g_sunCascadeConstants);
+        stateManagerSetSunCascadeConstants(zero ? kNoSunCascades : g_sunCascadeConstants);
 }
 
 // The linear depth targets for the scene depth `depth`: same size, same sample count.
@@ -4195,8 +4244,8 @@ void rendererBindParticleLighting(void* effect)
     effectGetShaderParameterBorrowedTyped(fx, kSun)->setValue(&lights->getStaticSunColor(), 0);
     effectGetShaderParameterBorrowedTyped(fx, kSky)->setValue(&lights->getStaticSkyColor(), 0);
     effectGetShaderParameterBorrowedTyped(fx, kDir)->setValue(&towardSun, 0);
-    effectGetShaderParameterBorrowedTyped(fx, kCascades)->setValue(g_sunCascadeConstants,
-                                                                 kSunCascadeVec4s);
+    effectGetShaderParameterBorrowedTyped(fx, kCascades)->setValue(
+        g_sunCascadesLive ? g_sunCascadeConstants : kNoSunCascades, kSunCascadeVec4s);
     // The atlas as a texture parameter: D3DX binds it to the vertex sampler it assigned. Set on
     // the D3DX effect directly, since the parameter path takes engine texture wrappers.
     if (ID3DXEffect* const d3dx = static_cast<ID3DXEffect*>(effectD3dxHandle(effect)))
@@ -4230,8 +4279,11 @@ IDirect3DTexture9* rendererLinearDepthTexture()
 
 void rendererDepthPrepass(bool drawTerrain, float time)
 {
+    std::memset(g_sunCascadeConstants, 0, sizeof(g_sunCascadeConstants));
     publishSunCascadeConstants(true);
     g_softParticleDepth = false;
+    g_linearDepthFrame = false;
+    g_transparentDepth = false;
     IDirect3DSurface9* sceneDepth = stateManagerGetDepthStencilSurface();
     if (!sceneDepth)
         sceneDepth = rendererDepthStencilSurface();
@@ -4248,6 +4300,8 @@ void rendererDepthPrepass(bool drawTerrain, float time)
         const float* const p = view->getProjectionMatrixPtr()->m;
         const float sx = 1.0f / p[0];
         const float sy = 1.0f / p[5];
+        g_worldDepthProjection[0] = p[10];
+        g_worldDepthProjection[1] = p[14];
         const float camera[16] = {
             c[12], c[13], c[14], 1.0f,
             c[8], c[9], c[10], 0.0f,
@@ -4307,12 +4361,152 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     bindSampler(kLinearDepthSampler, g_linearDepthTexture, D3DTEXF_POINT);
     publishSunCascadeConstants(false);
     g_softParticleDepth = true;
+    g_linearDepthFrame = true;
 }
 
 void rendererDepthPrepassEndWorldPass()
 {
     publishSunCascadeConstants(true);
     g_softParticleDepth = false;
+}
+
+namespace {
+// Selects the linear depth samples (or the texture itself, unbound from s15, without
+// multisampling) as render target 0 over the current scene depth; returns the previous target,
+// referenced, for endLinearDepthTarget.
+IDirect3DSurface9* beginLinearDepthTarget(IDirect3DSurface9*& resolved)
+{
+    IDirect3DSurface9* saved = stateManagerGetRenderTarget(0);
+    if (!saved)
+        saved = rendererSceneColorSurface();
+    if (saved)
+        saved->AddRef();
+    static_cast<RendDX9Base*>(g_rendererBase)->device->SetTexture(kLinearDepthSampler, 0);
+    resolved = 0;
+    g_linearDepthTexture->GetSurfaceLevel(0, &resolved);
+    stateManagerSetRenderTarget(0, g_linearDepthSamples ? g_linearDepthSamples : resolved);
+    return saved;
+}
+
+void endLinearDepthTarget(IDirect3DSurface9* saved, IDirect3DSurface9* resolved)
+{
+    stateManagerSetRenderTarget(0, saved);
+    flushRenderTargetsSeam();
+    if (resolved)
+        resolved->Release();
+    if (saved)
+        saved->Release();
+    bindSampler(kLinearDepthSampler, g_linearDepthTexture, D3DTEXF_POINT);
+}
+
+// The single-sample depth the transparents test against after the resolve: the scene depth's
+// format at the linear depth's size.
+bool ensureRebuiltDepth()
+{
+    if (g_rebuiltDepth)
+        return true;
+    IDirect3DSurface9* const sceneDepth = publishedRenderer()->m_depthStencil;   // +0x770
+    D3DSURFACE_DESC desc;
+    if (!sceneDepth || sceneDepth->GetDesc(&desc) < 0)
+        return false;
+    const HRESULT hr = static_cast<RendDX9Base*>(g_rendererBase)->device->CreateDepthStencilSurface(
+        desc.Width, desc.Height, desc.Format, D3DMULTISAMPLE_NONE, 0, FALSE, &g_rebuiltDepth, 0);
+    std::fprintf(stderr, "[DEPTHREBUILD] single-sample depth %ux%u fmt %u: hr=0x%08lX\n",
+                 desc.Width, desc.Height, static_cast<unsigned int>(desc.Format),
+                 static_cast<unsigned long>(hr));
+    if (hr < 0)
+        g_rebuiltDepth = 0;
+    return hr >= 0;
+}
+
+unsigned int kDepthPrepassKey()
+{
+    static const unsigned int key = raHashString(std::string("RaDepthPrepass"));
+    return key;
+}
+}
+
+void rendererLinearDepthWater()
+{
+    if (!g_linearDepthFrame)
+        return;
+    static const unsigned int kWater[] = { 0x28 };                          // RSMTWater
+    IDirect3DSurface9* resolved;
+    IDirect3DSurface9* const saved = beginLinearDepthTarget(resolved);
+    renderQueuesDepthPass(kDepthPrepassKey(), kWater, 1, false);
+    endLinearDepthTarget(saved, resolved);
+}
+
+void rendererFirstPersonPrepass()
+{
+    if (!g_linearDepthFrame)
+        return;
+    static const unsigned int kFirstPerson[] = { 0x0C, 0x4C, 0x1C, 0x5C };  // RSMT*1Person, Aux*Person
+    IDirect3DSurface9* resolved;
+    IDirect3DSurface9* const saved = beginLinearDepthTarget(resolved);
+    const bool coverage = shouldToggleTransparencyAA();
+    if (coverage)
+        stateManagerSetTransparencyAA(true);
+    renderQueuesDepthPass(kDepthPrepassKey(), kFirstPerson, 4, true);
+    if (coverage)
+        stateManagerSetTransparencyAA(false);
+    endLinearDepthTarget(saved, resolved);
+}
+
+void rendererSceneResolveForTransparents()
+{
+    if (!g_linearDepthFrame)
+        return;
+    IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
+    flushRenderTargetsSeam();
+    IDirect3DSurface9* resolved = 0;
+    g_linearDepthTexture->GetSurfaceLevel(0, &resolved);
+    if (g_linearDepthSamples && resolved)
+        device->StretchRect(g_linearDepthSamples, 0, resolved, 0, D3DTEXF_NONE);
+    D3DSURFACE_DESC size = {};
+    if (resolved)
+    {
+        resolved->GetDesc(&size);
+        resolved->Release();
+    }
+    bindSampler(kLinearDepthSampler, g_linearDepthTexture, D3DTEXF_POINT);
+
+    // The multisampled float scene resolves now; the transparents draw into the resolved target
+    // over the rebuilt single-sample depth. Otherwise the rebuild overwrites the bound scene depth.
+    if (g_hdrSceneActive && g_hdrSceneSurface && ensureRebuiltDepth())
+    {
+        rendererPostResolveScene();
+        g_resolvedSceneSurface = textureGetLevelSurface(rendererPostSceneTexture(), 0, 0x7FFFFFFFu);
+        stateManagerSetRenderTarget(0, g_resolvedSceneSurface);
+        stateManagerSetDepthStencilSurface(g_rebuiltDepth);
+        g_transparentDepth = true;
+    }
+    gpuTimerMark("depth rebuild");                    // [DEV] BF2_GPU_TIMERS
+    const float constants[4] = {
+        g_worldDepthProjection[0], g_worldDepthProjection[1],
+        size.Width ? 1.0f / static_cast<float>(size.Width) : 0.0f,
+        size.Height ? 1.0f / static_cast<float>(size.Height) : 0.0f };
+    if (!postProductionDrawDepthRebuild(constants))
+    {
+        static bool reported = false;
+        if (!reported)
+            std::fprintf(stderr, "[DEPTHREBUILD] PostProduction has no RaDepthRebuild technique\n");
+        reported = true;
+    }
+    publishSunCascadeConstants(false);
+    g_softParticleDepth = true;
+}
+
+void rendererSceneTransparentsEnd()
+{
+    publishSunCascadeConstants(true);
+    g_softParticleDepth = false;
+    g_linearDepthFrame = false;
+    if (g_transparentDepth)
+    {
+        g_transparentDepth = false;
+        stateManagerSetDepthStencilSurface(publishedRenderer()->m_depthStencil);   // +0x770
+    }
 }
 
 void rendererDepthPrepassRelease()
@@ -4325,10 +4519,17 @@ void rendererDepthPrepassRelease()
     if (g_linearDepthSamples)
         g_linearDepthSamples->Release();
     g_linearDepthSamples = 0;
+    if (g_rebuiltDepth)
+        g_rebuiltDepth->Release();
+    g_rebuiltDepth = 0;
+    g_transparentDepth = false;
+    g_linearDepthFrame = false;
 }
 
 IDirect3DSurface9* rendererDepthStencilSurface()
 {
+    if (g_transparentDepth && g_rebuiltDepth)
+        return g_rebuiltDepth;          // [RENDER] step 8: the world transparents' rebuilt depth
     return publishedRenderer()->m_depthStencil;                              // +0x770
 }
 
@@ -5556,6 +5757,8 @@ void rendererPostReselectTarget()
 // level 0) with StretchRect, D3DTEXF_NONE. Neither surface is null-tested.
 void rendererPostResolveScene()
 {
+    if (rendererSceneResolved())
+        return;                         // [RENDER] step 8: resolved before the world transparents
     Renderer* const renderer = publishedRenderer();
     IDirect3DSurface9* const destination =
         textureGetLevelSurface(pathTarget(renderer, 0x788), 0, 0x7FFFFFFFu);

@@ -2435,29 +2435,22 @@ void renderQueuesFlushWorldPass()
 // whose Ra effect has the technique `key`, front to back, WITHOUT consuming the queues: the world
 // pass flushes them afterwards as usual. Entries whose effect lacks the technique are skipped.
 // The point-light queues are additive re-draws of the same geometry and are not walked.
+// renderQueuesDepthPass does the same for named queues: the first-person opaque queues (a
+// prepass) and water (its linear depth only).
 void shaderManagerCommitCurrentEffects();   // ShaderManager.cpp
 
 namespace {
-// The entries this frame's prepass drew into the scene depth, sorted; cleared after the world pass.
+// The entries a prepass drew into the scene depth, sorted; cleared after the world pass and after
+// the first-person opaque queues.
 std::vector<const RenderQueueEntry*> g_prepassed;
 }
 
-void renderQueuesDepthPrepass(unsigned int key)
+namespace {
+// Draws `list` with technique `key`, nearest first, without consuming the queues. A prepass
+// (`prepass`) draws only entries that write the scene depth and records them, so their lit pass
+// tests EQUAL; otherwise each entry keeps its technique's own depth states (water: test, no write).
+void drawDepthEntries(std::vector<RenderQueueEntry*>& list, unsigned int key, bool prepass)
 {
-    g_prepassed.clear();
-    RenderQueueTable* const table = static_cast<RenderQueueTable*>(g_renderQueues);
-    if (!table)
-        return;
-
-    static std::vector<RenderQueueEntry*> list;
-    list.clear();
-    for (std::vector<void*>::iterator it = table->worldQueues.begin();
-         it != table->worldQueues.end(); ++it)
-    {
-        RenderQueue* const queue = static_cast<RenderQueue*>(*it);
-        if (queue->enabled)
-            list.insert(list.end(), queue->entries.begin(), queue->entries.end());
-    }
     if (list.empty())
         return;
     std::stable_sort(list.begin(), list.end(), RenderEntryNearerFirst());
@@ -2513,17 +2506,56 @@ void renderQueuesDepthPrepass(unsigned int key)
         // commit them, then prepass only a draw that writes the scene depth. One that does not
         // keeps its own depth test in the world pass.
         shaderManagerCommitCurrentEffects();
-        if (!stateManagerWantedRenderState(7u) || !stateManagerWantedRenderState(14u))
+        if (prepass
+            && (!stateManagerWantedRenderState(7u) || !stateManagerWantedRenderState(14u)))
             continue;                                  // D3DRS_ZENABLE, D3DRS_ZWRITEENABLE
         shader->draw(e);
-        g_prepassed.push_back(e);
+        if (prepass)
+            g_prepassed.push_back(e);
     }
     if (active)
     {
         active->endPass();
         active->end();
     }
-    std::sort(g_prepassed.begin(), g_prepassed.end());
+    if (prepass)
+        std::sort(g_prepassed.begin(), g_prepassed.end());
+}
+}
+
+void renderQueuesDepthPrepass(unsigned int key)
+{
+    g_prepassed.clear();
+    RenderQueueTable* const table = static_cast<RenderQueueTable*>(g_renderQueues);
+    if (!table)
+        return;
+    static std::vector<RenderQueueEntry*> list;
+    list.clear();
+    for (std::vector<void*>::iterator it = table->worldQueues.begin();
+         it != table->worldQueues.end(); ++it)
+    {
+        RenderQueue* const queue = static_cast<RenderQueue*>(*it);
+        if (queue->enabled)
+            list.insert(list.end(), queue->entries.begin(), queue->entries.end());
+    }
+    drawDepthEntries(list, key, true);
+}
+
+void renderQueuesDepthPass(unsigned int key, const unsigned int* slotByteOffsets,
+                           unsigned int count, bool prepass)
+{
+    RenderQueueTable* const table = static_cast<RenderQueueTable*>(g_renderQueues);
+    if (!table)
+        return;
+    static std::vector<RenderQueueEntry*> list;
+    list.clear();
+    for (unsigned int i = 0; i != count; ++i)
+    {
+        RenderQueue* const queue = table->queue((slotByteOffsets[i] - 4u) / 4u);
+        if (queue && queue->enabled)
+            list.insert(list.end(), queue->entries.begin(), queue->entries.end());
+    }
+    drawDepthEntries(list, key, prepass);
 }
 
 bool renderQueuesIsPrepassed(const RenderQueueEntry* entry)

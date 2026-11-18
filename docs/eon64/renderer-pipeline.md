@@ -105,8 +105,8 @@ In draw order, for the main world view:
    In the world pass every prepassed entry draws with depth EQUAL and no depth write, whatever its
    effect states (`stateManagerSetPrepassedDraw`), so each sample is shaded once. Terrain's later
    passes already test EQUAL against its first pass. Not prepassed, and testing and writing depth
-   as before: the depth-only queue, undergrowth, roads, the sky, first-person models, and entries
-   whose effect has no `RaDepthPrepass`. The effects keep this working by drawing both techniques
+   as before: the depth-only queue, undergrowth, roads, the sky, and entries whose effect has no
+   `RaDepthPrepass`. First-person models have a prepass of their own (step 6 below). The effects keep this working by drawing both techniques
    with the same vertex shader function.
    Before it, the cascade pass fills `RASM` and the camera rows are added; after it, `RASM` is
    written to the pixel registers c200–c221.
@@ -117,12 +117,33 @@ In draw order, for the main world view:
    and flipped it darkened every silhouette crest. Terrain-lit receivers (terrain, roads) also take
    N.L from it. The lookup position is a `_centroid` interpolant (`SunPos`), so an MSAA edge sample
    stays on its triangle; derivatives come from a non-centroid copy.
-5. **End of the world pass** (`rendererDepthPrepassEndWorldPass`) zeroes `RASM`, so first-person
-   passes and every other view keep their baked sunlight, and stops soft particles.
-6. **Particles** sample the cascades per vertex, where the pixel registers and s13 do not reach:
+5. **Transparents in the 4x scene**, in retail's order: the sky, the fog pass, decals, the
+   particles drawn before water, and under water the transparency and additive queues. Water draws
+   its linear depth first (`rendererLinearDepthWater`: technique `RaDepthPrepass`, testing the
+   opaque depth without writing), then its lit pass.
+6. **First-person passes**, moved here from after the world transparents. `RASM` is published as
+   zeros (`rendererDepthPrepassEndWorldPass`; the frame's values are kept) and soft particles stop,
+   so they keep their baked sunlight. After their depth clear, the first-person opaque queues
+   prepass (`rendererFirstPersonPrepass`): their own depth, and their linear depth over the
+   world's, under alpha-to-coverage; their lit passes test EQUAL. Then the first-person particles
+   and transparency queues.
+7. **Resolve and depth rebuild** (`rendererSceneResolveForTransparents`). The linear depth (world,
+   water, first person) resolves to s15 and the float scene to the single-sample `+0x788`, which
+   is the scene target until the end of the scene (`rendererSceneColorSurface`). A full-screen pass
+   (PostProduction technique `RaDepthRebuild`) writes depth from s15 into a single-sample depth
+   buffer of the scene depth's format, using the world view's projection: first-person depth lies
+   nearer than the near plane and saturates to it. `RASM` and soft particles come back on.
+   Without the multisampled float scene the rebuild overwrites the bound scene depth in place.
+8. **World transparents, single sample**, against the rebuilt depth: the transparency and additive
+   queues (above water), particles, the fog transparent pass, weather, rain, the sky's second pass
+   and glow. An edge pixel's depth is the average of its samples. `rendererSceneTransparentsEnd`
+   zeroes `RASM` again and binds the scene depth back. A world transparent nearer than the weapon
+   now draws over it, and smoke draws over first-person transparent surfaces (scope glass).
+9. **Particles** sample the cascades per vertex, where the pixel registers and s13 do not reach:
    `RASM` and the atlas are set on them as effect parameters (`rendererBindParticleLighting`).
-7. **Post-production** runs every frame: the colour grade is the frame's only encode from linear
-   to display, so it cannot be skipped. Tinnitus blends over the float scene target first.
+10. **Post-production** runs every frame: the colour grade is the frame's only encode from linear
+   to display, so it cannot be skipped. Its resolve is skipped when step 7 resolved the scene.
+   Tinnitus blends over the float scene target first.
 
 Depth is reversed throughout (near 1, far 0) except in shadow-map depth buffers.
 

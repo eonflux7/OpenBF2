@@ -1394,6 +1394,31 @@ void postProductionPass()
     }
 }
 
+// [RENDER] Transparent depth rebuild (step 8): technique RaDepthRebuild, one full-screen pass
+// writing depth from the linear depth on s15 into the bound depth buffer, colour writes off.
+// `constants` is RaDepthRebuild (P22, P32, 1 / width, 1 / height). False when the effect has no
+// such technique; nothing is drawn then.
+bool postProductionDrawDepthRebuild(const float constants[4])
+{
+    PostProductionOwner* const o = g_PostProductionFrameWorkOwner ? publishedOwner() : 0;
+    if (!o || !o->effect)
+        return false;
+    static const std::string kTechnique("RaDepthRebuild");
+    stateManagerPush();
+    if (!effectSetTechniqueByName(o->effect, kTechnique))
+    {
+        stateManagerPop();
+        return false;
+    }
+    effectBegin(o->effect);
+    effectGetShaderParameterBorrowedTyped(effectOf(o), kTechnique)->setValue(constants, 0);
+    effectBeginPass(o->effect, 0);
+    geom::fsQuadDrawerDrawCurrentEffect();
+    effectEnd(o->effect);
+    stateManagerPop();
+    return true;
+}
+
 // renderScene (PE 0x1002BF42..0x1002BF52): the owner's +0x24 takes the flags' post-production byte.
 void postProductionSetGlowEnabled(unsigned char enabled)
 {
