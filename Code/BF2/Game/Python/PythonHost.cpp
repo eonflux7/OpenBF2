@@ -828,6 +828,47 @@ PythonHostData::~PythonHostData()
     // nested-vector walk are.
 }
 
+// [DEV] BF2_PY_ERRORS=1: a script handler's exception is printed to stderr as [PYERR] lines
+// (formatted by Python's traceback module) before it is cleared. Unset, it is cleared as retail does.
+namespace
+{
+void reportHandlerError(int eventId)
+{
+    static const bool enabled = std::getenv("BF2_PY_ERRORS") != 0;
+    if (!enabled)
+    {
+        PyErr_Clear();
+        return;
+    }
+    PyObject* type = 0;
+    PyObject* value = 0;
+    PyObject* trace = 0;
+    PyErr_Fetch(&type, &value, &trace);
+    PyErr_NormalizeException(&type, &value, &trace);
+    std::string text = "(no traceback)";
+    if (PyObject* const module = PyImport_ImportModule("traceback"))
+    {
+        PyObject* const lines = PyObject_CallMethod(module, const_cast<char*>("format_exception"),
+            const_cast<char*>("OOO"), type ? type : Py_None, value ? value : Py_None, trace ? trace : Py_None);
+        if (lines)
+        {
+            text.clear();
+            for (Py_ssize_t i = 0; i < PyList_Size(lines); ++i)
+                if (const char* const line = PyString_AsString(PyList_GetItem(lines, i)))
+                    text += line;
+            Py_DECREF(lines);
+        }
+        Py_DECREF(module);
+    }
+    std::fprintf(stderr, "[PYERR] event %d:\n%s", eventId, text.c_str());
+    std::fflush(stderr);
+    Py_XDECREF(type);
+    Py_XDECREF(value);
+    Py_XDECREF(trace);
+    PyErr_Clear();
+}
+}
+
 // Dispatches a script event when initialized and the dispatch gate is clear.
 // Registration must size the handler table for eventId. Handlers run when marked
 // alwaysCall or when the game is playing in begin-round state 3; Python call errors
@@ -856,7 +897,7 @@ void PythonHost::handleEvent(ScriptEvent eventId, PyObject* args)
         if (result)
             Py_DECREF(result);
         else
-            PyErr_Clear();
+            reportHandlerError(static_cast<int>(eventId));
     }
 }
 
