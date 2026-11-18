@@ -229,7 +229,12 @@ void Kit::init()
 
     IObject* child = getChild();                                           // slot +0xF0
     if (!child)
+    {
+        // [DEV] name the kit before the shipped abort
+        std::fprintf(stderr, "[KIT] %s has no items: abort\n", getTemplate()->getName().c_str());
+        std::fflush(stderr);
         std::abort();                                                      // as shipped
+    }
     do
     {
         if (child->getTemplate()->getClassID() != CID_MaskObjectTemplate)
@@ -238,7 +243,14 @@ void Kit::init()
                 static_cast<IItemObject*>(child->queryInterface(IID_IItemObject)))
         {
             if (checkIfPartExists(child, item->getItemIndex()))             // IItemObject +0x30
+            {
+                // [DEV] name the kit and the item before the shipped abort
+                std::fprintf(stderr, "[KIT] %s: item %s reuses item index %d: abort\n",
+                             getTemplate()->getName().c_str(),
+                             child->getTemplate()->getName().c_str(), item->getItemIndex());
+                std::fflush(stderr);
                 std::abort();                                              // as shipped
+            }
         }
         child->updateFlags(0, 256);
         // must BE qualified: Object declares a same-named descendant-only virtual, which hides
