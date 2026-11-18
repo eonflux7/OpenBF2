@@ -1918,7 +1918,8 @@ void SkinnedMesh::draw(void*, void*, void*)
         // entry +0x128, the light-array block's Lights holder: one RaLightRecord.
         unsigned char* const params = static_cast<unsigned char*>(entry->lightArray.lights.value);
         {
-            const Vec3& sun = g_LightManager->getSunColor();                   // +0x1AC
+            // [RENDER] One sun: the static sun (retail: Lightmanager.sunColor, +0x1AC)
+            const Vec3& sun = g_LightManager->getStaticSunColor();
             float* const dst = reinterpret_cast<float*>(params + 24);
             dst[0] = hemiFactor * sun.x; dst[1] = hemiFactor * sun.y; dst[2] = hemiFactor * sun.z;
         }
@@ -1928,14 +1929,12 @@ void SkinnedMesh::draw(void*, void*, void*)
             dst[0] = hemiFactor * spec.x; dst[1] = hemiFactor * spec.y;
             dst[2] = hemiFactor * spec.z;
         }
-        if (world::LightSource* const sky = g_LightManager->getSkyLight())     // +0x28
+        if (g_LightManager->getSkyLight())                                     // +0x28
         {
             float* const dir = reinterpret_cast<float*>(params + 12);
             dir[0] = skyDirection[0]; dir[1] = skyDirection[1]; dir[2] = skyDirection[2];
-            // A sky light overrides the previously stored sun color.
-            const float* const c = &sky->getColor().x;                          // +0x198
-            float* const dst = reinterpret_cast<float*>(params + 24);
-            dst[0] = hemiFactor * c[0]; dst[1] = hemiFactor * c[1]; dst[2] = hemiFactor * c[2];
+            // [RENDER] Retail also overrode the sun colour with the sky light's (+0x198); the one
+            // sun above stays.
         }
 
         dx9rend::renderQueueEnqueue(entry, translucent, firstPerson, false);

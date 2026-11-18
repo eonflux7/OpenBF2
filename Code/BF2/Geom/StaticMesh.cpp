@@ -2320,7 +2320,8 @@ void StaticMesh::drawVanilla()
                 else if (material->m_vegetationNonTiled)                       // +0x1EC
                 {
                     const float f = m_float25C;
-                    const Vec3& treeSun = g_LightManager->getTreeSunColor();     // +0x1C8
+                    // [RENDER] One sun: trees take the static sun (retail: treeSunColor, +0x1C8)
+                    const Vec3& treeSun = g_LightManager->getStaticSunColor();
                     const float sx = f * treeSun.x;
                     const float sy = f * treeSun.y;
                     const float sz = f * treeSun.z;
@@ -3103,7 +3104,8 @@ void staticMeshDrawExpansion(void* self)
                     if (material->m_vegetationNonTiled)
                     {
                         const float f = mesh.m_float25C;
-                        const Vec3& color = g_LightManager->getTreeSunColor();
+                        // [RENDER] One sun: the static sun (retail: treeSunColor)
+                        const Vec3& color = g_LightManager->getStaticSunColor();
                         const ExpansionReal red = ExpansionReal(f) * ExpansionReal(color.x);
                         const float green = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.y));
                         const float blue = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.z));

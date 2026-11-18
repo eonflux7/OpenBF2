@@ -354,7 +354,9 @@ void BundledMesh::draw(void*,void*,void*)
         {
             const Vec3& ambient=cameraGate->getStaticSunAmbientColor();
             const Vec3& damage=cameraGate->getStaticSunDamageColor();
-            const Vec3& color=cameraGate->getStaticSunColor();
+            // [RENDER] One sun: the level's static sun, not the camera gate's cockpit sun (retail
+            // lit cockpits with a separately authored colour; the cascades now shade interiors)
+            const Vec3& color=g_LightManager->getStaticSunColor();
             const Vec3 blended={color.x+(damage.x-color.x)*damagePulse,
                                 color.y+(damage.y-color.y)*damagePulse,
                                 color.z+(damage.z-color.z)*damagePulse};
@@ -365,7 +367,9 @@ void BundledMesh::draw(void*,void*,void*)
         else
         {
             mask&=~0x20u;
-            copy3(sun->color,g_LightManager->getSunColor());
+            // [RENDER] One sun: dynamic objects take the static sun that statics and terrain use;
+            // retail gave them Lightmanager.sunColor, authored per level against a separate ambient
+            copy3(sun->color,g_LightManager->getStaticSunColor());
             sun->scaled24=0.7f;
             copy3(sun->unread28,g_LightManager->getSunSpecColor());
             if(!(mask&0x1000))

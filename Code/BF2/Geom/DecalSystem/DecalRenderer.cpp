@@ -414,6 +414,11 @@ void DecalRenderer::beginPass()
         sunDirection.z = packed[2];
         sunDirection.w = packed[3];
     }
+    // [RENDER] One sun: the static sun's colour (retail: the sky light's, +0x198); its direction stays
+    {
+        const Vec3& one = g_LightManager->getStaticSunColor();
+        sunColor.x = one.x; sunColor.y = one.y; sunColor.z = one.z; sunColor.w = 1.0f;
+    }
     m_paramSunColor->setValue(&sunColor, 0);                               // +0x1D0
     m_paramSunDirection->setValue(&sunDirection, 0);                       // +0x1D4
     m_paramWorldViewProjection->setValue(&m_worldViewProjection, 0);       // +0x1D8
