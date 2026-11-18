@@ -782,6 +782,11 @@ int __stdcall smSetRenderState(StateManager* self, unsigned int state, unsigned 
 // AddRef/Releases D3D objects here - their IUnknown slots 1/2 line up with the wrapper convention.
 int __stdcall smSetTexture(StateManager* self, unsigned int stage, void* texture)
 {
+    // [FIX] Only stages 0-15 are mirrored. D3DX hands vertex-texture stages through the same call
+    // (D3DVERTEXTEXTURESAMPLER0..3 = 257..260); the unchecked index wrote past the block. Those go
+    // straight to the device, like the stage states this manager does not mirror.
+    if (stage >= sizeof(self->textures.cells) / sizeof(self->textures.cells[0]))
+        return self->device->SetTexture(stage, static_cast<IDirect3DBaseTexture9*>(texture));
     blockSet(&self->textures, stage, reinterpret_cast<StateValue>(texture));
     return 0;
 }
@@ -806,6 +811,10 @@ int __stdcall smSetTextureStageState(StateManager* self, unsigned int stage, uns
 int __stdcall smSetSamplerState(StateManager* self, unsigned int stage, unsigned int type,
                                 unsigned int value)
 {
+    // [FIX] Only stages 0-7 are mirrored; a higher stage (vertex-texture stages 257..260 included)
+    // indexed past samplers[] and the watermark loops. It goes straight to the device.
+    if (stage >= sizeof(self->samplers) / sizeof(self->samplers[0]))
+        return self->device->SetSamplerState(stage, static_cast<D3DSAMPLERSTATETYPE>(type), value);
     if (self->maxStageTouched < stage)
         self->maxStageTouched = stage;
     blockSet(&self->samplers[stage], type, value);
