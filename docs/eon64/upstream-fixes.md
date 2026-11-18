@@ -82,7 +82,7 @@ Edits to `.fx`/`.fxh` did not invalidate the generated permutations, so shared-h
 old and new shader code. The cache is now keyed on a hash of the preprocessed source and defines.
 `c2ccd4bc` fixes a null compiler entry the first commit introduced.
 
-### O. Console scripts: no `var`, `const` or assignment (fixed, `06696832`, `REPLACE`)
+### O. Console scripts: no `var`, `const` or assignment (fixed, `06696832`, `0fbe662b`)
 `OldConsole::handleCommand` had no handling for `var`, `const` or `v_x = value`; they fell through
 to the binding lookup as unknown commands, so declared variables never existed and conditions
 compared the literal name. Now as `bf2_w32ded.exe` 1.50 does (line handler 0x651EFE..0x652188 and
