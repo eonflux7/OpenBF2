@@ -4097,12 +4097,15 @@ void rendererHdrReleaseSurface()
     g_hdrSceneSurface = 0;
 }
 
-// [RENDER] Depth prepass, see RendDX9Base.h. The R32F target and its D24S8 depth
-// buffer are single-sample, sized like the back buffer, created on first use and released with
-// the other render-path resources (device reset, resolution change).
+// [RENDER] Depth prepass, see RendDX9Base.h. The prepass draws into the scene depth; its
+// linear depth goes to an R32F surface of the scene depth's size and sample count, resolved into the
+// single-sample R32F texture bound to s15 (without multisampling it draws into the texture
+// directly). Both are created on first use and released with the other render-path resources
+// (device reset, resolution change). The resolve averages an edge pixel's samples into a depth no
+// surface has; soft particles fade against that average.
 namespace {
 IDirect3DTexture9* g_linearDepthTexture = 0;
-IDirect3DSurface9* g_linearDepthStencil = 0;
+IDirect3DSurface9* g_linearDepthSamples = 0;   // multisampled, or null when the scene is not
 const DWORD kLinearDepthSampler = 15;
 float g_sunCascadeConstants[kSunCascadeVec4s * 4] = {};   // RASM while the world pass draws
 bool g_softParticleDepth = false;   // s15 holds this frame's prepass depth and the world pass draws
@@ -4130,31 +4133,37 @@ void publishSunCascadeConstants(bool zero)
         stateManagerSetSunCascadeConstants(g_sunCascadeConstants);
 }
 
-bool ensureLinearDepthTargets()
+// The linear depth targets for the scene depth `depth`: same size, same sample count.
+bool ensureLinearDepthTargets(IDirect3DSurface9* depth)
 {
-    IDirect3DSurface9* const backBuffer = publishedRenderer()->m_backBuffer;
-    if (!backBuffer)
-        return false;
     D3DSURFACE_DESC desc;
-    if (backBuffer->GetDesc(&desc) < 0)
+    if (!depth || depth->GetDesc(&desc) < 0)
         return false;
+    const bool multisampled = desc.MultiSampleType != D3DMULTISAMPLE_NONE;
     if (g_linearDepthTexture)
     {
         D3DSURFACE_DESC have;
-        if (g_linearDepthTexture->GetLevelDesc(0, &have) >= 0
-            && have.Width == desc.Width && have.Height == desc.Height)
-            return g_linearDepthStencil != 0;
+        bool match = g_linearDepthTexture->GetLevelDesc(0, &have) >= 0
+            && have.Width == desc.Width && have.Height == desc.Height
+            && multisampled == (g_linearDepthSamples != 0);
+        if (match && g_linearDepthSamples)
+            match = g_linearDepthSamples->GetDesc(&have) >= 0
+                && have.MultiSampleType == desc.MultiSampleType
+                && have.MultiSampleQuality == desc.MultiSampleQuality;
+        if (match)
+            return true;
         rendererDepthPrepassRelease();
     }
     IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
     HRESULT hr = device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_RENDERTARGET,
                                        D3DFMT_R32F, D3DPOOL_DEFAULT, &g_linearDepthTexture, 0);
-    if (hr >= 0)
-        hr = device->CreateDepthStencilSurface(desc.Width, desc.Height, D3DFMT_D24S8,
-                                               D3DMULTISAMPLE_NONE, 0, TRUE,
-                                               &g_linearDepthStencil, 0);
-    std::fprintf(stderr, "[DEPTHPREPASS] R32F linear depth %ux%u: hr=0x%08lX\n",
-                 desc.Width, desc.Height, static_cast<unsigned long>(hr));
+    if (hr >= 0 && multisampled)
+        hr = device->CreateRenderTarget(desc.Width, desc.Height, D3DFMT_R32F,
+                                        desc.MultiSampleType, desc.MultiSampleQuality, FALSE,
+                                        &g_linearDepthSamples, 0);
+    std::fprintf(stderr, "[DEPTHPREPASS] R32F linear depth %ux%u x%d: hr=0x%08lX\n",
+                 desc.Width, desc.Height, static_cast<int>(desc.MultiSampleType),
+                 static_cast<unsigned long>(hr));
     if (hr < 0)
     {
         rendererDepthPrepassRelease();
@@ -4223,7 +4232,10 @@ void rendererDepthPrepass(bool drawTerrain, float time)
 {
     publishSunCascadeConstants(true);
     g_softParticleDepth = false;
-    if (!ensureLinearDepthTargets())
+    IDirect3DSurface9* sceneDepth = stateManagerGetDepthStencilSurface();
+    if (!sceneDepth)
+        sceneDepth = rendererDepthStencilSurface();
+    if (!ensureLinearDepthTargets(sceneDepth))
         return;
 
     // RASM: the cascade rows from the cascade pass, then the camera rows, the render view's camera
@@ -4248,37 +4260,40 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     device->SetTexture(kLinearDepthSampler, 0);       // never sampled while it is the target
 
     IDirect3DSurface9* savedTarget = stateManagerGetRenderTarget(0);
-    IDirect3DSurface9* savedDepth = stateManagerGetDepthStencilSurface();
     if (!savedTarget)
         savedTarget = rendererSceneColorSurface();
-    if (!savedDepth)
-        savedDepth = rendererDepthStencilSurface();
     if (savedTarget)
         savedTarget->AddRef();
-    if (savedDepth)
-        savedDepth->AddRef();
 
+    // The scene depth stays bound: it already holds the depth-only queue and terrain's first pass
+    // (Terrain::drawMain), and the prepass adds every prepassed entry to it.
     gpuTimerMark("depth prepass");   // [DEV] BF2_GPU_TIMERS
-    IDirect3DSurface9* target = 0;
-    g_linearDepthTexture->GetSurfaceLevel(0, &target);
+    IDirect3DSurface9* resolved = 0;
+    g_linearDepthTexture->GetSurfaceLevel(0, &resolved);
+    IDirect3DSurface9* const target = g_linearDepthSamples ? g_linearDepthSamples : resolved;
     stateManagerSetRenderTarget(0, target);
-    stateManagerSetDepthStencilSurface(g_linearDepthStencil);
-    stateManagerClear(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, 0);
+    stateManagerSetDepthStencilSurface(sceneDepth);
+    stateManagerClear(D3DCLEAR_TARGET, 0, 1.0f, 0);
 
+    // Terrain's depth is in already: its linear depth draws over it with EQUAL and no depth write.
     if (drawTerrain && geom::g_Terrain)
+    {
+        stateManagerSetPrepassedDraw(true);
         static_cast<geom::Terrain*>(geom::g_Terrain)->drawDepthPrepass();
+        stateManagerSetPrepassedDraw(false);
+    }
     static const unsigned int key = raHashString(std::string("RaDepthPrepass"));
     renderQueuesDepthPrepass(key);
 
     stateManagerSetRenderTarget(0, savedTarget);
-    stateManagerSetDepthStencilSurface(savedDepth);
     flushRenderTargetsSeam();
-    if (target)
-        target->Release();
+    if (g_linearDepthSamples && resolved)
+        static_cast<RendDX9Base*>(g_rendererBase)->device->StretchRect(
+            g_linearDepthSamples, 0, resolved, 0, D3DTEXF_NONE);
+    if (resolved)
+        resolved->Release();
     if (savedTarget)
         savedTarget->Release();
-    if (savedDepth)
-        savedDepth->Release();
 
     bindSampler(kLinearDepthSampler, g_linearDepthTexture, D3DTEXF_POINT);
     publishSunCascadeConstants(false);
@@ -4298,9 +4313,9 @@ void rendererDepthPrepassRelease()
     if (g_linearDepthTexture)
         g_linearDepthTexture->Release();
     g_linearDepthTexture = 0;
-    if (g_linearDepthStencil)
-        g_linearDepthStencil->Release();
-    g_linearDepthStencil = 0;
+    if (g_linearDepthSamples)
+        g_linearDepthSamples->Release();
+    g_linearDepthSamples = 0;
 }
 
 IDirect3DSurface9* rendererDepthStencilSurface()

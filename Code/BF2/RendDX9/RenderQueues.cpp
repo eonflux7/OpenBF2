@@ -1646,6 +1646,7 @@ void RenderQueue::drawWalkDefault()
                         stateManagerSetRenderState(19, 5);         // D3DRS_SRCBLEND = srcalpha
                         stateManagerSetRenderState(20, 6);         // D3DRS_DESTBLEND = invsrcalpha
                     }
+                    stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] step 8
                     shader->draw(e);                               // +0x18
                 }
             }
@@ -1653,6 +1654,7 @@ void RenderQueue::drawWalkDefault()
         }
     }
 
+    stateManagerSetPrepassedDraw(false);                           // [RENDER] step 8
     if (shader)
     {
         if (activePass != -1)
@@ -1707,6 +1709,7 @@ void RenderQueue::drawWalkNear()
                 else
                 {
                     shader->applyInstanceParameters(e);            // +0x10
+                    stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] step 8
                     shader->draw(e);                               // +0x18
                 }
             }
@@ -1720,6 +1723,7 @@ void RenderQueue::drawWalkNear()
         }
     }
 done:
+    stateManagerSetPrepassedDraw(false);                           // [RENDER] step 8
     shader->endPass();
     shader->end();                                                 // +0x0C
 }
@@ -2424,14 +2428,23 @@ void RenderQueueTable::flushWorldPass()
 void renderQueuesFlushWorldPass()
 {
     static_cast<RenderQueueTable*>(g_renderQueues)->flushWorldPass();
+    renderQueuesClearPrepassed();   // [RENDER] the prepass covers the world pass only
 }
 
 // [RENDER] Depth prepass. Draws every opaque world-queue entry
 // whose Ra effect has the technique `key`, front to back, WITHOUT consuming the queues: the world
 // pass flushes them afterwards as usual. Entries whose effect lacks the technique are skipped.
 // The point-light queues are additive re-draws of the same geometry and are not walked.
+void shaderManagerCommitCurrentEffects();   // ShaderManager.cpp
+
+namespace {
+// The entries this frame's prepass drew into the scene depth, sorted; cleared after the world pass.
+std::vector<const RenderQueueEntry*> g_prepassed;
+}
+
 void renderQueuesDepthPrepass(unsigned int key)
 {
+    g_prepassed.clear();
     RenderQueueTable* const table = static_cast<RenderQueueTable*>(g_renderQueues);
     if (!table)
         return;
@@ -2496,13 +2509,33 @@ void renderQueuesDepthPrepass(unsigned int key)
             continue;
         shader->applyTemplateParameters(e);
         shader->applyInstanceParameters(e);
+        // The pass states may follow the parameters just set (ZWriteEnable = (DepthWrite)):
+        // commit them, then prepass only a draw that writes the scene depth. One that does not
+        // keeps its own depth test in the world pass.
+        shaderManagerCommitCurrentEffects();
+        if (!stateManagerWantedRenderState(7u) || !stateManagerWantedRenderState(14u))
+            continue;                                  // D3DRS_ZENABLE, D3DRS_ZWRITEENABLE
         shader->draw(e);
+        g_prepassed.push_back(e);
     }
     if (active)
     {
         active->endPass();
         active->end();
     }
+    std::sort(g_prepassed.begin(), g_prepassed.end());
+}
+
+bool renderQueuesIsPrepassed(const RenderQueueEntry* entry)
+{
+    return !g_prepassed.empty()
+        && std::binary_search(g_prepassed.begin(), g_prepassed.end(), entry);
+}
+
+void renderQueuesClearPrepassed()
+{
+    g_prepassed.clear();
+    stateManagerSetPrepassedDraw(false);
 }
 
 // [RENDER] Submission context and caster capture, see RendDX9Base.h.

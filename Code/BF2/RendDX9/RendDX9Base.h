@@ -640,6 +640,11 @@ bool stateManagerReversedDepthBound();
 void stateManagerMarkStandardDepth(bool standard);
 float stateManagerClearDepth(float depth);
 unsigned int stateManagerMapDepthState(unsigned int state, unsigned int value);
+// [RENDER] While set, ZFUNC is issued as EQUAL and ZWRITEENABLE as FALSE: the draw's depth is
+// already in the scene depth from the depth prepass (step 8). StateManager.cpp.
+void stateManagerSetPrepassedDraw(bool prepassed);
+// [RENDER] The value the next draw will issue for render state `state` (the wanted cell).
+unsigned int stateManagerWantedRenderState(unsigned int state);
 void stateManagerSetIndices(IDirect3DIndexBuffer9* indices);
 void stateManagerSetStreamSource(unsigned int stream, IDirect3DVertexBuffer9* vertexBuffer,
                                  unsigned int offset, unsigned int stride);
@@ -697,9 +702,12 @@ void rendererHdrBeginScene();
 void rendererHdrEndScene();
 void rendererHdrReleaseSurface();
 // [RENDER] Depth prepass: before the world queues are
-// drawn, terrain and every opaque Ra entry whose effect has the technique "RaDepthPrepass" draw
-// their linear view depth into a single-sample R32F target (0 where nothing was drawn). The
-// texture stays bound to sampler s15 for the rest of the frame. Before the prepass the sun cascades
+// drawn, every opaque Ra entry whose effect has the technique "RaDepthPrepass" draws into the
+// scene depth, and with terrain (whose own first pass already wrote the scene depth) its linear
+// view depth into an R32F target of the scene's sample count (0 where nothing was drawn), resolved
+// into a single-sample texture that stays bound to sampler s15 for the rest of the frame. The
+// world pass then draws each prepassed entry with depth EQUAL and no depth write
+// (renderQueuesIsPrepassed, stateManagerSetPrepassedDraw), so it shades each sample once. Before the prepass the sun cascades
 // render (s13) and their constants are published (rendererSetSunCascadeConstants); the lit shaders
 // sample the cascades themselves. rendererDepthPrepassEndWorldPass zeroes the constants, so the
 // first-person passes and every other view keep their baked sunlight.
@@ -709,6 +717,10 @@ void rendererDepthPrepass(bool drawTerrain, float time);
 void rendererDepthPrepassEndWorldPass();
 void rendererDepthPrepassRelease();
 IDirect3DTexture9* rendererLinearDepthTexture();
+// RenderQueues.cpp: whether this frame's depth prepass drew `entry` into the scene depth.
+struct RenderQueueEntry;
+bool renderQueuesIsPrepassed(const RenderQueueEntry* entry);
+void renderQueuesClearPrepassed();
 
 // [RENDER] Submission context (RenderQueues.cpp). Geometry submission culls against
 // rendererSubmitCullFrustum(): the camera's frustum, or the caster volume while a shadow pass

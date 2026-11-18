@@ -73,8 +73,23 @@ float stateManagerClearDepth(float depth)
     return stateManagerReversedDepthBound() ? 1.0f - depth : depth;
 }
 
+// [RENDER] Prepassed draws (step 8). The depth prepass has already written a prepassed draw's
+// depth into the scene depth, so its lit passes test EQUAL and write nothing, whatever the
+// effect states: each pixel then shades only the samples the prepass left it. The effects' own
+// ZFUNC / ZWRITEENABLE stay in the mirror cells; only the issued values change.
+namespace {
+bool g_prepassedDraw = false;
+}
+
 unsigned int stateManagerMapDepthState(unsigned int state, unsigned int value)
 {
+    if (g_prepassedDraw)
+    {
+        if (state == 23u)   // D3DRS_ZFUNC
+            return 3u;      // D3DCMP_EQUAL, the same in either depth convention
+        if (state == 14u)   // D3DRS_ZWRITEENABLE
+            return 0u;
+    }
     if (!stateManagerReversedDepthBound())
         return value;
     if (state == 23u)   // D3DRS_ZFUNC
@@ -1409,6 +1424,32 @@ void stateManagerSetRenderTarget(unsigned int index, IDirect3DSurface9* surface)
 void stateManagerSetDepthStencilSurface(IDirect3DSurface9* surface)
 {
     smSetDepthStencilSurface(sm(), surface);
+}
+
+// [RENDER] Prepassed draws, see stateManagerMapDepthState.
+void stateManagerSetPrepassedDraw(bool prepassed)
+{
+    if (g_prepassedDraw == prepassed)
+        return;
+    g_prepassedDraw = prepassed;
+    if (!g_stateManager)
+        return;
+    // The device holds the mapped values of the cells' device words; re-send both under the new
+    // mapping (a pending wanted value is issued through the same mapping at the next draw).
+    StateManager* const self = sm();
+    static const unsigned int kStates[2] = { 23u, 14u };   // D3DRS_ZFUNC, D3DRS_ZWRITEENABLE
+    for (unsigned int i = 0; i < 2; ++i)
+    {
+        const unsigned int st = kStates[i];
+        self->device->SetRenderState(static_cast<D3DRENDERSTATETYPE>(st),
+            stateManagerMapDepthState(st,
+                static_cast<unsigned int>(self->renderStates.cells[st].f0Device)));
+    }
+}
+
+unsigned int stateManagerWantedRenderState(unsigned int state)
+{
+    return static_cast<unsigned int>(sm()->renderStates.cells[state].f2Wanted);
 }
 
 // [RENDER] The desired depth-stencil surface, without an AddRef (depth prepass).

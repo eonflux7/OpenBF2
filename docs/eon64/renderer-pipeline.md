@@ -94,9 +94,20 @@ In draw order, for the main world view:
 2. **Sun cascades** (`rendererSunShadowsRender`, step 5). Four cascades in a 2 x 2 `R32F` atlas;
    see [Sun shadows](#sun-shadows).
 3. **Depth prepass** (`rendererDepthPrepass`), just before the world queues flush, after
-   overgrowth has queued. Terrain and every opaque Ra queue entry whose effect has the technique
-   `RaDepthPrepass` draw their linear view depth (`R32F`, 0 where nothing was drawn) into a
-   single-sample target with its own `D24S8` depth. It stays bound to s15 for the rest of the frame.
+   overgrowth has queued. Every opaque world-queue entry whose effect has the technique
+   `RaDepthPrepass`, and whose prepass draw writes depth, draws front to back into the scene depth
+   (the MSAA scene depth when the scene is multisampled), with its linear view depth (`R32F`, 0
+   where nothing was drawn) into a target of the same sample count. Terrain's depth is already
+   there from its first pass (`Terrain::drawMain`, before the prepass), so its prepass draws only
+   the linear depth, with EQUAL and no depth write. The linear depth is resolved into a
+   single-sample texture bound to s15 for the rest of the frame; the resolve averages an edge
+   pixel's samples, so soft particles fade against a depth no surface has.
+   In the world pass every prepassed entry draws with depth EQUAL and no depth write, whatever its
+   effect states (`stateManagerSetPrepassedDraw`), so each sample is shaded once. Terrain's later
+   passes already test EQUAL against its first pass. Not prepassed, and testing and writing depth
+   as before: the depth-only queue, undergrowth, roads, the sky, first-person models, and entries
+   whose effect has no `RaDepthPrepass`. The effects keep this working by drawing both techniques
+   with the same vertex shader function.
    Before it, the cascade pass fills `RASM` and the camera rows are added; after it, `RASM` is
    written to the pixel registers c200–c221.
 4. **World passes.** Every lit shader samples the cascades itself at its own world position
