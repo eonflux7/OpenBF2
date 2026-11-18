@@ -59,7 +59,13 @@ Sub-steps, in order, each seen in game before the next:
       dissolve over the last tenth of the overgrowth view distance; near instances and far cells
       share one lighting model (static sun, tree ambient / static sky, no baked per-instance
       shadow). Seen on Saaremaa 2026-11-19 (owner: looks good; frame rate seemed lower)
-- [ ] Acceptance: GPU timer spans and the reference views
+- [ ] Acceptance:
+  - [x] GPU timer spans (Saaremaa 2026-11-19, overview camera over the forest and buildings,
+    153 draws, 1600x900 4x, last-second means): depth prepass 1.47 ms, world opaque 1.22, sun
+    cascades 1.53, resolve 0.19, depth rebuild 0.05; frame 8.25 ms, of which `hud` (present wait)
+    3.33. Step 8's own cost (resolve + rebuild) is about 0.24 ms; the frame is CPU-bound (overlay
+    CPU 8.53 / GPU 8.50 ms). A ground view was skipped (owner: would not show much)
+  - [ ] Reference views
 
 Open: about 20% lower frame rate on Muttrah City than before step 8's LOD work (owner, 2026-11-19;
 when it started is not known). GPU spans there sum to about 5.7 ms of a 12.6 ms frame, the rest is
