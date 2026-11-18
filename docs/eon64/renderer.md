@@ -117,7 +117,7 @@ screen-space term cannot be made per-sample; the mask goes instead.
     PR's mesh shaders have no distance fade of detail or normal maps.
   - *Texture resolution* (confirmed): at texture quality 3 every mip class skips 0 levels.
     Mip selection stays: it is filtering, not a LOD, and 16x anisotropic keeps distance sharp.
-  - *Distance culling* (removed): retail faded each object out at d² > π (r·s)² · c² · 10 · zoom
+  - *Distance culling* (removed, `b3e44a8d`, seen in game): retail faded each object out at d² > π (r·s)² · c² · 10 · zoom
     (r its visual radius, s its template's `cullRadiusScale`), never closer than `minCullDistance`,
     with c 8 for ordinary objects and 10 for soldiers and PlayerControlObjects (video quality 3).
     PR tunes s per template (soldiers 12.5, kits 100000, statics 2 to 9999), so soldiers drew to

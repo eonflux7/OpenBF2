@@ -47,9 +47,8 @@ Sub-steps, in order, each seen in game before the next:
     (`98165f0b`: bundled meshes always LOD 0, static switch distances x3, shader-quality buckets
     deleted; textures load at full resolution at texture quality 3. Loaded on Muttrah City
     2026-11-19. Owner to check: no visible building pops at mid range, vehicles at range, frame rate)
-  - [ ] Distance culling removed: objects cull only on the frustum (far plane = view distance).
-    Built, not yet seen in game. Owner to check: walls, sandbags and small statics stay drawn at
-    range, frame rate on Muttrah City
+  - [x] Distance culling removed: objects cull only on the frustum, far plane = view distance
+    (`b3e44a8d`; seen on Muttrah City 2026-11-19, the owner checked cover at range)
   - [ ] Dithered crossfade for the remaining mesh and overgrowth LOD switches
 - [ ] Acceptance: GPU timer spans and the reference views
 
