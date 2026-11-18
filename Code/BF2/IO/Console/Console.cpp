@@ -666,7 +666,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
                 return 1;
             }
             std::string lhs, op, rhs, value;
-            kin.readToken(lhs); kin.readToken(op); kin.readToken(rhs);
+            kin.readOperand(lhs); kin.readToken(op); kin.readOperand(rhs);
             if (exchangeVariable(lhs, value) || exchangeConstant(lhs, value)) lhs = value;
             if (exchangeVariable(rhs, value) || exchangeConstant(rhs, value)) rhs = value;
             stripConditionQuotes(lhs);
@@ -688,7 +688,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             if (stack.empty()) { result = "Can not have an \"elseIf\" without an \"if\"!"; return 2; }
             if (stack.back().branchTaken) { stack.back().executing = false; return 1; }
             std::string lhs, op, rhs, value;
-            kin.readToken(lhs); kin.readToken(op); kin.readToken(rhs);
+            kin.readOperand(lhs); kin.readToken(op); kin.readOperand(rhs);
             if (exchangeVariable(lhs, value) || exchangeConstant(lhs, value)) lhs = value;
             if (exchangeVariable(rhs, value) || exchangeConstant(rhs, value)) rhs = value;
             stripConditionQuotes(lhs);
@@ -857,7 +857,7 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             ConsoleLineReader nin(line);
             std::string tok[4];
             int count = 0;
-            while (count < 4 && nin.readToken(tok[count]))
+            while (count < 4 && nin.readOperand(tok[count]))
                 ++count;
             const std::string* const rest = (isVar || isConst) ? tok + 1 : tok;
             const int restCount = (isVar || isConst) ? count - 1 : count;

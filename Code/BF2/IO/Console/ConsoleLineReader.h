@@ -56,6 +56,30 @@ public:
         return true;
     }
 
+    // [FIX] An operand of if/elseIf/var/const: a token in which whitespace between double quotes
+    // does not delimit, so `"No geometry template"` stays one token. The quotes are kept; the
+    // callers strip them. readToken split it at the spaces.
+    bool readOperand(std::string& out)
+    {
+        if (m_eof || m_fail) { m_fail = true; return false; }
+        const std::size_t size = m_text.size();
+        while (m_pos < size && isSpace(m_text[m_pos]))
+            ++m_pos;
+        if (m_pos == size) { m_eof = true; m_fail = true; return false; }
+        const std::size_t start = m_pos;
+        bool inQuotes = false;
+        while (m_pos < size && (inQuotes || !isSpace(m_text[m_pos])))
+        {
+            if (m_text[m_pos] == '"')
+                inQuotes = !inQuotes;
+            ++m_pos;
+        }
+        out.assign(m_text, start, m_pos - start);
+        if (m_pos == size)
+            m_eof = true;
+        return true;
+    }
+
     void skipWs()
     {
         if (m_eof || m_fail) { m_fail = true; return; }

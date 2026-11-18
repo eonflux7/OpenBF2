@@ -93,6 +93,10 @@ Plain assignment `v_name = value` is not located in the binary yet; mods rely on
 (0x652735..0x6527EF: exactly one `v_` name after `->`, the command's output stored in it); PR's
 kit files guard with `ObjectTemplate.active -> v_exists` / `return`, and without them a second
 faction pass (night layers) created kits twice and `Kit::init` aborted on the duplicate item index.
+Operands of `if`/`elseIf`/`var`/`const` keep a double-quoted literal with spaces as one token
+(`if v_exists != "No geometry template"`, PR's geometry guards); split at the spaces, the guard
+always returned and soldier and kit geometries (the 1P arms among them) were never created. The
+retail tokenizer for these operands is not located yet.
 Also found: retail runs a level's `Init.con` with every argument empty (`bf2_w32ded.exe` 0x465D50;
 `BF2.exe` 0x4ED7xx passes `BF2Editor` only in editor mode), as this engine does.
 
