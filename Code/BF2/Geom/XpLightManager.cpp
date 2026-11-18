@@ -2488,7 +2488,7 @@ void xpEraseRegistration(XpLight* light)
 // PE 0x100EF2B0, reached by manager +0x94 for Point/Spot lights. Eligibility, duplicate handling,
 // 0x38-byte construction, collector classification and map publication preserve shipped order.
 // [DEV] BF2_LIGHT_SHADOW_TRACE: where point/spot lights drop out of the shadow-map path. Logs each
-// registration attempt (first 200) and, every 300 shadow frames, the collector and record counts.
+// registration attempt (first three per light template) and, every 300 shadow frames, the collector and record counts.
 bool lightShadowTraceOn()
 {
     static const bool on = std::getenv("BF2_LIGHT_SHADOW_TRACE") != 0;
@@ -2497,11 +2497,12 @@ bool lightShadowTraceOn()
 
 void lightShadowTraceRegister(world::LightSource* light, const char* outcome)
 {
-    static int logged = 0;
-    if (!lightShadowTraceOn() || logged >= 200)
+    if (!lightShadowTraceOn())
         return;
-    ++logged;
     const world::LightSourceTemplate* const t = lightSourceTemplatePointer(light);
+    static std::map<std::string, int> loggedPerTemplate;   // the first three per template
+    if (++loggedPerTemplate[t->getName()] > 3)
+        return;
     std::fprintf(stderr, "[LSHADOW] register %s: %s (type %d enabled %d dynamic %d flags 0x%X "
                  "castsDynamicShadow %d xpack %d)\n",
                  t->getName().c_str(), outcome, t->getLightTypeEnum(), t->getEnabled() ? 1 : 0,
@@ -2587,6 +2588,14 @@ void updateXpLightDistance(XpLight* light)
     light->cameraDistance = std::sqrt(sum);
 }
 
+// [DEV] BF2_LIGHT_SHADOW_TRACE: why each light was inactive this frame (reset per traced frame).
+struct LightShadowDropCounts
+{
+    unsigned int disabled, far, culled, noCandidates;                 // lights
+    unsigned int records, casters, noGeometry, localView, noEffect, outside, draws;   // casters
+};
+LightShadowDropCounts g_lightShadowDrops = LightShadowDropCounts();
+
 // PE 0x1018FE10
 void updateXpLight(XpLight* light)
 {
@@ -2597,6 +2606,8 @@ void updateXpLight(XpLight* light)
         && !light->source->getEnabled()
         && light->category != 1)
     {
+        if (lightShadowTraceOn())   // [DEV]
+            ++g_lightShadowDrops.disabled;
         setXpLightActive(light, false);
         return;
     }
@@ -2626,6 +2637,8 @@ void updateXpLight(XpLight* light)
     static const bool forceVisible = false;
     if (!visible && forceVisible)
         visible = true;
+    if (!visible && lightShadowTraceOn())   // [DEV] BF2_LIGHT_SHADOW_TRACE
+        ++((light->cameraDistance > 100.0f) ? g_lightShadowDrops.far : g_lightShadowDrops.culled);
     setXpLightActive(light, visible);
 }
 
@@ -2656,6 +2669,8 @@ void prepareXpCandidates(XpLight* light, double time, int flag)
             spotCollect(reinterpret_cast<XpSpotCuller*>(light->culler),
                         time, light->candidates, flag);
     }
+    if (light->active && light->candidates.size() == 0 && lightShadowTraceOn())   // [DEV]
+        ++g_lightShadowDrops.noCandidates;
     if (light->candidates.size() == 0)
         setXpLightActive(light, false);
 }
@@ -3623,21 +3638,36 @@ void submitShadowCaster(void* manager, LightShadowRecord& record,
                         world::IObject* candidate, void* localPlayer,
                         bool applyPointFilter)
 {
+    const bool trace = lightShadowTraceOn();   // [DEV] BF2_LIGHT_SHADOW_TRACE
+    if (trace)
+        ++g_lightShadowDrops.casters;
     void* const geometry = candidateGeometry(candidate);
     if (!geometry)
+    {
+        if (trace)
+            ++g_lightShadowDrops.noGeometry;
         return;
+    }
 
     // The PE asks the geometry for its template and reflection id twice.
     const unsigned int filterType = geometryReflectionType(geometry);
     const unsigned int effectType = geometryReflectionType(geometry);
     if (applyPointFilter
         && !pointCasterPassesLocalView(localPlayer, candidate, geometry, filterType))
+    {
+        if (trace)
+            ++g_lightShadowDrops.localView;
         return;
+    }
 
     const ShadowEffectMap& effects = lm(manager).shadowEffects;
     const ShadowEffectMap::const_iterator effectNode = effects.find(effectType);
     if (effectNode == effects.end())
+    {
+        if (trace)
+            ++g_lightShadowDrops.noEffect;
         return;
+    }
 
     if (applyPointFilter)
     {
@@ -3647,9 +3677,15 @@ void submitShadowCaster(void* manager, LightShadowRecord& record,
         if (!rendmath::frustumInside(record.frustum, objectAbsolutePosition(candidate),
                                       objectVisualRadius(candidate))
             || dx9rend::rendererPerformanceFlag(4))
+        {
+            if (trace)
+                ++g_lightShadowDrops.outside;
             return;
+        }
     }
 
+    if (trace)
+        ++g_lightShadowDrops.draws;
     dx9rend::stateManagerPush();
     dx9rend::effectBegin(effectNode->second);
     dx9rend::effectBeginPass(effectNode->second, 1);
@@ -3663,6 +3699,8 @@ void renderXpLightRecords(void* manager, XpLight* light, void* localPlayer,
 {
     LightShadowRecord* const records = light->records.data();
     const unsigned int count = static_cast<unsigned int>(light->records.size());
+    if (lightShadowTraceOn())   // [DEV] BF2_LIGHT_SHADOW_TRACE
+        g_lightShadowDrops.records += count;
     for (unsigned int i = 0; i < count; ++i)
     {
         LightShadowRecord& record = records[i];
@@ -5176,7 +5214,9 @@ void RD9_THUNK lm_renderShadowMaps(void* self RD9_THUNK_EDX)
         if (frames++ % 300 == 0)
             std::fprintf(stderr, "[LSHADOW] frame %u: skyLight %d dynamicShadows %d updates %d | "
                          "registered %u (static %u, dynamic %u) | this frame static %u dynamic %u | "
-                         "point records %u spot records %u\n",
+                         "spot records %u | inactive: disabled %u far %u culled %u no candidates %u | "
+                         "point records %u casters %u: no geometry %u local view %u no effect %u "
+                         "outside %u drawn %u\n",
                          frames - 1, lm(self).skyLight ? 1 : 0, lm(self).dynamicShadowsEnabled,
                          lm(self).shadowUpdatesEnabled,
                          static_cast<unsigned int>(g_xpCoordinator.bySource.size()),
@@ -5184,8 +5224,14 @@ void RD9_THUNK lm_renderShadowMaps(void* self RD9_THUNK_EDX)
                          static_cast<unsigned int>(g_xpCoordinator.dynamicLights.size()),
                          static_cast<unsigned int>(g_xpCoordinator.staticFrame.size()),
                          static_cast<unsigned int>(g_xpCoordinator.dynamicFrame.size()),
-                         static_cast<unsigned int>(lm(self).pointRecords.size()),
-                         static_cast<unsigned int>(lm(self).spotRecords.size()));
+                         static_cast<unsigned int>(lm(self).spotRecords.size()),
+                         g_lightShadowDrops.disabled, g_lightShadowDrops.far,
+                         g_lightShadowDrops.culled, g_lightShadowDrops.noCandidates,
+                         g_lightShadowDrops.records, g_lightShadowDrops.casters,
+                         g_lightShadowDrops.noGeometry, g_lightShadowDrops.localView,
+                         g_lightShadowDrops.noEffect, g_lightShadowDrops.outside,
+                         g_lightShadowDrops.draws);
+        g_lightShadowDrops = LightShadowDropCounts();   // counts cover the frame just prepared
     }
     if (!lm(self).skyLight
         || !lm(self).dynamicShadowsEnabled
