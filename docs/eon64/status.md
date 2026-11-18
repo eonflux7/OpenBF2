@@ -49,7 +49,13 @@ Sub-steps, in order, each seen in game before the next:
     2026-11-19. Owner to check: no visible building pops at mid range, vehicles at range, frame rate)
   - [x] Distance culling removed: objects cull only on the frustum, far plane = view distance
     (`b3e44a8d`; seen on Muttrah City 2026-11-19, the owner checked cover at range)
-  - [ ] Dithered crossfade for the remaining mesh and overgrowth LOD switches
+  - [ ] Dithered crossfade for the remaining mesh and overgrowth LOD switches:
+    - [ ] Static meshes (`a7d9e0e1`): both LODs within 10% of a switch distance, complementary
+      4x4 Bayer pixels through `RaLodDither` (pixel register c222, set per entry by the queues).
+      Loaded on Saaremaa 2026-11-19, effects compile. Owner to check: buildings and trees
+      dissolve rather than pop at mid range, no doubled point light, frame rate
+    - [ ] Overgrowth: full/LOD instances dither instead of fading through Transparency (which
+      sends them to the blended queue); the instance-to-far-cell handoff; the far cells' unused fade
 - [ ] Acceptance: GPU timer spans and the reference views
 
 Open: about 20% lower frame rate on Muttrah City than before step 8's LOD work (owner, 2026-11-19;
