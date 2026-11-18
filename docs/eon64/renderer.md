@@ -20,7 +20,7 @@ kept in a private repository; this document describes only the contract between 
 | 4. Depth prepass + screen-space sun mask | Accepted | `3a00bf99`, `988774bf`, `82e04f61` |
 | 5. Sun cascaded shadow maps + PCF | Accepted | `271c8d45`, `df9a6a40`, `6261ac82`, `5ccaf770`, `505ca7ab`, `2860a74a` |
 | 6. Shader audit and cleanup | Accepted | `ee33008f`, `7f05cc77`, `88d3b7f1`, `52af0169`, `f6fb255a`, `e7623d07`, `dc97ef7b` |
-| 7. Particle lighting | In game (Muttrah, Kashan); The Falklands night layer and the GPU timer comparison open | `b1549478`, `25319adf`, `7fcdc848`, `423ac5e0`, `0bffa203`; fix `6eb1a727` |
+| 7. Particle lighting | Accepted | `b1549478`, `25319adf`, `7fcdc848`, `423ac5e0`, `0bffa203`; fix `6eb1a727` |
 | 8. Anti-aliasing | Not started | — |
 | 9. Draw submission | Not started | — |
 | 10. Terrain in one pass | Not started | — |
@@ -107,42 +107,90 @@ effect (sun, sky, sun direction, `RASM`, the cascade atlas, soft-particle consta
 
 Limits: a billboard or trail lights at one point, so a streak that starts in shade stays shaded where
 it rises into the sun. Water and undergrowth draw no prepass depth, so particles don't soften against
-them; a fringe at depth edges remains until step 8. Fire reads red-orange rather than yellow-orange:
+them; a fringe at depth edges remains, and after step 8 it follows the averaged resolve depth
+instead (see step 8). Fire reads red-orange rather than yellow-orange:
 the PBR Neutral tonemap keeps hue as it compresses highlights, where PR's per-channel clip pushed
 bright orange toward yellow (AgX was tried and not preferred). That is the grade's, not this step's.
 
-**8. Anti-aliasing.** 4x MSAA as the one anti-aliasing method, with what MSAA alone misses covered
-at its source. Now the prepass depth, normals and sun mask are single sample, so an edge pixel reads
-one mask value for all its samples (halos on silhouettes, mostly foliage against the sky; on bright
-terrain, dark lines along ridge silhouettes, where the edge reads the far slope's N.L and shadow,
-seen on Kashan Desert). D3D9 cannot read individual samples of an MSAA surface, so a screen-space
-term cannot be made per-sample; the mask goes instead.
+**8. Anti-aliasing.** Fixed 4x MSAA as the one anti-aliasing method, with what MSAA alone misses
+covered at its source. Now the prepass depth, normals and sun mask are single sample, so an edge pixel
+reads one mask value for all its samples (halos on silhouettes, mostly foliage against the sky; on
+bright terrain, dark lines along ridge silhouettes, where the edge reads the far slope's N.L and
+shadow, seen on Kashan Desert). D3D9 cannot read individual samples of an MSAA surface, so a
+screen-space term cannot be made per-sample; the mask goes instead.
+- **Fixed 4x.** The scene target is always 4x, whatever the game's anti-aliasing setting; there is
+  no 2x, 8x or off. 2x leaves alpha-to-coverage three levels (banded foliage); 8x doubles the
+  memory and bandwidth of the float scene and its MRT for less than 0x to 4x gave; without MSAA,
+  alpha-to-coverage and the LOD dither degrade to hard edges and raw dither. The sample count is one
+  constant; only the coverage sharpening and the dither depend on it. The HUD's back buffer is
+  single sample.
 - **Prepass into the scene depth.** The prepass draws into the MSAA scene depth, and the opaque
-  world pass tests EQUAL without writing depth, so each pixel shades about once. Linear depth and
-  normals are written as MSAA targets and resolved to single-sample textures for the screen-space
-  terms that remain (GTAO in step 13, which tolerates an averaged edge).
+  world pass tests EQUAL without writing depth, so each pixel shades about once. The StateManager
+  forces the test for prepassed draws, overriding the effects' own `ZFUNC` / `ZWRITEENABLE`. EQUAL
+  needs both passes to produce the same position bit for bit: each effect computes it in one shared
+  function used by both techniques. Skinned meshes, terrain geomorphing and tree and overgrowth wind
+  are the cases to check; a draw that cannot guarantee it is not prepassed. Draws that are not
+  prepassed (undergrowth, first-person models, the sky) test and write depth as before; which queues
+  are which is listed in [Frame](#frame) when the step lands. Linear depth is written as an MSAA
+  target and resolved to a single-sample texture (s15). The resolve averages depth across a
+  silhouette into a value no surface has, so soft particles fade against that average: the step 7
+  edge fringe changes shape rather than going away. The normals target is dropped until GTAO
+  (step 13) reads it.
 - **Sun shadows in the lit shaders.** Every lit shader samples the cascades itself through one
   shared include (as water and undergrowth already do) and computes N.L and the cascades' weight
   against baked sun. The sun mask pass, its target and s14 are deleted. Each triangle then shades its
-  own edge samples.
-- **Alpha-to-coverage** for alpha-tested materials (foliage, fences, wires), in the prepass and the
-  main pass alike so EQUAL depth matches. Alpha is sharpened by its screen derivative to about a
-  one-pixel edge, and corrected for the alpha the mips lose, so foliage does not thin out with
-  distance. Retail enables it through vendor render-state hacks (NVIDIA `ATOC`); first verify DXVK
-  honours it.
+  own edge samples. The cascade constants (`RASM`) are set once per frame as a fixed register range,
+  not per effect through D3DX, which would add to the CPU-bound frame before step 9.
+- **Centroid interpolation.** An edge pixel is shaded at its centre even when the centre lies outside
+  the triangle, so interpolants are extrapolated: lightmap UVs read the neighbouring chart (seams
+  along mesh edges) and the shadow lookup position leaves the surface (acne and leaks on
+  silhouettes). Lightmap and atlas UVs and the world position used for the cascades are `_centroid`.
+  Derivatives of centroid inputs are inexact, so mip selection and the coverage sharpening take
+  theirs from a non-centroid copy.
+- **Alpha-to-coverage** for alpha-tested materials (foliage, fences, wires), in the prepass only:
+  the main pass's EQUAL test already limits shading to the samples the prepass covered, so its alpha
+  test goes and the two passes need not agree on alpha. Alpha is sharpened by its screen derivative
+  to about a one-pixel edge, and corrected for the alpha the mips lose, so foliage does not thin out
+  with distance. Retail enables it through vendor render-state hacks (NVIDIA `ATOC`); first verify
+  DXVK honours it.
+- **Thin geometry.** MSAA cannot help what is thinner than its sample spacing; power lines, antennas
+  and wires break into dashes. They are widened to at least about one pixel in the vertex shader and
+  their alpha lowered by the same factor. They are recognised by material, or by flagging thin static
+  meshes.
 - **LOD crossfade.** Static, overgrowth and tree LOD switches and the distance cull fade become a
-  dithered crossfade, which alpha-to-coverage turns into smooth coverage, instead of popping.
-- **Compressed resolve.** The resolve is the fixed box filter, and averaging linear HDR leaves
-  high-contrast edges (sunlit against shadow, highlights) aliased. Opaque shaders write the exposed
-  colour compressed by x / (1 + x), and the resolve output is expanded back to linear before the
-  transparent pass and post. Transparents draw after the expansion.
+  dithered crossfade instead of popping: one screen-space Bayer threshold, `clip()` against it for
+  the outgoing LOD and against its complement for the incoming one. Alpha-to-coverage cannot do
+  this, because the masks it gives for a and 1 - a are not guaranteed complementary (holes and
+  double cover).
+- **Transparents and depth.** D3D9 binds a depth buffer only with a render target of the same
+  sample count and cannot resolve depth. Water stays in the MSAA scene, drawn before the resolve, so
+  its shoreline keeps its edge samples (and step 11's reflections and refraction read the resolved
+  opaque scene plus water's own pass). After the resolve, a full-screen pass rebuilds a single-sample
+  depth buffer from the resolved linear depth (`oDepth`), and the remaining transparents (particles,
+  decals, effects) draw against it. Its edge depth is averaged, as for soft particles.
 - **Sampler policy** (shader contract). Every material sampler (albedo, normal, detail, gloss) is
   16x anisotropic; data samplers state point or linear. The caps-dependent filter defines
   (`FILTER_*_MIN` / `_MAG`, `IS_NV4X`) are deleted.
+- **Other views.** First-person models draw into the MSAA scene. Render-to-texture views (vehicle
+  and guided-weapon cameras, scopes where they render the world) state whether they are MSAA or
+  single sample. Tinnitus and thermals read the resolved linear scene; thermals keep their output.
+- **Expected, not a bug.** Shading once per pixel leaves glossy surfaces sparkling; specular
+  anti-aliasing is step 11.
+- **Acceptance.** GPU timer spans for the 4x prepass, the resolve and the depth rebuild. Reference
+  shots: foliage against the sky, a fence at 50 m and 200 m, Kashan Desert ridge lines, power lines,
+  the edges of a lightmapped building (centroid), each compared with DXVK's
+  `d3d9.forceSampleRateShading`, which turns 4x MSAA into 4x supersampling without engine changes:
+  a reference to compare against, not a mode.
+- **Order within the step**, each seen in game before the next: sampler policy; shadows in the lit
+  shaders and the mask deleted; prepass into the MSAA depth with EQUAL, centroid and the transparent
+  depth rebuild; alpha-to-coverage; thin geometry; LOD crossfade.
+- **Moved to step 10: the compressed resolve.** Averaging linear HDR leaves high-contrast edges
+  aliased; writing colour compressed (Karis, 1 / (1 + luma)) before the resolve and expanding after
+  fixes that. It cannot land before terrain is one pass: terrain's detail and point-light passes add
+  (`ONE,ONE`) onto the scene, and a sum of compressed values is not the compressed sum.
 - Not used: TAA and upscalers (motion vectors for skinned meshes, vehicles and particles; blur
   costs distant detail, which matters for spotting), post-process AA (edges only, unstable in
-  motion), supersampling (about 4x the shading). DXVK's `d3d9.forceSampleRateShading` turns 4x MSAA
-  into 4x supersampling without engine changes; it is a reference to compare against, not a mode.
+  motion), supersampling (about 4x the shading).
 
 **9. Draw submission.** The frame is CPU-bound ([frametime.md](frametime.md)): the D3DX effect
 framework's per-draw parameter, pass and commit calls take about 15 % of the main thread, and Ra
@@ -157,6 +205,11 @@ fog applied once (the additive passes fog every pass, so it stacks where they ov
 over the largest surface on screen. Roads, which blend into the accumulation target, get their own
 lit path. Deleted with it: the always-false `m_lowQuality` branches and the dynamic shadow-range
 index buffer (+0x368), which nothing reads since step 6.
+The compressed resolve moved here from step 8: once terrain is one pass, opaque shaders write
+colour compressed by 1 / (1 + luma) through one shared output function, and the resolve output is
+expanded back to linear before the transparent pass and post. Water draws in the MSAA scene before
+the resolve, so it blends over compressed values; it moves after the expansion or writes in the
+same space, decided then.
 
 **11. Atmosphere, sky IBL, water reflections.**
 - One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial
@@ -180,7 +233,8 @@ adapts between interiors and open terrain, both before the frame grade. Night la
 the fixed exposure (−1.25 stops) The Falklands night terrain reaches the tonemap at about 0.0155, and
 Khronos Neutral's toe (6.25·x² below 0.08) shows it at 5/255, where retail drew about 30/255. The
 adaptation needs an upper limit so night stays dark (about retail's level), and the toe may need
-softening for what stays below 0.08.
+softening for what stays below 0.08. Night particles (step 7) are checked here, on The Falklands night layer
+(`gpm_cq 32`), once night exposure is settled.
 
 **13. GTAO + lightmap channel ownership.** GTAO for small-scale occlusion. Lightmaps are kept, with
 one owner per channel: inside cascade range the cascades own sun visibility and the baked sun term
