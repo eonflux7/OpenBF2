@@ -64,10 +64,8 @@ Textures part in 186 s with the serial compile and in 31 s with the prefetch. 8 
 its own copy of the compiler module, ran 202 s of compiles in 25 s of wall time, mostly before the
 main thread asked for the effects.
 
-D3DX's effect compiler runs one compile at a time per loaded module: 8 compiles of a test effect
-took 0.75 s serially, 0.77 s on 8 threads sharing `d3dx9_24.dll`, and 0.16 s on 8 threads with a
-renamed copy each. The game runs with Microsoft's x64 `d3dx9_24`/`d3dx9_25`, as Wine's builtin
-D3DX cannot compile `.fx`; that `d3dx9_24` has no `D3DXPreprocessShader` either.
+8 compiles of a test effect took 0.75 s serially, 0.77 s on 8 threads sharing `d3dx9_24.dll`, and
+0.16 s on 8 threads with a renamed copy each.
 
 ## Constraints
 
@@ -76,7 +74,7 @@ D3DX cannot compile `.fx`; that `d3dx9_24` has no `D3DXPreprocessShader` either.
 - Console scripts, template creation and Python run in order and change global state. They stay
   serial; only the file work under them can move to other threads.
 - D3DX's effect compiler runs one compile at a time per loaded module, so parallel compiles need a
-  renamed copy of the module per worker (see above).
+  renamed copy of the module per worker.
 
 ## State
 

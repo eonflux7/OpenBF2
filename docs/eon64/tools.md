@@ -3,7 +3,7 @@
 The `tools` lane: an in-game test harness for renderer work, called the **view tool**. It replaces
 the manual loop (load, spawn menu, random spawn point, fly to the spot, look, screenshot) with
 saved views, view sets, camera paths and unattended runs that write a report. Rules:
-[AGENTS.md](../../AGENTS.md#what-this-fork-is).
+[AGENTS.md](../../AGENTS.md#lanes).
 
 - **Console first.** Everything the tool does is a console command or variable. The **Views** tab
   of the debug menu ([ui.md](ui.md)) is one frontend; `BF2_DEVCMD_FILE` ([flags.md](flags.md)),
@@ -16,8 +16,8 @@ saved views, view sets, camera paths and unattended runs that write a report. Ru
   tree, like `eon64-commands.txt`. Debug shading modes live with the shaders, outside this tree; the
   engine only provides the variable that selects them. Run output (`tools.outputDir`) also lies
   outside this tree: it holds screenshots of the mod's content and the shader set's commit.
-- It comes before renderer step 9 (owner, 2026-11-19): milestones 1–3 are done first, so step 9 is
-  measured against reference views and a benchmark path.
+- It comes before render milestone 9 (owner, 2026-11-19): milestones 1–3 first, so render
+  milestone 9 is measured against reference views and a benchmark path.
 
 **Names.** Commands are grouped by what they act on: `view.*` (views, sets, shots, runs),
 `path.*` (camera paths), `bench.*` (benchmarks and the perf map). The tool's own settings are
@@ -34,7 +34,7 @@ off by default and inert when unset, and is listed in [flags.md](flags.md) when 
 | 1. Views | `tools(view)` | Planned |
 | 2. Unattended runs and regression | `tools(run)` | Planned |
 | 3. Paths and benchmark | `tools(bench)` | Planned |
-| 4. Renderer inspection (alongside render step 9) | `tools(inspect)` | Planned |
+| 4. Renderer inspection (alongside render milestone 9) | `tools(inspect)` | Planned |
 | 5. Soldier mode and capture | `tools(soldier)` | Planned |
 
 Starting set (owner): about 5 views and one benchmark path each on Muttrah City and Saaremaa.
@@ -59,7 +59,7 @@ for FOV. This is how views are placed.
   a line sets a console variable, the tool records the variable's value and restores it on leaving
   the view. Lines that are commands rather than variable assignments (a reload, for example) are not
   undone; the menu marks them;
-- a note (for example "fence alpha flicker, check after step 10"), shown in the menu and copied
+- a note (for example "fence alpha flicker, check after render milestone 10"), shown in the menu and copied
   into reports;
 - settle frames (`tools.settleFrames`, default 8).
 
@@ -114,7 +114,7 @@ their defaults.
 
 Accepted when: views are placed with free fly and saved from the menu, `view.go` from the console
 and from `BF2_DEVCMD_FILE` reaches the same image, and two shots of the same view in one session
-are bit-identical (the **determinism check**). Step 8's anti-aliasing has no temporal part, so any
+are bit-identical (the **determinism check**). Render milestone 8's anti-aliasing has no temporal part, so any
 difference has a source that can be named; one that cannot be frozen is named in the report, and
 only then does the check fall back to a tolerance.
 
@@ -137,14 +137,14 @@ that failed to load; they head the report and fail the run. `renderer.compileAll
 every technique of every loaded effect, not only those the first frames use (night variants,
 vehicle-only and cockpit shaders), and logs each failure.
 
-**Baselines and diffs.** A label marks a baseline (for example `step8`, `stock`). A script in this
+**Baselines and diffs.** A label marks a baseline (for example `m8`, `stock`). A script in this
 repository compares two runs: per view a difference metric with a tolerance, a heatmap, and the
 change in pass timings and draw counts; it writes one contact sheet image (thumbnails and heatmaps)
 and a summary table. One image per comparison is what gets reviewed. The script refuses to compare
 runs whose resolution or MSAA differ, rather than produce a heatmap of the difference.
 
 **Stock baseline.** The same set run with the stock PR shader set gives a reference for drift from
-the original look, alongside the previous step's baseline.
+the original look, alongside the previous milestone's baseline.
 
 **Reload and diff.** `view.reloaddiff` shoots the current view, reloads the shaders, waits the
 settle frames, shoots again and writes one A/B image with a heatmap: the shader edit loop in one
@@ -180,7 +180,7 @@ GPU pass spans include idle time when the CPU is the bottleneck ([flags.md](flag
 bound is decided per frame by comparing CPU frame time with GPU busy time (the sum of the GPU's
 work, not the span from start to end of the frame); the summary gives the share of frames that were
 GPU bound. Each labelled benchmark appends its summary to a per-map history file, so frame time and
-draw counts can be charted across steps.
+draw counts can be charted across milestones.
 
 **Hitch log.** During paths and benchmarks (and in normal play with `tools.hitchLog 1`), frames over
 `tools.hitchMs` (default 50 ms) are logged with what happened in them: an effect compiled at run
@@ -194,12 +194,12 @@ at the default grid is about 1,000 cells and 4,000 samples, roughly 20 minutes. 
 saved as a view, so the worst places on a map are found rather than guessed.
 
 Accepted when: three runs of each of the Muttrah City and Saaremaa benchmark paths agree within
-2 % on average frame time and 5 % on 1 % low (stated in the report, so step 9's gains can be told
-from noise), and a perf map of one map is produced.
+2 % on average frame time and 5 % on 1 % low (stated in the report, so render milestone 9's gains can
+be told from noise), and a perf map of one map is produced.
 
 ### 4. Renderer inspection
 
-Runs alongside render step 9; parts may be step 9's first sub-steps.
+Runs alongside render milestone 9; parts may be its first tasks.
 
 - **Freeze culling.** `tools.freezeCull 1` keeps culling and LOD selection at the current camera
   while the camera moves on, to see what was submitted.
@@ -210,7 +210,7 @@ Runs alongside render step 9; parts may be step 9's first sub-steps.
 - **Pass toggles:** skip a pass and see the frame and the timings change, live.
 - **Pass markers** (`D3DPERF_BeginEvent`) named like the GPU spans, so captures read by pass.
 - **Pixel inspector:** the colour, depth and linear depth under the cursor, the normal in debug
-  modes, and a luminance histogram (for auto-exposure, render step 12).
+  modes, and a luminance histogram (for auto-exposure, render milestone 12).
 - **Overrides:** time of day, sun angle, fog.
 - **Variable sweep:** `view.sweep VAR FROM TO STEP` shoots the current view per value and writes
   one strip with the timings.

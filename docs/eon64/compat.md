@@ -11,8 +11,8 @@ shaders and Python shims are closed and are not part of this repository.
   FCS, bleeding, thermal fog, the ability bar and more) have to be provided by the engine instead.
 - A Python **2.7.12** `dice_py.dll` with extra built-in modules. Most of PR's game scripts ship only
   as 2.7 bytecode.
-- `_realitymemory`, a 32-bit Python extension that patches retail memory. realitymod's PR #1 ports
-  its game-logic side into engine source (the `upstream` lane).
+- `_realitymemory`, a 32-bit Python extension that patches retail memory. Its game-logic side is
+  engine source here, from realitymod's OpenBF2 PR #1 (merged as `c4a3a850`).
 
 ## Done
 

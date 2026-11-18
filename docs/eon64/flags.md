@@ -1,23 +1,22 @@
 # Flags
 
-Every environment variable this fork adds. Upstream's own `BF2_*` variables (traces, probes, test
-harness switches) are not listed. Rules: [AGENTS.md](../../AGENTS.md#feature-flags).
+Every environment variable and build option this project adds. OpenBF2's own `BF2_*` variables
+(traces, probes, test harness switches) are not listed. Tuned values are console variables, not
+flags. Rules: [AGENTS.md](../../AGENTS.md#flags).
 
-## `render`: exist only while a step is in development
+## `render`: only while a milestone is developed
 
-None at present. Retired with step 5 on 2026-11-18: `BF2_SUN_SHADOWS`, `BF2_CSM_DISTANCE`,
-`BF2_CSM_RES`, `BF2_CSM_CASTER_REACH`.
+None at present. Retired, their behaviour now unconditional: `BF2_REVERSED_Z`, `BF2_HDR`,
+`BF2_FRAME_GRADE`, `BF2_DEPTH_PREPASS` (`2b3fec82`); `BF2_SUN_SHADOWS`, `BF2_CSM_DISTANCE`,
+`BF2_CSM_RES`, `BF2_CSM_CASTER_REACH` (milestone 5; the values are console variables now).
 
-Retired with their steps on 2026-11-17 (`2b3fec82`): `BF2_REVERSED_Z`, `BF2_HDR`,
-`BF2_FRAME_GRADE`, `BF2_DEPTH_PREPASS`. Their behaviour is now unconditional.
+## `perf`: the old path while a change is developed
 
-## `perf`: select the old serial path while a step is in development
-
-None at present. Retired with their steps on 2026-11-17: `BF2_PERF_FXKEY`, `BF2_PERF_FXPREFETCH`,
-`BF2_PERF_CONPARSE`, `BF2_PERF_CLASSINDEX`, `BF2_PERF_MEMEINDEX`, `BF2_PERF_FXEVENT`,
-`BF2_PERF_TSCCAL`, `BF2_PERF_VIDEODETECT`, `BF2_PERF_FILEPREFETCH`, `BF2_PERF_CONDISPATCH`,
-`BF2_PERF_SWIFFIMG`, `BF2_PERF_PROBECACHE`, `BF2_PERF_FXSTAT`, `BF2_PERF_FXSRC`. Their behaviour is
-now unconditional.
+None at present. Retired, their behaviour now unconditional: `BF2_PERF_FXKEY`,
+`BF2_PERF_FXPREFETCH`, `BF2_PERF_CONPARSE`, `BF2_PERF_CLASSINDEX`, `BF2_PERF_MEMEINDEX`,
+`BF2_PERF_FXEVENT`, `BF2_PERF_TSCCAL`, `BF2_PERF_VIDEODETECT`, `BF2_PERF_FILEPREFETCH`,
+`BF2_PERF_CONDISPATCH`, `BF2_PERF_SWIFFIMG`, `BF2_PERF_PROBECACHE`, `BF2_PERF_FXSTAT`,
+`BF2_PERF_FXSRC` (see [perf-load.md](perf-load.md#state)).
 
 ## `compat`: gate behaviour retail BF2 must not see
 
@@ -36,10 +35,10 @@ now unconditional.
 | `BF2_DEVCMD_FILE=<path>` | When the file changes, each line except `rem` runs on the console; output goes to stderr as `[DEVCMD]` |
 | `BF2_CONSOLE_TRACE=1` | Logs console script runs and every `if`/`elseIf` result |
 | `BF2_LOAD_TRACE=<prefix>` | Writes timed spans of load work (phases, file opens, scripts, textures, meshes, effect compiles, Python, frames over 50 ms) to `<prefix>-bf2.tsv`, `<prefix>-renddx9.tsv` and `<prefix>-bf2audio.tsv`; `=1` uses the prefix `loadtrace`. Summarize with `Code/Tools/LoadTrace/loadtrace.py <prefix>`. See [perf-load.md](perf-load.md) |
-| `BF2_DRAW_STATS=<path>` | Counts draws per effect, technique and pass; once a second rewrites `<path>` (TSV) with session totals and the last presented frame. Shows which effects actually draw. Sun caster draws are split per cascade (technique `RaShadowDepth@c0`..`@c3`), and counter rows (`(count)`) give the captured and unbounded casters per frame. See [renderer.md](renderer.md) step 6 |
+| `BF2_DRAW_STATS=<path>` | Counts draws per effect, technique and pass; once a second rewrites `<path>` (TSV) with session totals and the last presented frame. Shows which effects actually draw. Sun caster draws are split per cascade (technique `RaShadowDepth@c0`..`@c3`), and counter rows (`(count)`) give the captured and unbounded casters per frame |
 | `BF2_PY_ERRORS=1` | Prints a script event handler's Python exception to stderr as `[PYERR]` lines (traceback module format) before clearing it; unset, it is cleared silently as retail does |
-| `BF2_GPU_TIMERS=<path>` | GPU time per renderer pass from D3D9 timestamp queries, read a few frames late so it never waits on the GPU. Once a second rewrites `<path>` (TSV): per span, the mean and maximum over the last second and the session mean, in ms, plus `(frame)` for the whole frame. Spans run from one mark to the next, so they include GPU idle time when the CPU is the bottleneck. The performance overlay (`renderer.uiOverlay`, [ui.md](ui.md)) runs the same queries while it is shown, without the file. See [renderer.md](renderer.md#tooling) |
-| `BF2_AI_WEAPON_TRACE` | Logs each AI weapon record released when its `WeaponObject` is destroyed |
+| `BF2_GPU_TIMERS=<path>` | GPU time per renderer pass from D3D9 timestamp queries, read a few frames late so it never waits on the GPU. Once a second rewrites `<path>` (TSV): per span, the mean and maximum over the last second and the session mean, in ms, plus `(frame)` for the whole frame. Spans run from one mark to the next, so they include GPU idle time when the CPU is the bottleneck. The performance overlay (`renderer.uiOverlay`, [ui.md](ui.md)) runs the same queries while it is shown, without the file. Spans: [renderer-pipeline.md](renderer-pipeline.md#gpu-pass-timers) |
+| `BF2_AI_WEAPON_TRACE=1` | Logs each AI weapon record released when its `WeaponObject` is destroyed |
 
 ## Build options (CMake)
 
@@ -47,10 +46,11 @@ now unconditional.
 |---|---|
 | `BF2_PYTHON27_SRC=<dir>` | Compiles the engine against these CPython 2.7 headers and puts `pylib-2.7.12.zip` on `sys.path`; `dice_py.dll` itself is built by `Code/Build/python27/` |
 | `BF2_GFX_SEAM` | Builds RendDX9 through `renddx9.cmd` (the seam build) instead of the Ninja target |
+| `BF2_PLUGIN_OPTIMIZE` | Default on: the plugin targets compile with `/O2` ([perf-frame.md](perf-frame.md#state)) |
 
 ## Runtime environment (not ours, but required)
 
 | Variable | Why |
 |---|---|
 | `DXVK_CONFIG="d3d9.useD32forD24 = True"` | DXVK refuses `D24FS8`; this gives reversed depth a float depth buffer |
-| `WINEDLLOVERRIDES=d3dx9_24,d3dx9_25=n` | Wine's builtin D3DX stubs break effect compilation (see upstream-fixes Issues A and C) |
+| `WINEDLLOVERRIDES=d3dx9_24,d3dx9_25=n` | Wine's builtin D3DX stubs break effect compilation ([upstream-fixes.md](upstream-fixes.md) A and C) |

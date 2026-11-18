@@ -1,59 +1,57 @@
 # Renderer pipeline
 
-What the `render` lane's renderer does today: the accepted roadmap steps, the frame in draw order,
-and the contract between the engine and the (private) shaders. The plan and the steps still to do
-are in [renderer.md](renderer.md). Update this document when a step is accepted.
+What the `render` lane's renderer does today: the accepted milestones, the frame in draw order, and
+the contract between the engine and the (private) shaders. The plan and the milestones still to do
+are in [renderer.md](renderer.md), with each milestone's commits. Update this document when a
+milestone is accepted.
 
-## Accepted steps
+## Accepted milestones
 
-Steps 1–4 (reversed-Z, linear lighting and the HDR scene, the shared lighting model, the depth
-prepass) are described by the sections below; step 4's screen-space sun mask was deleted in step 8.
-Commits are listed in the [roadmap](renderer.md#roadmap).
+Milestones 1–4 (reversed-Z, linear lighting and the HDR scene, the shared lighting model, the depth
+prepass) are described by the sections from [Frame](#frame) on; milestone 4's screen-space sun mask
+was deleted in milestone 8.
 
-**5. Sun CSM.** Accepted on 2026-11-18 with the values it was developed at (400 m, 2048 per
-cascade, 500 m caster reach, normal offset 1.5 and depth bias 1.0 texels); the owner chose not to
-tune further. They are console variables since (see [Sun shadows](#sun-shadows)).
-Caster culling per cascade (`505ca7ab`): each cascade draws the casters of its slice swept toward
-the sun (see [Sun shadows](#sun-shadows)). On Muttrah (skirmish, one frame each,
-different camera positions) caster draws went from 188 / 419 / 1059 / 2348 in cascades 0-3 (4014,
-3.4 times the main prepass) to 152 / 221 / 505 / 1263 (2141, 1.9 times); primitives from 800k to
-675k. GPU time of the four cascades: 1.4 ms on Muttrah (RTX 2060).
+### 5. Sun cascaded shadow maps
 
-**6. Shader audit and cleanup.** An inventory of the shader set: every effect and header, its
-techniques and permutations, which of them a PR session loads, the code each later step replaces,
-and the duplicated lighting, fog and Fresnel code that the shared model should own. The inventory
-itself lives with the private shaders; this document records only contract changes. Cleanup that
-follows from it:
-- The toggles the engine fixed when steps 1–4 were accepted (reversed-Z, log depth, gamma-space
-  lighting) and their dead branches.
-- BF2's directional (sun) shadow maps (done). The directional pass in `XpLightManager.cpp`, its
-  records and every receiver are deleted: the mesh shadow permutations (bundled and skinned mesh
-  `hasshadow` / `hasshadowocclusion` / `hashemiocclusion`, static mesh `shadow`, the `*Shadowed` tree
+See [Sun shadows](#sun-shadows). Accepted at the values its console variables now default to.
+
+### 6. Shader audit and cleanup
+
+An inventory of the shader set (every effect and header, its techniques and permutations, which of
+them a PR session loads, what later milestones replace) lives with the private shaders. Liveness
+came from `BF2_DRAW_STATS` ([flags.md](flags.md)) on maps that between them cover water, foliage,
+buildings and vehicles. What it removed from the engine:
+- The toggles fixed when milestones 1–4 were accepted (reversed-Z, log depth, gamma-space lighting)
+  and their dead branches.
+- BF2's directional (sun) shadow maps: the directional pass in `XpLightManager.cpp`, its records and
+  every receiver. That is the mesh shadow permutations (bundled and skinned mesh `hasshadow` /
+  `hasshadowocclusion` / `hashemiocclusion`, static mesh `shadow`, the `*Shadowed` tree
   techniques), terrain water's record matrices, undergrowth's `_ds` techniques, overgrowth's record
   attach, and the decal renderer's shadowed batch kinds (decals draw pass 0 only).
-- BF2's point and spot shadow maps (done; accepted on The Falklands night layer, 2026-11-18). Retail kept shadow records
-  only for lights whose shadow policy was non-zero, and the policy is zero outside the expansion
-  pack, so a PR session never drew this path. Deleted: the records, the shadow atlas and its
-  device-lost listener, the casters' `DrawShadowMap` draws on bundled, skinned and static meshes
-  (with the shadow effects they loaded), the static mesh lightmap silhouette, and the record
-  receivers in static meshes, terrain (the shadow-range gather and batch draws, the spot-light pass)
-  and overgrowth. The XP light coordinator stays: it still selects the point and spot lights that
-  light geometry. The LightManager's shadow vtable slots (`renderShadowMaps`, `registerShadowEffect`),
-  the mesh `drawShadowMap` / `drawSilhouette` slots and overgrowth's `collectShadowGeometry` slot
-  remain as empty bodies, and the shadow-map console setters only store their value. That pass
-  also bound the scene depth-stencil and colour target 0 on exit each frame; the renderer now
-  binds them itself where it was called (`dc97ef7b`), and the sun cascades clear their
-  standard-depth mark when they restore the scene depth (`e7623d07`).
+- BF2's point and spot shadow maps. Retail kept shadow records only for lights with a non-zero
+  shadow policy, which is zero outside the expansion pack, so a PR session never drew this path.
+  Deleted: the records, the shadow atlas and its device-lost listener, the casters'
+  `DrawShadowMap` draws on bundled, skinned and static meshes (with the shadow effects they
+  loaded), the static mesh lightmap silhouette, and the record receivers in static meshes, terrain
+  (the shadow-range gather and batch draws, the spot-light pass) and overgrowth. The XP light
+  coordinator stays: it still selects the point and spot lights that light geometry.
+- Kept as empty bodies for the vtable layout: the LightManager's `renderShadowMaps` and
+  `registerShadowEffect`, the meshes' `drawShadowMap` / `drawSilhouette`, overgrowth's
+  `collectShadowGeometry`. The shadow-map console setters only store their value. The deleted pass
+  also bound the scene depth-stencil and colour target 0 on exit each frame; the renderer now binds
+  them itself where it was called (`dc97ef7b`), and the sun cascades clear their standard-depth mark
+  when they restore the scene depth (`e7623d07`).
 - One terrain path. `Low_Terrain` had no `RaDepthPrepass` or `RaShadowDepth` technique, so the
   engine no longer enters it: not at load, not from the terrain-quality video option, not as a
-  fallback. The `m_lowQuality` branches left in the terrain code are always false and go in step 10.
-- Liveness comes from `BF2_DRAW_STATS` ([flags.md](flags.md)), run on a set of maps that between them
-  cover water, foliage, buildings and vehicles.
+  fallback. The `m_lowQuality` branches left in the terrain code are always false and go in
+  milestone 10.
 
-**7. Particle lighting.** The four particle effects (`particles.fx`, `nonscreenalignedparticles.fx`,
-`trail.fx`, `meshparticlemesh.fx`) light in linear on the level's one sun, through one shared
-function in the shaders. Every particle renderer calls `rendererBindParticleLighting` as it binds its
-effect (sun, sky, sun direction, `RASM`, the cascade atlas, soft-particle constants; see the
+### 7. Particle lighting
+
+The four particle effects (`particles.fx`, `nonscreenalignedparticles.fx`, `trail.fx`,
+`meshparticlemesh.fx`) light in linear on the level's one sun, through one shared function in the
+shaders. Every particle renderer calls `rendererBindParticleLighting` as it binds its effect (sun,
+sky, sun direction, `RASM`, the cascade atlas, soft-particle constants; see the
 [shader contract](#shader-contract)).
 - Only the authored tint is decoded; light multiplies it in linear. Lit tints are capped at 1 (an
   albedo): PR's tints above 1 compensated for its dim gamma-space sun and glowed once decoded.
@@ -74,31 +72,29 @@ effect (sun, sky, sun direction, `RASM`, the cascade atlas, soft-particle consta
   main world pass (first person, other views).
 - Screen-aligned sprites turn against the camera's roll, so smoke stays upright when an aircraft rolls.
 - Thermals keep PR's particle output exactly: the old gamma-space formula with `EffectSunColor` /
-  `EffectShadowColor`, the level's light factor, hard edges. The thermals smoke (paused) replaces it.
+  `EffectShadowColor`, the level's light factor, hard edges. The thermals rewrite's smoke (paused) replaces it.
 
 Limits: a billboard or trail lights at one point, so a streak that starts in shade stays shaded where
 it rises into the sun. Water and undergrowth draw no prepass depth, so particles don't soften against
-them; a fringe at depth edges remains, and after step 8 it follows the averaged resolve depth
-instead (see step 8). Fire reads red-orange rather than yellow-orange:
-the PBR Neutral tonemap keeps hue as it compresses highlights, where PR's per-channel clip pushed
-bright orange toward yellow (AgX was tried and not preferred). That is the grade's, not this step's.
+them; a fringe remains at depth edges, where the fade follows the resolve's averaged depth
+(milestone 8). Fire reads
+red-orange rather than yellow-orange: the PBR Neutral tonemap keeps hue as it compresses highlights,
+where PR's per-channel clip pushed bright orange toward yellow (AgX was tried and not preferred).
+That is the grade's, not this milestone's.
 
+### 8. Anti-aliasing
 
-**8. Anti-aliasing.** Accepted on 2026-11-19 (Saaremaa). Fixed 4x MSAA is the one method; what
-MSAA alone misses is handled where it starts. The passes are in [Frame](#frame).
+Fixed 4x MSAA is the one method; what MSAA alone misses is handled where it starts. The passes are
+in [Frame](#frame), the sampler rules in the [shader contract](#shader-contract).
 - Sampler policy: material samplers 16x anisotropic, data samplers point or linear; the
   caps-dependent filter defines are gone (`28487a35`).
 - Sun shadows in every lit shader through one include; the screen-space sun mask, its target, s14
   and the prepass normals (s12) are deleted. `RASM` is a fixed register range set once per frame.
   Cascade position, lightmap and atlas UVs are `_centroid`, with derivatives from a non-centroid
   copy (`65760125`).
-- The prepass draws into the 4x scene depth; prepassed draws test EQUAL without writing depth, the
-  position coming from one shared function per effect. Linear depth is resolved to s15
-  (`f11bdfe3`). The resolve averages depth across silhouettes, so soft particles fade against
-  that average.
-- Transparents: first-person models draw into the 4x scene with their own prepass; water adds its
-  linear depth; after the resolve a full-screen pass rebuilds single-sample depth and the world
-  transparents draw against it (`b47ac87f`, `0f10eb41`).
+- The prepass draws into the 4x scene depth and prepassed draws test EQUAL ([Frame](#frame) item 3,
+  `f11bdfe3`). First-person models prepass in the 4x scene, water adds its linear depth, and the
+  world transparents draw single sample against a rebuilt depth (items 5–8, `b47ac87f`, `0f10eb41`).
 - Alpha-to-coverage in the mesh prepass (retail's `ATOC` bracket, which DXVK honours); the lit
   passes drop their alpha test; alpha is sharpened to a one-pixel ramp (`f9086318`). Not done: the
   mip-loss alpha correction (needs texture sizes from the engine).
@@ -106,19 +102,16 @@ MSAA alone misses is handled where it starts. The passes are in [Frame](#frame).
   always LOD 0, static switch distances x3, mesh shading LODs deleted, textures full resolution at
   quality 3 (`98165f0b`); objects cull only on the frustum, far plane = view distance
   (`b3e44a8d`). The remaining static mesh and overgrowth switches crossfade with a 4x4 Bayer
-  dither over 10% of the switch distance (`RaLodDither`, c222); far overgrowth cells dissolve over
+  dither over 10 % of the switch distance (`RaLodDither`, c222); far overgrowth cells dissolve over
   the last tenth of the view distance; near and far overgrowth share one lighting model
   (`a7d9e0e1`, `1e7a1c89`, `680d8890`).
 - Dropped: thin-geometry widening (cables break into dashes beyond about 100 m, as in retail).
-  Moved to step 10: the compressed (Karis) resolve.
+  Moved to milestone 10: the compressed (Karis) resolve.
 
-GPU time on Saaremaa (overview camera over forest and buildings, 1600x900): depth prepass 1.47 ms,
-world opaque 1.22, sun cascades 1.53, resolve 0.19, depth rebuild 0.05; frame 8.25 ms, CPU-bound.
-The reference shots against `d3d9.forceSampleRateShading` were not taken (the owner's call).
-
-Limits: shading once per pixel leaves glossy surfaces sparkling (specular AA is step 11). The
+Limits: shading once per pixel leaves glossy surfaces sparkling (specular AA is milestone 11). The
 default video profile still picks 8x antialiasing while the scene runs 4x. `Ra_LodDitherClip` runs
 in every lit shader even at (0, 1), costing early depth rejection where there was no clip before.
+GPU timings: [perf-frame.md](perf-frame.md#after-render-milestone-8).
 
 ## Frame
 
@@ -127,7 +120,7 @@ In draw order, for the main world view:
 1. **Scene target.** From frame prepare to resolve, the scene draws into an `A16B16G16R16F`
    surface (4x MSAA where the back buffer has it) that stands in for the back buffer
    (`rendererSceneColorSurface`). The HUD draws to the real back buffer.
-2. **Sun cascades** (`rendererSunShadowsRender`, step 5). Four cascades in a 2 x 2 `R32F` atlas;
+2. **Sun cascades** (`rendererSunShadowsRender`, milestone 5). Four cascades in a 2 x 2 `R32F` atlas;
    see [Sun shadows](#sun-shadows).
 3. **Depth prepass** (`rendererDepthPrepass`), just before the world queues flush, after
    overgrowth has queued. Every opaque world-queue entry whose effect has the technique
@@ -142,7 +135,7 @@ In draw order, for the main world view:
    effect states (`stateManagerSetPrepassedDraw`), so each sample is shaded once. Terrain's later
    passes already test EQUAL against its first pass. Not prepassed, and testing and writing depth
    as before: the depth-only queue, undergrowth, roads, the sky, and entries whose effect has no
-   `RaDepthPrepass`. First-person models have a prepass of their own (step 6 below). The effects keep this working by drawing both techniques
+   `RaDepthPrepass`. First-person models have a prepass of their own (item 6). The effects keep this working by drawing both techniques
    with the same vertex shader function.
    Before it, the cascade pass fills `RASM` and the camera rows are added; after it, `RASM` is
    written to the pixel registers c200–c221.
@@ -178,10 +171,19 @@ In draw order, for the main world view:
 9. **Particles** sample the cascades per vertex, where the pixel registers and s13 do not reach:
    `RASM` and the atlas are set on them as effect parameters (`rendererBindParticleLighting`).
 10. **Post-production** runs every frame: the colour grade is the frame's only encode from linear
-   to display, so it cannot be skipped. Its resolve is skipped when step 7 resolved the scene.
+   to display, so it cannot be skipped. Its resolve is skipped when item 7 resolved the scene.
    Tinnitus blends over the float scene target first.
 
 Depth is reversed throughout (near 1, far 0) except in shadow-map depth buffers.
+
+## GPU pass timers
+
+`BF2_GPU_TIMERS` ([flags.md](flags.md)) and the performance overlay ([ui.md](ui.md)) time the frame
+in spans, each from its mark to the next, in frame order: `pre-world` (BeginScene to the sun
+cascades), `sun clear`, `sun c0`..`sun c3`, `depth prepass`, `world opaque` (with the sky),
+`world transparent` (the transparents in the 4x scene, item 5), `first person`, `resolve`,
+`depth rebuild`, `world transparent 1x` (item 8), `post pass`, `post finish`, `hud` (to Present).
+A span includes the GPU's idle time while the CPU is the bottleneck; that usually lands in `hud`.
 
 ## Reversed-Z
 
@@ -204,7 +206,7 @@ reused, because meshes cull per material against the camera. Casters draw with e
 
 Objects come from the object manager's roots-only grid query against the light volume;
 hierarchies are expanded by the drawer. Seen in game on Muttrah (`2860a74a`): a supply crate's
-shadow no longer depends on view direction. Objects have no distance cull (step 8), so a caster
+shadow no longer depends on view direction. Objects have no distance cull (milestone 8), so a caster
 never depends on the camera's distance to it.
 
 Each cascade draws only the casters that can shadow a receiver in its own slice
@@ -225,7 +227,7 @@ bounds draws in every cascade.
   baked lightmap sun.
 
 Tuned live through console variables, which clamp to their ranges and default to the values the
-step was accepted with:
+milestone was accepted with:
 
 | Variable | Default | Range | What |
 |---|---|---|---|

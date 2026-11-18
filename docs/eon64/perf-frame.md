@@ -25,8 +25,8 @@ seen as a whole.
 
 ## Baseline
 
-Muttrah City 2, `gpm_skirmish` 16, the same spot in the city, 4x MSAA, sun cascades on,
-2026-11-18, engine `fd85ae94` (plugins with `/O2`):
+Before render milestone 8. Muttrah City 2, `gpm_skirmish` 16, the same spot in the city, 4x MSAA,
+sun cascades on, 2026-11-18, engine `fd85ae94` (plugins with `/O2`):
 
 - **6.6 ms a frame (153 fps)**, `game.lockFps` 200. The main thread is still at 100 %, DXVK's
   submission thread at 23 %: still CPU-bound.
@@ -47,16 +47,31 @@ Main thread by image, 10 s of samples:
 Main thread by subsystem (RendDX9 and BF2.exe): object culling 17 %, mesh draws and parameter apply
 14 %, sun caster pass 7 %, state manager 5 %, render queues 3 %, `tailField` 0.8 %.
 
+## After render milestone 8
+
+Milestone 8's LOD policy (full-detail terrain, LOD 0 bundled meshes, static switch distances x3, no
+distance cull) adds draws: the owner sees about 20 % lower frame rate on Muttrah City. Still
+CPU-bound: the GPU spans sum to about 5.7 of 12.6 ms on Muttrah City and 4.9 of 8.25 ms on
+Saaremaa; the rest is the `hud` span, the wait in Present.
+
+Saaremaa, overview camera over forest and buildings, 1600x900, 2026-11-19: depth prepass 1.47 ms,
+world opaque 1.22, sun cascades 1.53, resolve 0.19, depth rebuild 0.05.
+
+GPU-side lead: `Ra_LodDitherClip` runs in every lit shader, so opaque shaders lose early depth
+rejection even at dither (0, 1); a static branch or a separate dithered technique would avoid it.
+
 ## Plan
 
-Parked on 2026-11-18: at 153 fps there is headroom, so the renderer roadmap goes first. Resume here.
+Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
+after render milestone 9, which takes items 1 and 3.
 
 1. Measure what the sun cascades cost the CPU in total (a run with them off) before redesigning
    the caster submission, which repeats the culling over the cascades' light volume.
 2. Object culling (17 %): the object manager's grid and cull fade, the object drawer's box tests.
 3. Per-draw cost: D3DX effect calls (15 %) and Ra parameter apply. Replacing D3DX's per-draw
-   parameter and pass handling with the renderer's own constant uploads is `render` work: renderer
-   step 9 ([renderer.md](renderer.md)), which also takes the sun caster culling of item 1.
+   parameter and pass handling with the renderer's own constant uploads is `render` work: render
+   milestone 9 ([renderer.md](renderer.md#9-draw-submission)), which also takes the sun caster
+   culling of item 1.
 
 Open:
 - An intermittent stack overflow while loading, seen once with the unoptimised plugins

@@ -1,63 +1,27 @@
-# openbf2-eon64
+# openbf2-eon64 documents
 
-An x64 Battlefield 2 client, built from OpenBF2, that runs the Project Reality mod (PR) offline
-and replaces its renderer with a modern pipeline. The agent and contributor policy is
-[AGENTS.md](../../AGENTS.md); this directory records the current state of the work. What is
-happening now, lane by lane, is in [status.md](status.md).
+The current state of the work. The rules are in [AGENTS.md](../../AGENTS.md); building and running
+are in the [README](../../README.md). Start with [status.md](status.md).
 
-## Where it comes from
+| Document | What it records |
+|---|---|
+| [status.md](status.md) | Where each lane stands; the current milestone, its tasks and open issues |
+| [renderer.md](renderer.md) | `render` plan: the roadmap and the milestones still to do |
+| [renderer-pipeline.md](renderer-pipeline.md) | `render` as built: accepted milestones, the frame, GPU pass timers, sun shadows, the shader contract |
+| [tools.md](tools.md) | `tools` plan: the view tool's milestones |
+| [ui.md](ui.md) | `ui` as built: ImGui layer, debug menu, performance overlay, console |
+| [perf-load.md](perf-load.md) | `perf` for loading: the load trace, measurements, what was done |
+| [perf-frame.md](perf-frame.md) | `perf` for the running game: measurements, profile, plan |
+| [compat.md](compat.md) | `compat`: what PR needs from the engine, done and missing |
+| [upstream-fixes.md](upstream-fixes.md) | `fix` and standalone `build` changes, kept so they can be offered upstream |
+| [flags.md](flags.md) | Every environment flag and build option this project adds |
 
-```
-B2BF/OpenBF2 main ─► kr4uzi/OpenBF2 main ─► + realitymod/OpenBF2 PR #1 ─► openbf2-eon64 main
-                                              (PR game-logic port)        (this fork)
-```
+The rest of `docs/` is OpenBF2's documentation, inherited as reference ([AGENTS.md](../../AGENTS.md#documentation)).
 
-Upstream is merged in, never rebased onto. The realitymod port arrived as one merge (`c4a3a850`)
-and is treated as imported code.
+## History
 
-## Lanes
-
-Every commit belongs to one lane; the commit subject starts with it (`render(csm): …`).
-
-| Lane | Contents | Document |
-|---|---|---|
-| `fix` | Bugs in the reconstructed engine | [upstream-fixes.md](upstream-fixes.md) |
-| `compat` | What PR needs from the engine | [compat.md](compat.md) |
-| `render` | The renderer uplift | [renderer.md](renderer.md) (plan), [renderer-pipeline.md](renderer-pipeline.md) (current) |
-| `perf` | Load times and frame time | [perf-load.md](perf-load.md), [perf-frame.md](perf-frame.md) |
-| `build` | Toolchain, CMake/Ninja, ABI checks | [building.md](../building.md), below |
-| `dev` | Diagnostics and developer hooks | [flags.md](flags.md) |
-| `ui` | In-game UI on Dear ImGui | [ui.md](ui.md) |
-| `tools` | In-game test harness: views, runs, benchmarks | [tools.md](tools.md) |
-| `upstream` | Imported code | — |
-
-Commits before 2026-11-17 used `feat:`, `fix:`, `compat:`, `build:` prefixes and
-`[CHOSEN, not recovered]` source tags. Those tags on this fork's own lines were replaced by lane
-markers (`[FIX]`, `[COMPAT]`, `[RENDER]`, `[DEV]`, `[BUILD]`); upstream's tags are unchanged.
-
-## Building
-
-The client is built for x64 with MSVC, CPython 2.7 headers (`BF2_PYTHON27_SRC`) and Ninja.
-
-- `BF2.exe` and the plugin DLLs (RendDX9, TextureAtlasBuilder, SwiffPlayer, BF2Audio) are
-  incremental CMake targets. A one-file renderer change rebuilds in about 8 s; a no-op build takes
-  about 5 s.
-- Each plugin's sources are listed once, in `Code/Build/<plugin>_sources.txt`, and read by both
-  the CMake target and the plugin's `.cmd` script.
-- After each plugin link, `Code/Build/plugin_abicheck.cmake` checks the DLL's exports, imports and
-  CRT against the shape the engine expects, and deletes the DLL if it drifted.
-- `bf2_client_plugins` stages the DLLs next to `BF2.exe`.
-- The plugin targets compile with `/O2` (`BF2_PLUGIN_OPTIMIZE`, default on). Their `.cmd` scripts,
-  upstream's developer builds, compile RendDX9, SwiffPlayer and BF2Audio without optimisation.
-- RendDX9's seam build (`BF2_GFX_SEAM`) still uses `renddx9.cmd`.
-
-## Running
-
-The client runs under Proton/DXVK against a PR install through an overlay, so the install itself
-is never modified. Reversed-Z needs float depth; under DXVK set
-`DXVK_CONFIG="d3d9.useD32forD24 = True"`. The x64 client also needs Microsoft's x64
-`d3dx9_24.dll` and `d3dx9_25.dll` beside `BF2.exe` (see Issue A in
-[upstream-fixes.md](upstream-fixes.md)).
-
-Offline play is client-hosted (create local). `BF2_AUTOHOST=<map>:<mode>:<size>` hosts straight
-from the menu.
+- The realitymod OpenBF2 PR #1 (PR's game-logic port) arrived as one merge, `c4a3a850`. OpenBF2 is
+  no longer merged in.
+- Before 2026-11-17, commits used `feat:`, `fix:`, `compat:`, `build:` prefixes and this project's
+  own lines carried `[CHOSEN, not recovered]` tags; those tags were then replaced by lane markers.
+- Before 2026-11-19, milestones were called steps; commit messages of that time say "step 8".

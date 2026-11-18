@@ -1,5 +1,10 @@
 # Engine documentation
 
+> **Inherited from OpenBF2.** Everything in `docs/` except [eon64/](eon64/README.md) is OpenBF2's
+> documentation: reconstruction notes and evidence that source comments cite. It is kept as
+> reference; it is not this project's policy or current state. This project's documents are in
+> [eon64/](eon64/README.md), its rules in [AGENTS.md](../AGENTS.md).
+
 Start with [Getting started](getting-started.md), then read [Engine architecture](architecture.md)
 and [Development guide](development.md). These guides cover the build, engine structure,
 contribution workflow and validation requirements.

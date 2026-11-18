@@ -1,51 +1,38 @@
 # Status
 
-What is happening now, lane by lane. Read this first; the links lead to the plan and the as-built
-description of each lane. Update it in the same commit that changes a lane's state: tick a
-sub-step, record what was seen in game, add or close an open issue. When a step is accepted, its
-description moves from the lane's plan to its as-built document and its section here is reset to
-the next step.
+Where each lane stands. Read this first; the Detail column leads to each lane's plan or as-built
+document. Update it in the commit that changes a lane's state: a task done, something seen in game,
+an open issue added or closed. When a milestone is accepted, its section here moves on to the next.
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Steps 1–8 accepted | Step 9, draw submission, after `tools` milestones 1–3 | [renderer.md](renderer.md#roadmap) |
-| `ui` | Steps 1–4 accepted | — | [ui.md](ui.md#steps) |
+| `render` | Milestones 1–8 accepted | Milestone 9, draw submission, after `tools` milestones 1–3 | [renderer.md](renderer.md#roadmap) |
 | `tools` | Planned | Milestone 1, views | [tools.md](tools.md#milestones) |
+| `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
-| `perf` (frame) | `/O2` plugins, `tailField` table | Parked until renderer step 9 | [perf-frame.md](perf-frame.md#plan) |
+| `perf` (frame) | `/O2` plugins, `tailField` table | Parked until render milestone 9 | [perf-frame.md](perf-frame.md#plan) |
 | `compat` | See the list | rhooks client features | [compat.md](compat.md#missing) |
-| `fix` | G–Q fixed | A, C–F open (packaging, build) | [upstream-fixes.md](upstream-fixes.md) |
+| `fix` | G–O, Q fixed | A, C–F open (packaging, build) | [upstream-fixes.md](upstream-fixes.md) |
 
-## Current step: `tools` milestone 1, views
+## Current: `tools` milestone 1, views
 
-Plan: [tools.md](tools.md#1-views). The view tool comes before renderer step 9 (owner,
-2026-11-19): milestones 1–3 first, so step 9 is measured against reference views and a benchmark
-path. Starting set: about 5 views and one benchmark path each on Muttrah City and Saaremaa.
+Plan: [tools.md](tools.md#1-views). The view tool comes before render milestone 9 (owner,
+2026-11-19), so milestone 9 is measured against reference views and a benchmark path.
 
-Sub-steps: not yet broken down. First to find: where the client sets the render camera before
-culling, and whether the local server's simulation can be paused.
+Tasks: not yet broken down. First to find: where the client sets the render camera before culling,
+and whether the local server's simulation can be paused.
 
-## Next: `render` step 9, draw submission
+## Next: `render` milestone 9, draw submission
 
-Plan: [renderer.md](renderer.md#roadmap) (step 9). Step 8 (anti-aliasing) accepted on Saaremaa
-2026-11-19: crossfades fine, GPU spans recorded, reference views skipped (owner); as built in
-[renderer-pipeline.md](renderer-pipeline.md#accepted-steps).
+Plan: [renderer.md](renderer.md#9-draw-submission). Tasks: not yet broken down.
 
-Sub-steps: not yet broken down.
-
-Carried over from step 8:
-- Frame rate: about 20% lower on Muttrah City after step 8's LOD work (owner), and perhaps lower
-  again after the overgrowth crossfade (Saaremaa, not measured). The frame is CPU-bound: GPU spans
-  sum to about 5.7 of 12.6 ms on Muttrah City and 4.9 of 8.25 ms on Saaremaa, the rest is the `hud`
-  span (present wait). More draws from full-detail terrain, LOD 0 bundled meshes, static switch
-  distances x3 and no distance cull. Step 9's target. GPU-side lead: `Ra_LodDitherClip` runs
-  unconditionally, so opaque shaders lose early depth rejection even at dither (0, 1); a static
-  branch or a separate dithered technique would avoid it.
+Open from milestone 8:
+- Frame rate: about 20 % lower on Muttrah City after milestone 8's LOD work (owner), perhaps lower
+  again after the overgrowth crossfade (Saaremaa, not measured). CPU-bound; measurements and leads
+  in [perf-frame.md](perf-frame.md#after-render-milestone-8). Milestone 9's target.
 - Sun shadows: far overgrowth cells cast (`980b32aa`) and the blend to baked goes by camera
   distance (shaders); loaded on Saaremaa, not yet seen.
-- The default video profile picks 8x antialiasing (log) while the scene runs 4x; settle with fixed
-  4x (single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
+- The default video profile picks 8x antialiasing (log) while the scene runs 4x. Settle with fixed
+  4x (a single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
 - Roads still fade at 1.3 x `lodSwitchDistance` (130 m); with full-detail terrain they could draw
-  farther. Not decided. Terrain shading at full detail is step 10.
-
-Carried over: The Falklands night-layer particle check moved to step 12.
+  farther. Not decided.

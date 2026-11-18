@@ -1,0 +1,5 @@
+# Keeps OpenBF2's inherited documentation out of ripgrep-based searches (agents' default search).
+# It is reference only; search it explicitly with `rg --no-ignore` or plain `grep -r`.
+docs/*
+!docs/eon64/
+!docs/README.md

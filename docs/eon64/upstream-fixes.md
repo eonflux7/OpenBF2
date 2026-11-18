@@ -1,10 +1,10 @@
 # Fixes worth upstreaming
 
-Bugs in OpenBF2 found while running the x64 client on Linux/Proton (DXVK) with Project Reality and
-vanilla BF2. Each entry says whether it was checked against the retail binary. None has been
-submitted; the human author decides what goes to kr4uzi/OpenBF2 or B2BF/OpenBF2. Before
-submitting, cherry-pick the commit onto `kr4uzi/main` and follow upstream's AGENTS.md (evidence,
-linked issue).
+Engine bugs found while running the x64 client on Linux/Proton (DXVK) with Project Reality and
+vanilla BF2, most of them inherited from OpenBF2. The fixes are standalone commits so they can be
+offered to kr4uzi/OpenBF2 or B2BF/OpenBF2; none has been submitted, and the owner decides what goes
+([AGENTS.md](../../AGENTS.md#upstreaming)). Each entry says whether it was checked against the
+retail binary.
 
 Status: **open** = reported here, no fix on this branch; **fixed** = commit on `main` (before 2026-11-17 the branch was `pr/x64-local` of `eonflux7/OpenBF2`).
 

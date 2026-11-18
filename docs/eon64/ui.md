@@ -2,10 +2,10 @@
 
 The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored in
 `Code/BF2/External/imgui` with its DX9 and Win32 backends; BF2Editor already uses it). Rules:
-[AGENTS.md](../../AGENTS.md#what-this-fork-is).
+[AGENTS.md](../../AGENTS.md#lanes).
 
-- Fork UI replaces the retail UI it supersedes. Once a step is accepted, the retail path is deleted,
-  not kept beside it.
+- Fork UI replaces the retail UI it supersedes. Once a milestone is accepted, the retail path is
+  deleted, not kept beside it.
 - Hidden UI costs nothing: no ImGui frame, no draw, no input capture, no timer queries.
 - The dedicated server never creates the layer. The console backend is unaffected by this lane.
 - UI never owns a setting. Anything a widget changes is a console variable, so it can also be set
@@ -13,12 +13,12 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 - PR-specific content (rcon command lists, admin commands) is never compiled in; it is read from
   files outside this tree.
 
-## Steps
+## Milestones
 
-| Step | Commit scope | Status |
+| Milestone | Commit scope | Status |
 |---|---|---|
 | 1. ImGui layer | `ui(imgui)` | Accepted (`71545137`, `f4a7fd65`, `6604b184`) |
-| 2. Sun shadow tuning as console variables (lane `render`, before step 3) | `render(csm)` | Accepted (`2e605f93`) |
+| 2. Sun shadow tuning as console variables (lane `render`) | `render(csm)` | Accepted (`2e605f93`) |
 | 3. Debug menu and performance overlay | `ui(debug)` | Accepted (`ae0ee355`, `d9086de0`, `4b10dea9`; tabs and console polish `134889d5`) |
 | 4. Console frontend | `ui(console)` | Accepted (`cfc56237`); retail drawing deleted |
 
@@ -55,11 +55,9 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 
 ### 2. Sun shadow tuning (lane `render`)
 
-The values step 5 was accepted with become console variables with the same defaults, so they can be
-tuned live: distance (400 m), cascade resolution (2048; the atlas is re-created when it changes),
-caster reach (500 m), split lambda (0.75), cascade blend (0.2), normal offset (1.5 texels) and depth
-bias (1.0 texel). Each variable carries its range and a help line for the debug menu. The variables
-are listed in [renderer.md](renderer-pipeline.md#sun-shadows).
+The values render milestone 5 was accepted with became console variables with the same defaults,
+tuned live from the Shadows tab. Each carries its range and a help line for the debug menu. They
+are listed in [renderer-pipeline.md](renderer-pipeline.md#sun-shadows).
 
 ### 3. Debug menu and performance overlay
 
@@ -103,15 +101,15 @@ left alone.
   the worst frame, with a line at 16.7 ms. CPU time is the frame without the time `Present`
   blocked; GPU time is the whole frame from the timestamp queries. The larger of the two names
   the side that bounds the frame.
-- GPU time per pass (the spans of [renderer.md](renderer.md#tooling)), smoothed. The queries
+- GPU time per pass (the spans of [renderer-pipeline.md](renderer-pipeline.md#gpu-pass-timers)), smoothed. The queries
   are those of `BF2_GPU_TIMERS`, issued only while the overlay is on (or the flag is set).
 - Draw calls and primitives in the last frame, and draw calls per sun cascade.
 - Process memory: private bytes and working set. VRAM is not shown: D3D9's estimate under DXVK
   is not a real figure.
 - Back-buffer size and MSAA, map and game mode.
 - Camera position, heading and pitch.
-- Sun elevation and azimuth. Exposure is a constant in the shaders until auto-exposure (renderer
-  step 12) gives the engine a value to show.
+- Sun elevation and azimuth. Exposure is a constant in the shaders until auto-exposure (render
+  milestone 12) gives the engine a value to show.
 
 DXVK's HUD is off in the launch environment.
 
