@@ -24,6 +24,7 @@ now unconditional.
 | Flag | Effect |
 |---|---|
 | `BF2_HUD_AUTOVAR=1` | Unknown HUD variables are registered on first use; the rhooks HUD event channel (game events 9–12 with mod subtypes) is logged once and dropped instead of asserting |
+| `BF2_LEVEL_INIT_ARGS=1` | The level `Init.con` gets `v_arg1` = `host`/`client`, `v_arg7` = game mode, `v_arg8` = layer (PR's layer-specific init); retail passes all empty |
 | `BF2_CMDLINE_FILE=<path>` | The menu reads and writes its command-line file at this path under the install root (PR's launcher handshake) |
 
 ## `dev`: permanent, off by default, inert when unset

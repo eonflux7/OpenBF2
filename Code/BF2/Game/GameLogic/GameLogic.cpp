@@ -233,8 +233,32 @@ bool GameLogic::loadInitFile(const std::string& path)
         return false;
     }
 
+    // [COMPAT] BF2_LEVEL_INIT_ARGS=1: retail runs the level Init.con with every argument empty
+    // (bf2_w32ded.exe 0x465D50; BF2.exe passes BF2Editor only in editor mode). Project Reality's
+    // levels gate their layer-specific init (night, skirmish, vehicles, coop) behind
+    // `if v_arg1 != BF2Editor`, and its setLayerMode.tweak reads the game mode and layer from
+    // Init.con's v_arg7 and v_arg8 ("On client mode and layer are in v_arg1 and v_arg2" of the
+    // include); something outside the retail engine supplies them. With the flag set: v_arg1 is
+    // this side's tag ("host"/"client", as loadLevel computes it), v_arg7 the game mode and
+    // v_arg8 the layer (the map size). v_arg1's value is inferred, not documented by PR.
+    std::string side, mode, layer;
+    static const bool levelInitArgs = std::getenv("BF2_LEVEL_INIT_ARGS") != 0;
+    if (levelInitArgs && game)
+    {
+        const MapInfo info = game->getMapInfo();
+        side = isServer() ? "host" : "client";
+        mode = info.getGameMode();
+        if (info.getMaxNumberOfPlayers() > 0)
+        {
+            char buffer[16];
+            std::snprintf(buffer, sizeof(buffer), "%d", info.getMaxNumberOfPlayers());
+            layer = buffer;
+        }
+        std::fprintf(stderr, "[COMPAT] level Init.con args: [%s] mode [%s] layer [%s]\n",
+                     side.c_str(), mode.c_str(), layer.c_str());
+    }
     std::string out;
-    io::mainConsole->run(file, "", "", "", "", "", "", "", "", out);          // +0x28
+    io::mainConsole->run(file, side, "", "", "", "", "", mode, layer, out);    // +0x28
 
     const int worldSize =
         reinterpret_cast<world::IHeightmapCluster*>(world::heightmapCluster)
