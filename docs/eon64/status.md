@@ -17,7 +17,7 @@ the next step.
 
 ## Current step: `render` step 8, anti-aliasing
 
-Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: prepass into the scene depth with EQUAL, Saaremaa, 2026-11-18.
+Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: centroid lightmap UVs, Muttrah City, 2026-11-18.
 
 Sub-steps, in order, each seen in game before the next:
 - [x] Sampler policy (`28487a35`; seen on Kashan Desert 2026-11-18)
@@ -27,7 +27,9 @@ Sub-steps, in order, each seen in game before the next:
 - [x] Prepass into the MSAA scene depth, prepassed draws EQUAL with no depth write, 4x linear
   depth resolved to s15 (`f11bdfe3`; seen on Kashan Desert and Saaremaa 2026-11-18, forest,
   soldiers and vehicles by the owner)
-- [ ] Centroid lightmap UVs, mip derivatives from a non-centroid copy (static mesh, terrain, roads)
+- [x] Centroid lightmap UVs, mip derivatives from a non-centroid copy (static mesh and terrain's
+  lightmap pass; roads have no lightmap UV, they read terrain's resolved accumulation in screen
+  space. Seen on Muttrah City 2026-11-18)
 - [ ] Transparent depth rebuild after the resolve; first settle where first-person models draw,
   since they follow the transparents today and the plan keeps them in the MSAA scene
 - [ ] Alpha-to-coverage
