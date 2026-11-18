@@ -345,7 +345,6 @@ public:
     void drawQuad(unsigned short width, unsigned short height, unsigned int grid); // sub_10085990
     void drawViewportQuad(unsigned int grid);                                  // sub_10085CB0
     void resetStencilCuller(int stencilRef, int stencilPass, bool pushState);        // sub_10085D30
-    void drawShadowMask(const float* constants, unsigned int count);           // [RENDER]
     void drawStencilPasses(dx9rend::EngineTexture* target, bool pushState);           // sub_10085E70
     void drawStencilResolve(dx9rend::EngineTexture* source, bool selectBackBuffer,
                             bool pushState);                                          // sub_10086030
@@ -1271,42 +1270,6 @@ void fsQuadDrawerDrawHemiMap(dx9rend::EngineTexture* source,
 void fsQuadDrawerDrawCurrentEffect(unsigned int grid)
 {
     g_FSQuadDrawer->drawViewportQuad(grid);
-}
-
-// [RENDER] Depth prepass shadow mask: the effect's "RaShadowMask" technique over
-// the viewport quad into the current render target, with the camera rows in RASM_CAMERA. Skipped
-// when the effect has no such technique; the previous technique is reselected afterwards.
-void FSQuadDrawer::drawShadowMask(const float* constants, unsigned int count)
-{
-    static const std::string technique("RaShadowMask");
-    if (!m_effect || !dx9rend::effectHasTechnique(m_effect, technique))
-        return;
-    // Fetched once per effect object, as the constructor fetches the other parameters.
-    static dx9rend::Effect* parameterEffect = 0;
-    static dx9rend::ShaderParameter* constantsParameter = 0;
-    if (parameterEffect != m_effect)
-    {
-        parameterEffect = m_effect;
-        constantsParameter = dx9rend::effectGetShaderParameterTyped(m_effect, std::string("RASM"));
-    }
-    dx9rend::stateManagerPush();
-    const std::string savedTechnique = dx9rend::effectCurrentTechniqueName(m_effect);
-    dx9rend::effectSetTechniqueByName(m_effect, technique);
-    dx9rend::effectBegin(m_effect);
-    if (constantsParameter)
-        constantsParameter->setValue(constants, count);
-    dx9rend::effectBeginPass(m_effect, 0);
-    drawViewportQuad(0);
-    dx9rend::effectEnd(m_effect);
-    if (!savedTechnique.empty())
-        dx9rend::effectSetTechniqueByName(m_effect, savedTechnique);
-    dx9rend::stateManagerPop();
-}
-
-void fsQuadDrawerShadowMaskPass(const float* constants, unsigned int count)
-{
-    if (g_FSQuadDrawer)
-        g_FSQuadDrawer->drawShadowMask(constants, count);
 }
 
 // The source pass with (0, source, true, true, 0, 0) as at 0x10051313: pass 0 at the source's

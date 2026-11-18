@@ -1,12 +1,12 @@
 // [RENDER] Sun cascaded shadow maps. Not part of retail BF2: the
-// prototype renderer replaces BF2's per-object shadow maps with four sun cascades that feed the
-// screen-space sun mask (FSQuadDrawer RaShadowMask). See RendDX9Base.h for the contract.
+// prototype renderer replaces BF2's per-object shadow maps with four sun cascades that the lit
+// shaders sample themselves (RaSunShadow.fxh). See RendDX9Base.h for the contract.
 //
 // Each cascade covers a slice of the camera's view depth with a bounding sphere, so its size does
 // not change while the camera turns; its centre is snapped to whole texels across the light, so
 // static shadows do not crawl while the camera moves. The atlas stores the light-space depth of
-// the nearest caster (0 = the cascade's sun-side bound, 1 = its far side) as R32F; the mask does
-// the comparison and the filtering.
+// the nearest caster (0 = the cascade's sun-side bound, 1 = its far side) as R32F; the receivers
+// do the comparison and the filtering.
 #ifdef BF2_IMAGE_RENDDX9
 
 #include "../../RendDX9Abi/ThunkAbi.h"
@@ -269,7 +269,7 @@ bool rendererSunShadowsRender(float time, float* constants)
     const float farDist = g_settings.distance;
 
     // Practical split scheme: a blend of logarithmic and uniform splits. Each cascade but the last
-    // also covers the first cascadeBlend of the next slice, where the mask blends the two.
+    // also covers the first cascadeBlend of the next slice, where the receivers blend the two.
     const float lambda = g_settings.splitLambda;
     const float blend = g_settings.cascadeBlend;
     const float reach = g_settings.casterReach;

@@ -21,7 +21,7 @@ Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: sampler po
 
 Sub-steps, in order, each seen in game before the next:
 - [x] Sampler policy (`28487a35`; seen on Kashan Desert 2026-11-18)
-- [ ] Sun shadows in the lit shaders; screen-space sun mask deleted
+- [ ] Sun shadows in the lit shaders; screen-space sun mask deleted (built, not yet seen in game)
 - [ ] Prepass into the MSAA scene depth with EQUAL, centroid interpolation, transparent depth rebuild
 - [ ] Alpha-to-coverage
 - [ ] Thin geometry

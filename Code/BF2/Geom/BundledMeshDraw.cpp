@@ -401,7 +401,7 @@ void BundledMesh::draw(void*,void*,void*)
                     m_uvMatrices?&m_uvMatrices[i]:&Mat4::getIdentity(),64);
         }
         // [RENDER] Retail copied the directional shadow record's matrices here when the mesh was a
-        // sun shadow caster this frame; that pass is gone (the sun mask replaces it).
+        // sun shadow caster this frame; that pass is gone (the sun cascades replace it).
         if(slot<bool>(dx9rend::g_Renderer,0xAC))
         {
             const Vec3& sky=g_LightManager->getSkyColor();

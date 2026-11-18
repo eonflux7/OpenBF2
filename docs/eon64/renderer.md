@@ -67,12 +67,12 @@ screen-space term cannot be made per-sample; the mask goes instead.
   are which is listed in [Frame](renderer-pipeline.md#frame) when the step lands. Linear depth is written as an MSAA
   target and resolved to a single-sample texture (s15). The resolve averages depth across a
   silhouette into a value no surface has, so soft particles fade against that average: the step 7
-  edge fringe changes shape rather than going away. The normals target is dropped until GTAO
-  (step 13) reads it.
+  edge fringe changes shape rather than going away.
 - **Sun shadows in the lit shaders.** Every lit shader samples the cascades itself through one
   shared include (as water and undergrowth already do) and computes N.L and the cascades' weight
-  against baked sun. The sun mask pass, its target and s14 are deleted. Each triangle then shades its
-  own edge samples. The cascade constants (`RASM`) are set once per frame as a fixed register range,
+  against baked sun. The sun mask pass, its target and s14 are deleted, and with them the prepass's
+  normals target (s12) until GTAO (step 13) needs one. Each triangle then shades its own edge
+  samples. The cascade constants (`RASM`) are set once per frame as a fixed register range,
   not per effect through D3DX, which would add to the CPU-bound frame before step 9.
 - **Centroid interpolation.** An edge pixel is shaded at its centre even when the centre lies outside
   the triangle, so interpolants are extrapolated: lightmap UVs read the neighbouring chart (seams

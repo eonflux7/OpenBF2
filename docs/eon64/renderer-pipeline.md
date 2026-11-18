@@ -7,8 +7,8 @@ are in [renderer.md](renderer.md). Update this document when a step is accepted.
 ## Accepted steps
 
 Steps 1–4 (reversed-Z, linear lighting and the HDR scene, the shared lighting model, the depth
-prepass and sun mask) are described by the sections below. Commits are listed in the
-[roadmap](renderer.md#roadmap).
+prepass) are described by the sections below; step 4's screen-space sun mask was deleted in step 8.
+Commits are listed in the [roadmap](renderer.md#roadmap).
 
 **5. Sun CSM.** Accepted on 2026-11-18 with the values it was developed at (400 m, 2048 per
 cascade, 500 m caster reach, normal offset 1.5 and depth bias 1.0 texels); the owner chose not to
@@ -95,18 +95,18 @@ In draw order, for the main world view:
    see [Sun shadows](#sun-shadows).
 3. **Depth prepass** (`rendererDepthPrepass`), just before the world queues flush, after
    overgrowth has queued. Terrain and every opaque Ra queue entry whose effect has the technique
-   `RaDepthPrepass` draw into two single-sample targets with their own `D24S8` depth:
-   - COLOR0: linear view depth, `R32F`, 0 where nothing was drawn;
-   - COLOR1: world normal, `A2R10G10B10`, `n * 0.5 + 0.5`.
-4. **Sun mask.** A full-screen pass (FSQuadDrawer technique `RaShadowMask`) rebuilds each pixel's
-   world position from the linear depth and writes an `A8R8G8B8` mask:
-   `.r` cascade sun visibility, `.g` the cascades' weight against baked sunlight, `.b` N.L.
-5. **World passes.** Lit shaders read the mask instead of computing their own shadows. Water is
-   transparent and has no prepass depth, so it samples the cascades itself with `RASM`, which
-   `RaShader::begin` sets on every Ra effect that declares it (`rendererSunMaskConstants`).
-6. **End of the world pass** (`rendererDepthPrepassEndWorldPass`) binds a 1 x 1 mask of
-   `(1, 0, 0)` and zeroes `RASM`, so first-person passes and every other view keep their baked
-   sunlight, and stops soft particles.
+   `RaDepthPrepass` draw their linear view depth (`R32F`, 0 where nothing was drawn) into a
+   single-sample target with its own `D24S8` depth. It stays bound to s15 for the rest of the frame.
+   Before it, the cascade pass fills `RASM` and the camera rows are added; after it, `RASM` is
+   written to the pixel registers c200–c221.
+4. **World passes.** Every lit shader samples the cascades itself at its own world position
+   (`RaSunShadow.fxh`), with its triangle's normal (from the position's screen derivatives) for
+   the normal offset; terrain and decals use their own normal. Terrain-lit receivers (terrain,
+   roads) also take N.L from it.
+5. **End of the world pass** (`rendererDepthPrepassEndWorldPass`) zeroes `RASM`, so first-person
+   passes and every other view keep their baked sunlight, and stops soft particles.
+6. **Particles** sample the cascades per vertex, where the pixel registers and s13 do not reach:
+   `RASM` and the atlas are set on them as effect parameters (`rendererBindParticleLighting`).
 7. **Post-production** runs every frame: the colour grade is the frame's only encode from linear
    to display, so it cannot be skipped. Tinnitus blends over the float scene target first.
 
@@ -169,7 +169,7 @@ step was accepted with:
 
 Their help lines, for the debug menu, come from `rendererVariableHelp` (`RendererConsole.cpp`).
 
-### Mask constants (`RASM`, 22 float4)
+### Cascade constants (`RASM`, 22 float4, pixel registers c200–c221)
 
 | Rows | Contents |
 |---|---|
@@ -184,12 +184,19 @@ Their help lines, for the debug menu, come from `rendererVariableHelp` (`Rendere
 
 All zero outside the main world pass, and when no cascade was rendered: nothing is covered.
 
+The engine owns the registers: it writes them once per frame through the StateManager's constant
+mirror (`stateManagerSetSunCascadeConstants`), and the StateManager drops the part of any effect's
+pixel constant write that falls in the range. Each receiver declares `RASM` at `register(c200)`,
+so D3DX would otherwise upload the parameter's own zeros at every pass. No pixel shader may place
+anything else there.
+
 ## Shader contract
 
-Samplers 12–15 are reserved for renderer frame resources. No effect may use them for anything else.
+Samplers 13 and 15 are reserved for renderer frame resources, and pixel registers c200–c221 for
+`RASM`. No effect may use them for anything else.
 Every other sampler states `SRGBTexture` in its `sampler_state`: TRUE where it reads colour (the
 hardware decodes before filtering), FALSE for data and outside the scene. D3D9 sampler state carries
-over between effects, so neither value is left to default. The engine binds s12–s15 with it FALSE.
+over between effects, so neither value is left to default. The engine binds s13 and s15 with it FALSE.
 
 Every `sampler_state` also states its filter. A material sampler (a colour, normal or detail texture
 mapped onto world geometry) is 16x anisotropic: min `ANISOTROPIC`, mag and mip `LINEAR`. A data
@@ -200,25 +207,22 @@ directory no longer carries it (`_3153_0`).
 
 | Slot | Resource | Format | Bound |
 |---|---|---|---|
-| s12 | Prepass world normals | `A2R10G10B10` | After the prepass |
 | s13 | Sun cascade atlas | `R32F` | From the cascade pass, rest of the frame |
-| s14 | Sun mask | `A8R8G8B8` | World pass; a 1 x 1 `(1, 0, 0)` elsewhere |
 | s15 | Linear view depth | `R32F` | After the prepass, rest of the frame; particles read it only while `RaSoftParticles.x` > 0 |
 
 Techniques the engine looks up by name:
 
 | Technique | In | Draws |
 |---|---|---|
-| `RaDepthPrepass` | Ra mesh effects, terrain | Linear depth to COLOR0, world normal to COLOR1 |
+| `RaDepthPrepass` | Ra mesh effects, terrain | Linear depth to COLOR0 |
 | `RaShadowDepth` | Ra mesh effects, terrain | Light depth into the atlas, with `RaShadowViewProj` |
-| `RaShadowMask` | FSQuadDrawer effect | The sun mask, from `RASM` |
 
 Parameters the engine sets by semantic:
 
 | Semantic | Type | Set on |
 |---|---|---|
 | `RaShadowViewProj` | `float4x4` | Ra effects drawing `RaShadowDepth`: the cascade being drawn |
-| `RASM` | `float4[22]` | The mask pass; in `RaShader::begin` every Ra effect that declares it; the undergrowth effect each frame (grass has no prepass depth and samples the cascades itself); the particle effects at every bind (`rendererBindParticleLighting`) |
+| `RASM` | `float4[22]` | The particle effects at every bind (`rendererBindParticleLighting`), which sample per vertex. Pixel shaders read it from c200–c221 instead and nothing sets it on them |
 | `SUNCOLOR` (`TerrainSunColor` in the Ra constants) | `float3` | Terrain, road and undergrowth effects: the level's one sun, `Lightmanager.staticSunColor` as authored (undergrowth times its `LightingScale`). Retail passed `terrain.sunColor / 4`, balanced against the statics by hand per level |
 | `RaSunColor`, `RaSkyColor` | `float3` | The four particle effects (`rendererBindParticleLighting`, called by each particle renderer as it binds its effect): `Lightmanager.staticSunColor` and `staticSkyColor` as authored, the one sun and sky every lit surface uses |
 | `RaSunDirection` | `float3` | The particle effects: unit vector toward the sun (`-Lightmanager.sunDirection`) |

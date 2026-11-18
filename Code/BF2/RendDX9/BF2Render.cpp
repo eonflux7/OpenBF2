@@ -2804,8 +2804,8 @@ bool Renderer::renderFrame(double time, float deltaTime)
                 postProductionPass();
             }
 
-            // [RENDER] Depth prepass: the mask describes the world pass only; the
-            // first-person passes and every later view read a lit mask.
+            // [RENDER] The sun cascades describe the world pass only; the first-person
+            // passes and every later view keep their baked sunlight.
             rendererDepthPrepassEndWorldPass();
             gpuTimerMark("first person");                    // [DEV] BF2_GPU_TIMERS
 
@@ -4103,13 +4103,8 @@ void rendererHdrReleaseSurface()
 namespace {
 IDirect3DTexture9* g_linearDepthTexture = 0;
 IDirect3DSurface9* g_linearDepthStencil = 0;
-IDirect3DTexture9* g_shadowMaskTexture = 0;
-IDirect3DTexture9* g_surfaceNormalTexture = 0;  // A2R10G10B10, the prepass's world normals
-IDirect3DTexture9* g_bakedSunTexture = 0;       // managed 1x1 (1, 0, 0): the mask outside the world pass
 const DWORD kLinearDepthSampler = 15;
-const DWORD kShadowMaskSampler = 14;
-const DWORD kSurfaceNormalSampler = 12;
-float g_sunMaskConstants[kSunShadowMaskVec4s * 4] = {};   // RASM while the world pass draws
+float g_sunCascadeConstants[kSunCascadeVec4s * 4] = {};   // RASM while the world pass draws
 bool g_softParticleDepth = false;   // s15 holds this frame's prepass depth and the world pass draws
 float g_softParticleDistance = 1.5f;   // m, renderer.softParticleDistance
 
@@ -4125,29 +4120,14 @@ void bindSampler(DWORD stage, IDirect3DTexture9* texture, D3DTEXTUREFILTERTYPE f
     device->SetSamplerState(stage, D3DSAMP_SRGBTEXTURE, FALSE);
 }
 
-// The sun mask every view sees unless the main world pass has bound the real one: visibility 1 at
-// weight 0, so every receiver keeps its baked sunlight.
-void bindBakedSunMask()
+// RASM for this frame's world pass, or zero (nothing covered: every receiver keeps its baked
+// sunlight), to the pixel registers and for the particle effects.
+void publishSunCascadeConstants(bool zero)
 {
-    if (!g_rendererBase)
-        return;
-    if (!g_bakedSunTexture)
-    {
-        IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
-        if (device->CreateTexture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED,
-                                  &g_bakedSunTexture, 0) < 0)
-        {
-            g_bakedSunTexture = 0;
-            return;
-        }
-        D3DLOCKED_RECT locked;
-        if (g_bakedSunTexture->LockRect(0, &locked, 0, 0) >= 0)
-        {
-            *static_cast<DWORD*>(locked.pBits) = 0xFFFF0000u;   // A8R8G8B8: r = 1, g = b = 0
-            g_bakedSunTexture->UnlockRect(0);
-        }
-    }
-    bindSampler(kShadowMaskSampler, g_bakedSunTexture, D3DTEXF_POINT);
+    if (zero)
+        std::memset(g_sunCascadeConstants, 0, sizeof(g_sunCascadeConstants));
+    if (g_rendererBase)
+        stateManagerSetSunCascadeConstants(g_sunCascadeConstants);
 }
 
 bool ensureLinearDepthTargets()
@@ -4163,19 +4143,12 @@ bool ensureLinearDepthTargets()
         D3DSURFACE_DESC have;
         if (g_linearDepthTexture->GetLevelDesc(0, &have) >= 0
             && have.Width == desc.Width && have.Height == desc.Height)
-            return g_linearDepthStencil != 0 && g_shadowMaskTexture != 0
-                && g_surfaceNormalTexture != 0;
+            return g_linearDepthStencil != 0;
         rendererDepthPrepassRelease();
     }
     IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
     HRESULT hr = device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_RENDERTARGET,
                                        D3DFMT_R32F, D3DPOOL_DEFAULT, &g_linearDepthTexture, 0);
-    if (hr >= 0)
-        hr = device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_RENDERTARGET,
-                                   D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &g_shadowMaskTexture, 0);
-    if (hr >= 0)
-        hr = device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_RENDERTARGET,
-                                   D3DFMT_A2R10G10B10, D3DPOOL_DEFAULT, &g_surfaceNormalTexture, 0);
     if (hr >= 0)
         hr = device->CreateDepthStencilSurface(desc.Width, desc.Height, D3DFMT_D24S8,
                                                D3DMULTISAMPLE_NONE, 0, TRUE,
@@ -4189,11 +4162,6 @@ bool ensureLinearDepthTargets()
     }
     return true;
 }
-}
-
-const float* rendererSunMaskConstants()
-{
-    return g_sunMaskConstants;
 }
 
 void* effectD3dxHandle(void* effect);   // Effect.cpp
@@ -4218,8 +4186,8 @@ void rendererBindParticleLighting(void* effect)
     effectGetShaderParameterBorrowedTyped(fx, kSun)->setValue(&lights->getStaticSunColor(), 0);
     effectGetShaderParameterBorrowedTyped(fx, kSky)->setValue(&lights->getStaticSkyColor(), 0);
     effectGetShaderParameterBorrowedTyped(fx, kDir)->setValue(&towardSun, 0);
-    effectGetShaderParameterBorrowedTyped(fx, kCascades)->setValue(g_sunMaskConstants,
-                                                                 kSunShadowMaskVec4s);
+    effectGetShaderParameterBorrowedTyped(fx, kCascades)->setValue(g_sunCascadeConstants,
+                                                                 kSunCascadeVec4s);
     // The atlas as a texture parameter: D3DX binds it to the vertex sampler it assigned. Set on
     // the D3DX effect directly, since the parameter path takes engine texture wrappers.
     if (ID3DXEffect* const d3dx = static_cast<ID3DXEffect*>(effectD3dxHandle(effect)))
@@ -4253,20 +4221,31 @@ IDirect3DTexture9* rendererLinearDepthTexture()
 
 void rendererDepthPrepass(bool drawTerrain, float time)
 {
-    bindBakedSunMask();
-    std::memset(g_sunMaskConstants, 0, sizeof(g_sunMaskConstants));
+    publishSunCascadeConstants(true);
     g_softParticleDepth = false;
     if (!ensureLinearDepthTargets())
         return;
 
-    // The mask constants (RASM): zero means no cascade covers anything, so every receiver keeps
-    // its baked sunlight. They stay published for the world pass (rendererSunMaskConstants).
-    float* const maskConstants = g_sunMaskConstants;
-    rendererSunShadowsRender(time, maskConstants);
+    // RASM: the cascade rows from the cascade pass, then the camera rows, the render view's camera
+    // transform (right, up, forward, position) over the projection scales, so position
+    // + clip.w * forward + clip.x * right' + clip.y * up' is the world point of a clip position.
+    rendererSunShadowsRender(time, g_sunCascadeConstants);
+    {
+        IRenderView* const view = rendererGetRenderView();
+        const float* const c = view->getViewMatrixPtr()->m;
+        const float* const p = view->getProjectionMatrixPtr()->m;
+        const float sx = 1.0f / p[0];
+        const float sy = 1.0f / p[5];
+        const float camera[16] = {
+            c[12], c[13], c[14], 1.0f,
+            c[8], c[9], c[10], 0.0f,
+            c[0] * sx, c[1] * sx, c[2] * sx, 0.0f,
+            c[4] * sy, c[5] * sy, c[6] * sy, 0.0f };
+        std::memcpy(g_sunCascadeConstants, camera, sizeof(camera));
+    }
 
     IDirect3DDevice9* const device = static_cast<RendDX9Base*>(g_rendererBase)->device;
     device->SetTexture(kLinearDepthSampler, 0);       // never sampled while it is the target
-    device->SetTexture(kSurfaceNormalSampler, 0);
 
     IDirect3DSurface9* savedTarget = stateManagerGetRenderTarget(0);
     IDirect3DSurface9* savedDepth = stateManagerGetDepthStencilSurface();
@@ -4282,10 +4261,7 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     gpuTimerMark("depth prepass");   // [DEV] BF2_GPU_TIMERS
     IDirect3DSurface9* target = 0;
     g_linearDepthTexture->GetSurfaceLevel(0, &target);
-    IDirect3DSurface9* normals = 0;
-    g_surfaceNormalTexture->GetSurfaceLevel(0, &normals);
     stateManagerSetRenderTarget(0, target);
-    stateManagerSetRenderTarget(1, normals);
     stateManagerSetDepthStencilSurface(g_linearDepthStencil);
     stateManagerClear(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, 0);
 
@@ -4293,36 +4269,6 @@ void rendererDepthPrepass(bool drawTerrain, float time)
         static_cast<geom::Terrain*>(geom::g_Terrain)->drawDepthPrepass();
     static const unsigned int key = raHashString(std::string("RaDepthPrepass"));
     renderQueuesDepthPrepass(key);
-
-    // The sun shadow mask: world positions rebuilt from the linear depth (s15). The camera rows
-    // are the render view's camera transform (right, up, forward, position) over the projection
-    // scales, so position + depth * (forward + ndc.x * right' + ndc.y * up') is the world point.
-    gpuTimerMark("sun mask");   // [DEV] BF2_GPU_TIMERS
-    stateManagerSetRenderTarget(1, 0);
-    if (normals)
-        normals->Release();
-    IDirect3DSurface9* mask = 0;
-    g_shadowMaskTexture->GetSurfaceLevel(0, &mask);
-    stateManagerSetRenderTarget(0, mask);
-    stateManagerClear(D3DCLEAR_TARGET, 0xFFFF0000u, 1.0f, 0);
-    bindSampler(kLinearDepthSampler, g_linearDepthTexture, D3DTEXF_POINT);
-    bindSampler(kSurfaceNormalSampler, g_surfaceNormalTexture, D3DTEXF_POINT);
-    {
-        IRenderView* const view = rendererGetRenderView();
-        const float* const c = view->getViewMatrixPtr()->m;
-        const float* const p = view->getProjectionMatrixPtr()->m;
-        const float sx = 1.0f / p[0];
-        const float sy = 1.0f / p[5];
-        const float camera[16] = {
-            c[12], c[13], c[14], 1.0f,
-            c[8], c[9], c[10], 0.0f,
-            c[0] * sx, c[1] * sx, c[2] * sx, 0.0f,
-            c[4] * sy, c[5] * sy, c[6] * sy, 0.0f };
-        std::memcpy(maskConstants, camera, sizeof(camera));
-        geom::fsQuadDrawerShadowMaskPass(maskConstants, kSunShadowMaskVec4s);
-    }
-    if (mask)
-        mask->Release();
 
     stateManagerSetRenderTarget(0, savedTarget);
     stateManagerSetDepthStencilSurface(savedDepth);
@@ -4334,14 +4280,14 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     if (savedDepth)
         savedDepth->Release();
 
-    bindSampler(kShadowMaskSampler, g_shadowMaskTexture, D3DTEXF_POINT);
+    bindSampler(kLinearDepthSampler, g_linearDepthTexture, D3DTEXF_POINT);
+    publishSunCascadeConstants(false);
     g_softParticleDepth = true;
 }
 
 void rendererDepthPrepassEndWorldPass()
 {
-    bindBakedSunMask();
-    std::memset(g_sunMaskConstants, 0, sizeof(g_sunMaskConstants));
+    publishSunCascadeConstants(true);
     g_softParticleDepth = false;
 }
 
@@ -4349,16 +4295,6 @@ void rendererDepthPrepassRelease()
 {
     if (g_linearDepthTexture && g_rendererBase)
         static_cast<RendDX9Base*>(g_rendererBase)->device->SetTexture(kLinearDepthSampler, 0);
-    if (g_shadowMaskTexture && g_rendererBase)
-        static_cast<RendDX9Base*>(g_rendererBase)->device->SetTexture(kShadowMaskSampler, 0);
-    if (g_surfaceNormalTexture && g_rendererBase)
-        static_cast<RendDX9Base*>(g_rendererBase)->device->SetTexture(kSurfaceNormalSampler, 0);
-    if (g_surfaceNormalTexture)
-        g_surfaceNormalTexture->Release();
-    g_surfaceNormalTexture = 0;
-    if (g_shadowMaskTexture)
-        g_shadowMaskTexture->Release();
-    g_shadowMaskTexture = 0;
     if (g_linearDepthTexture)
         g_linearDepthTexture->Release();
     g_linearDepthTexture = 0;

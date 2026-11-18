@@ -851,9 +851,25 @@ int __stdcall smSetVertexShaderConstantF(StateManager* self, unsigned int reg, c
     return 0;
 }
 // PE 0x10026A80.
+// [RENDER] The registers kSunCascadeRegister.. hold the frame's sun cascade constants (RASM),
+// written only by stateManagerSetSunCascadeConstants. Every effect that samples the cascades
+// declares RASM at those registers, and D3DX uploads the parameter's own zeros at each pass; that
+// part of a write is dropped, so the range keeps the frame's values. Retail mirrors every write.
 int __stdcall smSetPixelShaderConstantF(StateManager* self, unsigned int reg, const float* data,
                                         unsigned int count)
 {
+    const unsigned int first = kSunCascadeRegister;
+    const unsigned int end = kSunCascadeRegister + kSunCascadeVec4s;
+    if (reg < end && reg + count > first)
+    {
+        if (reg < first)
+            constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin,
+                           &self->psConstMax, reg, data, first - reg);
+        if (reg + count > end)
+            constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin,
+                           &self->psConstMax, end, data + 4u * (end - reg), reg + count - end);
+        return 0;
+    }
     constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin, &self->psConstMax,
                    reg, data, count);
     return 0;
@@ -1531,6 +1547,14 @@ void stateManagerSetVertexShader(IDirect3DVertexShader9* shader)
 void stateManagerSetPixelShader(IDirect3DPixelShader9* shader)
 {
     smSetPixelShader(sm(), shader);
+}
+
+// [RENDER] RASM into its reserved pixel registers, past the filter above; flushed at the next draw.
+void stateManagerSetSunCascadeConstants(const float* constants)
+{
+    StateManager* const self = sm();
+    constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin, &self->psConstMax,
+                   kSunCascadeRegister, constants, kSunCascadeVec4s);
 }
 
 // FXParameter.cpp's sparse-matrix fast path uploads bone rows through vslot +0x38.

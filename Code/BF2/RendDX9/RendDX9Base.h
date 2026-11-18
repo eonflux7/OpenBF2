@@ -699,15 +699,12 @@ void rendererHdrReleaseSurface();
 // [RENDER] Depth prepass: before the world queues are
 // drawn, terrain and every opaque Ra entry whose effect has the technique "RaDepthPrepass" draw
 // their linear view depth into a single-sample R32F target (0 where nothing was drawn). The
-// texture stays bound to sampler s15 for the rest of the frame. The sun shadow mask built from it
-// (A8R8G8B8: .r = cascade sun visibility, .g = the cascades' weight against baked sunlight,
-// .b = the surface's N.L) is bound to s14 until rendererDepthPrepassEndWorldPass, which binds a 1x1
-// (1, 0, 0) texture so the first-person passes and every other view keep their baked sunlight.
-// Samplers s14 and s15 are reserved for these renderer frame resources: no effect may use them for
+// texture stays bound to sampler s15 for the rest of the frame. Before the prepass the sun cascades
+// render (s13) and their constants are published (rendererSetSunCascadeConstants); the lit shaders
+// sample the cascades themselves. rendererDepthPrepassEndWorldPass zeroes the constants, so the
+// first-person passes and every other view keep their baked sunlight.
+// Samplers s13 and s15 are reserved for these renderer frame resources: no effect may use them for
 // anything else.
-// s13 is reserved likewise for the sun shadow atlas (rendererSunShadowsRender), and s12 for the
-// prepass's second target, the surfaces' world normals (A2R10G10B10, n * 0.5 + 0.5), which the
-// prepass techniques write to COLOR1.
 void rendererDepthPrepass(bool drawTerrain, float time);
 void rendererDepthPrepassEndWorldPass();
 void rendererDepthPrepassRelease();
@@ -755,12 +752,19 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
                                    const ShadowCascadeCull& cull);
 
 // [RENDER] Sun cascaded shadow maps (SunShadows.cpp). Run from the
-// depth prepass, before the mask: submits the casters in the cascades' light volume, renders four
-// cascades into an R32F atlas (light depth; the atlas is bound to the reserved sampler s13), and
-// fills the RaShadowMask constants. Returns false when nothing was rendered (the mask then stays lit).
-bool rendererSunShadowsRender(float time, float* maskConstants /* kSunShadowMaskVec4s float4s */);
+// depth prepass: submits the casters in the cascades' light volume, renders four cascades into an
+// R32F atlas (light depth; the atlas is bound to the reserved sampler s13), and fills the cascade
+// rows of RASM. Returns false when nothing was rendered (nothing is then covered: baked sunlight).
+bool rendererSunShadowsRender(float time, float* constants /* kSunCascadeVec4s float4s */);
 void rendererSunShadowsRelease();
-const unsigned int kSunShadowMaskVec4s = 22;
+// RASM, the sun cascade constants: 22 float4s, laid out in RaSunShadow.fxh. Pixel shaders read them
+// from the fixed registers c200..c221, which the engine owns: it writes them once per frame
+// (rendererSetSunCascadeConstants) and the StateManager drops every effect's write into the range,
+// so no effect uploads them per draw.
+const unsigned int kSunCascadeVec4s = 22;
+const unsigned int kSunCascadeRegister = 200;
+// Writes RASM to pixel registers kSunCascadeRegister.. through the StateManager's mirror.
+void stateManagerSetSunCascadeConstants(const float* constants);
 // The sun shadow tuning, read each frame: the renderer.sunShadow* console variables
 // (RendererConsole.cpp), which clamp to their ranges. A new resolution re-creates the atlas.
 struct SunShadowSettings
@@ -778,15 +782,12 @@ unsigned int sunShadowCascadeDraws(unsigned int cascade);   // draw calls, last 
 // The help line of a fork console variable (renderer.<name>), or 0. For the debug menu; retail
 // console objects carry no help.
 const char* rendererVariableHelp(const char* name);
-// This frame's RASM (kSunShadowMaskVec4s float4s) while the main world pass draws, all zero
-// otherwise (nothing covered: baked sunlight). RaShader::begin sets it on every Ra effect with a
-// parameter of semantic RASM, so receivers without prepass depth (water) sample the cascades.
-const float* rendererSunMaskConstants();
 // [RENDER] Sets the particle lighting parameters on a particle effect (Particles, Trail,
 // NonScreenAlignedParticles, MeshParticleMesh) by semantic: RaSunColor and RaSkyColor (the level's
 // one sun and sky, Lightmanager.staticSunColor / staticSkyColor as authored), RaSunDirection
-// (unit, toward the sun), RASM (above) and RaSunCascadeAtlas, the cascade atlas as a texture
-// parameter: particles sample it in the vertex shader, where the reserved s13 does not reach.
+// (unit, toward the sun), RASM and RaSunCascadeAtlas. Particles sample the cascades in the vertex
+// shader, where neither the fixed pixel registers nor s13 reach, so RASM is an effect parameter here
+// (zero outside the main world pass) and the atlas a texture parameter.
 // Also RaSoftParticles (soft particles): .x 1 / softParticleDistance while the main world pass
 // draws over this frame's prepass depth (s15), else 0 (no fade); .zw 1 / the depth target's size.
 void rendererBindParticleLighting(void* effect);
