@@ -17,9 +17,7 @@ void uiLayerPresented();     // after Present returns: the overlay's frame timin
 void uiLayerDeviceLost();    // before the device is reset: releases the UI's device objects
 void uiLayerShutdown();      // before the device is released: the layer goes, the window is restored
 
-IRendererUi* uiLayerInterface();
-// The layer draws the console window instead of the retail console (Renderer::slot_0x58).
-bool uiLayerDrawsConsole();   // what Renderer::queryInterface(IID_IRendererUi) answers
+IRendererUi* uiLayerInterface();   // what Renderer::queryInterface(IID_IRendererUi) answers
 
 int  uiLayerGetMenuKey();          // renderer.uiMenuKey: the Win32 virtual-key code toggling the menu
 void uiLayerSetMenuKey(int key);

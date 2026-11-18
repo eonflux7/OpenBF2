@@ -413,7 +413,7 @@ public:
     virtual IRenderView* getRenderViewDup();                    // +0x50
                                                                 //        (ICF-folded twin of +0x48)
     virtual unsigned int getFrameOrdinal();                      // +0x54
-    // Draws the open in-game console.
+    // Drew the open in-game console; empty since the fork's console window replaced it.
     virtual void slot_0x58();
     virtual bool slot_0x5C(const std::string& name, void* bitmap, bool reupload,
                            bool alphaToGrey, unsigned int* width,
@@ -2993,16 +2993,8 @@ bool Renderer::renderFrame(double time, float deltaTime)
             if (sw(1706))
                 drawStateStatisticsOverlay();
 
-            // Query console activation through its typed interface before drawing the overlay.
-            {
-                io::OldConsole* const con = reinterpret_cast<io::OldConsole*>(
-                    ::dice::hfe::mainConsole);
-                const bool consoleOpen = con->getConsoleActive();
-                // [UI] The console window (UiConsole.cpp) replaces the retail drawing once the UI
-                // layer exists (docs/eon64/ui.md step 4).
-                if (consoleOpen && sw(1716) && !dx9rend::uiLayerDrawsConsole())
-                    slot_0x58();
-            }
+            // [UI] Retail drew the open console here (slot_0x58); the fork's console window
+            // (UiConsole.cpp) draws it at Present (docs/eon64/ui.md step 4).
 
             if (isMultisampleActive())                                             // 0x10030AE7
                 static_cast<RendDX9Base*>(g_rendererBase)->device->SetDepthStencilSurface(
@@ -6205,67 +6197,12 @@ unsigned int Renderer::getFrameOrdinal()
 }
 
 
-} // namespace dx9rend - reopened below: the four console-object seams are geom's
-
-namespace geom {
-// FontSystem/FontSystem.cpp and OverlayTexture.cpp - typed virtual forwards onto the two console
-// objects initializeFontAndConsoleOverlay created (held here as IBase*, as createInstance returned).
-int  fontPortedGetHeight(IBase* font);                                            // Font::Ported +0x1C
-void fontPortedDrawText(IBase* font, float x, float y, const std::string& text);  // Font::Ported +0x18
-void overlayTextureSetSize(IBase* overlay, const Vec2& size);                      // OverlayTexture +0x18
-void overlayTextureDraw(IBase* overlay);                                           // OverlayTexture +0x10
-} // namespace geom
-
-namespace dx9rend {
-
-
-// PE 0x1002E2D0: draw the last 20 console lines, including the current prompt, over a full-width background.
-// Re-read font height per line and restore statistics before destroying the line vector.
-// Compat strings use the VC7.1 CRT; their vector storage uses the engine heap.
-// [CHOSEN, not recovered] native lines are copied to std::string at the font boundary.
+// PE 0x1002E2D0 drew the open console: the last 20 lines over a full-width background.
+// [UI] Deleted: the fork's console window (UiConsole.cpp, docs/eon64/ui.md step 4) draws the
+// console. The slot stays for the retail vtable layout; nothing calls it.
 void Renderer::slot_0x58()
 {
-    const unsigned char statsWere = statsSwapEnabled(0);
-
-    std::vector<std::string> lines;
-    reinterpret_cast<io::Console*>(::dice::hfe::mainConsole)->getLines(20, lines);
-    const unsigned int lineCount = static_cast<unsigned int>(lines.size());
-
-    IBase* const font    = static_cast<IBase*>(m_consoleFont);                  // +0x5CC
-    IBase* const overlay = static_cast<IBase*>(m_consoleOverlay);               // +0x5C8
-
-    const int fontHeight = geom::fontPortedGetHeight(font);
-    const float consoleHeight =
-        (static_cast<float>(fontHeight) + 1.0f) * static_cast<float>(lineCount) + 4.0f;
-
-    Vec2 overlaySize;
-    overlaySize.x = 1.0f;
-    overlaySize.y = consoleHeight / getRenderView()->getViewport()[3];
-    geom::overlayTextureSetSize(overlay, overlaySize);
-    geom::overlayTextureDraw(overlay);
-
-    // [CHOSEN] one-shot diagnostic, NOT in retail: proves on a live run that the console draw ran.
-    static bool s_firstDrawLogged = false;
-    if (!s_firstDrawLogged)
-    {
-        s_firstDrawLogged = true;
-        ::renddx9abi::logf("Renderer::slot_0x58 (console draw): first call - %u console lines, "
-                           "line height %d, background %.1f px", lineCount, fontHeight,
-                           static_cast<double>(consoleHeight));
-    }
-
-    int line = 0;
-    for (std::vector<std::string>::const_iterator it = lines.begin(); it != lines.end();
-         ++it, ++line)
-    {
-        const std::string text = ::renddx9abi::fromHostString(*it);
-        const int height = geom::fontPortedGetHeight(font);                    // re-read per line
-        geom::fontPortedDrawText(font, 2.0f, static_cast<float>((height + 1) * line + 2), text);
-    }
-
-    statsSwapEnabled(statsWere);
-
-}   // native: ~vector<std::string>
+}
 
 // PE 0x10005010, slot +0x5C (`retn 18h`, AL = 1 on every exit): copy the named texture's top
 // level into the GDI bitmap `bitmap` (an HBITMAP): a scratch A8R8G8B8 surface of the bitmap's size

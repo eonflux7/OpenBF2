@@ -289,11 +289,6 @@ IRendererUi* uiLayerInterface()
     return &g_rendererUi;
 }
 
-bool uiLayerDrawsConsole()
-{
-    return g_context != 0;
-}
-
 int uiLayerGetMenuKey()
 {
     return g_menuKey;

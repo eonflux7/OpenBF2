@@ -18,9 +18,9 @@ The `ui` lane: in-game UI this fork owns, built on Dear ImGui (1.92.9, vendored 
 | Step | Commit scope | Status |
 |---|---|---|
 | 1. ImGui layer | `ui(imgui)` | Accepted (`71545137`, `f4a7fd65`, `6604b184`) |
-| 2. Sun shadow tuning as console variables (lane `render`, before step 3) | `render(csm)` | Built, not yet seen in game |
-| 3. Debug menu and performance overlay | `ui(debug)` | Built, not yet seen in game |
-| 4. Console frontend | `ui(console)` | Built, not yet seen in game |
+| 2. Sun shadow tuning as console variables (lane `render`, before step 3) | `render(csm)` | Accepted (`2e605f93`) |
+| 3. Debug menu and performance overlay | `ui(debug)` | Accepted (`ae0ee355`, `d9086de0`, `4b10dea9`) |
+| 4. Console frontend | `ui(console)` | Accepted (`cfc56237`); retail drawing deleted |
 
 ### 1. ImGui layer
 
@@ -130,5 +130,4 @@ object registry.
 - `renderer.drawConsole` gated only the retail drawing; the window does not read it.
 
 Command parsing, `.con` scripts, rcon and Python's console calls do not change. The retail
-console drawing (`slot_0x58`, which still draws when the layer could not be created) is deleted
-when the step is accepted.
+console drawing (`Renderer::slot_0x58`) is deleted; the slot stays empty for the vtable layout.
