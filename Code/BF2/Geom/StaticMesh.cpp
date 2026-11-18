@@ -110,6 +110,110 @@ extern IBase*        g_Terrain;            // ModuleGeom.cpp, dword_1024B930
 // init resets to 1 on every map.
 const float kStaticMeshLodDistanceScale = 3.0f;
 
+// [RENDER] Step 8 LOD crossfade: within kStaticMeshLodCrossfadeBand of a switch distance (a fraction
+// of it, either side) a static mesh draws both LODs, each keeping its share of a screen-space 4x4
+// Bayer pattern (RaLodDither, kLodDitherRegister), so the switch dissolves across the band instead
+// of popping. The selected LOD is still the one on the camera's side of the switch. Shadow casters,
+// roads and water draw the selected LOD alone.
+namespace {
+const float kStaticMeshLodCrossfadeBand = 0.1f;
+
+struct StaticMeshLodCrossfade
+{
+    int   other;                // the LOD drawn beside the selected one, -1 for none
+    float selectedDither[2];    // RaLodDither.xy of each
+    float otherDither[2];
+};
+
+// switchDistances[k] times scale is where LOD k gives way to LOD k + 1; selected is the LOD the
+// draw chose at lodDistance by the same products.
+StaticMeshLodCrossfade staticMeshLodCrossfade(const float* switchDistances, int count, float scale,
+                                              float lodDistance, int selected)
+{
+    StaticMeshLodCrossfade result = { -1, { 0.0f, 1.0f }, { 0.0f, 1.0f } };
+    for (int k = 0; k < count; ++k)
+    {
+        const float s = scale * switchDistances[k];
+        const float half = kStaticMeshLodCrossfadeBand * s;
+        if (!(half > 0.0f) || !(std::fabs(lodDistance - s) < half))
+            continue;
+        if (selected != k && selected != k + 1)
+            break;
+        // The coarser LOD's share, 0 at the near edge of the band and 1 at the far edge. The finer
+        // keeps the pixels whose threshold is at least t, the coarser the rest.
+        const float t = (lodDistance - (s - half)) / (half + half);
+        const float fine[2] = { 1.0f, -t };
+        const float coarse[2] = { -1.0f, t };
+        const bool coarseSelected = selected == k + 1;
+        result.other = coarseSelected ? k : k + 1;
+        result.selectedDither[0] = coarseSelected ? coarse[0] : fine[0];
+        result.selectedDither[1] = coarseSelected ? coarse[1] : fine[1];
+        result.otherDither[0] = coarseSelected ? fine[0] : coarse[0];
+        result.otherDither[1] = coarseSelected ? fine[1] : coarse[1];
+        break;
+    }
+    return result;
+}
+
+int staticMeshLodPassCount(const StaticMeshLodCrossfade& crossfade)
+{
+    return crossfade.other >= 0 ? 2 : 1;
+}
+
+// One pass of a draw's material submission. Every entry acquired during it carries the pass's
+// RaLodDither. Pass 1 switches the mesh to the crossfade's other LOD and its lightmap, and restores
+// the selected LOD and lightmap when it ends.
+class StaticMeshLodPass
+{
+public:
+    StaticMeshLodPass(StaticMesh& mesh, const StaticMeshLodCrossfade& crossfade, int pass)
+        : m_mesh(mesh), m_switched(pass != 0),
+          m_selected(static_cast<int>(mesh.m_dword318)), m_lightmap(mesh.m_dword26C),
+          m_offset0(mesh.m_float270), m_offset1(mesh.m_float274),
+          m_offset2(mesh.m_dword278), m_offset3(mesh.m_dword27C)
+    {
+        const float* const dither = pass != 0 ? crossfade.otherDither : crossfade.selectedDither;
+        dx9rend::renderEntryPoolSetLodDither(dither[0], dither[1]);
+        if (!m_switched)
+            return;
+        setLod(crossfade.other);
+        if (!m_mesh.m_dword26C && !m_mesh.m_byte35A)
+            m_mesh.loadLightmap();
+    }
+    ~StaticMeshLodPass()
+    {
+        dx9rend::renderEntryPoolSetLodDither(0.0f, 1.0f);
+        if (!m_switched)
+            return;
+        setLod(m_selected);
+        m_mesh.m_dword26C = m_lightmap;
+        m_mesh.m_float270 = m_offset0;
+        m_mesh.m_float274 = m_offset1;
+        m_mesh.m_dword278 = m_offset2;
+        m_mesh.m_dword27C = m_offset3;
+    }
+private:
+    void setLod(int lod)
+    {
+        typedef void (__thiscall* SetLodFn)(void*, int);
+        reinterpret_cast<SetLodFn>(m_mesh.m_vptr[0x78 / 4])(&m_mesh, lod);
+        m_mesh.m_byte357 = 0;   // as the draw's own selection: chosen, not forced
+    }
+
+    StaticMeshLodPass(const StaticMeshLodPass&);
+    StaticMeshLodPass& operator=(const StaticMeshLodPass&);
+
+    StaticMesh&  m_mesh;
+    bool         m_switched;
+    int          m_selected;
+    uintptr_t    m_lightmap;
+    float        m_offset0;
+    float        m_offset1;
+    unsigned int m_offset2;
+    unsigned int m_offset3;
+};
+}
+
 namespace {
 
 
@@ -2061,6 +2165,7 @@ void StaticMesh::drawVanilla()
     *reinterpret_cast<float*>(&op.tail220)  = distance;
 
     // 3. lod selection
+    StaticMeshLodCrossfade crossfade = { -1, { 0.0f, 1.0f }, { 0.0f, 1.0f } };
     if (!m_byte357)
     {
         const float radius = m_geomRadii.data()[m_dword314];
@@ -2095,6 +2200,13 @@ void StaticMesh::drawVanilla()
                 [t, geom](int lod) { return t->getPrimitiveCount(static_cast<int>(geom), lod, -1); });
         }
 
+        // [RENDER] Step 8: the LOD crossfade.
+        if (!t->m_isRoad && !t->m_isWater && !dx9rend::rendererCasterCaptureActive())
+            crossfade = staticMeshLodCrossfade(t->m_geoms[m_dword314].lodDistances.data(),
+                static_cast<int>(m_geomLodDistanceCounts.data()[m_dword314]),
+                rendererFloat(0x8B0) * rendererFloat(0x84C) * kStaticMeshLodDistanceScale,
+                lodDistance, selected);
+
         if (selected != static_cast<int>(m_dword318))
         {
             typedef void (__thiscall* SetLodFn)(void*, int);
@@ -2107,6 +2219,7 @@ void StaticMesh::drawVanilla()
         typedef void (__thiscall* SetLodFn)(void*, int);
         reinterpret_cast<SetLodFn>(m_vptr[0x78 / 4])(this, 0);
         m_byte357 = 0;
+        crossfade.other = -1;
     }
 
     // 4. the lightmap, the view, the parameters
@@ -2182,239 +2295,243 @@ void StaticMesh::drawVanilla()
         }
     }
 
-    // 7. the materials
-    if (!m_byte356)
+    // 7. the materials. [RENDER] Step 8: once per LOD drawn (StaticMeshLodPass).
+    for (int lodPass = 0; lodPass < staticMeshLodPassCount(crossfade); ++lodPass)
     {
-        // [RENDER] Step 8: the shader quality is the renderer's, at every distance. Retail could
-        // raise it by a distance bucket (+0x708 / +0x70C) or key it to the LOD index (+0x6D0).
-        const unsigned int qualityMask = g_staticMeshQualityMasks.data()[rendererDword(0x6CC)];
-
-        StaticMeshMaterial* const materialsFirst =
-            m_dword310->data();
-        const unsigned int materialCount = materialsFirst
-            ? static_cast<unsigned int>(
-                  (m_dword310->data() + m_dword310->size()) - materialsFirst)
-            : 0u;
-
-        for (unsigned int i = 0; i < materialCount; ++i)
+        const StaticMeshLodPass pass(*this, crossfade, lodPass);
+        if (!m_byte356)
         {
-            m_dword31C = i;
-            StaticMeshMaterial* const material =
-                m_dword310->data() + i;
+            // [RENDER] Step 8: the shader quality is the renderer's, at every distance. Retail could
+            // raise it by a distance bucket (+0x708 / +0x70C) or key it to the LOD index (+0x6D0).
+            const unsigned int qualityMask = g_staticMeshQualityMasks.data()[rendererDword(0x6CC)];
 
-            if (smr->m_flags60[0])
+            StaticMeshMaterial* const materialsFirst =
+                m_dword310->data();
+            const unsigned int materialCount = materialsFirst
+                ? static_cast<unsigned int>(
+                      (m_dword310->data() + m_dword310->size()) - materialsFirst)
+                : 0u;
+
+            for (unsigned int i = 0; i < materialCount; ++i)
             {
-                StaticMeshBoundsCorners corners(material->m_bounds, *m_transform);   // +0x198
-                const Frustum* const frustum =
-                    dx9rend::rendererSubmitCullFrustum();   // [RENDER] submission context; retail +0x50, +0x74
-                if (corners.outside(*frustum))
+                m_dword31C = i;
+                StaticMeshMaterial* const material =
+                    m_dword310->data() + i;
+
+                if (smr->m_flags60[0])
                 {
-                    ++smr->m_culledMaterials;
-                    continue;
-                }
-            }
-
-            dx9rend::RenderQueueEntry* const entry = dx9rend::renderEntryPoolAcquire();
-            entry->materialParameters = material->m_parameters;              // +0x2C
-            entry->material           = material;
-            entry->objectParameters   = &op;
-
-            dx9rend::Ra::RaLightRecord* const sun =
-                static_cast<dx9rend::Ra::RaLightRecord*>(entry->lightArray.lights.value);
-            {
-                const Vec3& sunColor = g_LightManager->getStaticSunColor();      // +0x1D8
-                sun->color[0] = sunColor.x;
-                sun->color[1] = sunColor.y;
-                sun->color[2] = sunColor.z;
-                sun->direction[0] = sunDirection[0];
-                sun->direction[1] = sunDirection[1];
-                sun->direction[2] = sunDirection[2];
-            }
-
-            if (t->m_isWater && g_Terrain && m_dword26C)
-            {
-                // the water arm
-                std::memcpy(op.world.value, m_transform->m, sizeof(op.world.value));
-                std::memcpy(op.viewProjection.value,
-                            dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
-                            sizeof(op.viewProjection.value));
-                dx9rend::EngineTexture* const lightmap =
-                    reinterpret_cast<dx9rend::EngineTexture*>(m_dword26C);
-                if (lightmap)
-                {
-                    staticMeshSwapD3DTexture(entry->lighting.lightMap.value, lightmap->baseTexture);
-                    staticMeshStoreLightMapOffset(entry, this);
-                }
-
-                const Terrain* const terrain = static_cast<const Terrain*>(g_Terrain);
-                dx9rend::Ra::RaShader* const nearShader = terrain->m_waterDistantTechnique;   // +0x718
-                dx9rend::Ra::RaShader* const farShader  = terrain->m_waterDistantTechnique2;  // +0x71C
-                const float threshold = terrain->m_waterTechniqueMargin;                      // +0x70C
-                MeshBounds* const bounds = &m_dword30C->bounds;
-                if (bounds->dirty)
-                    meshBoundsFinalize(*bounds);
-                float waterDistance;
-                std::memcpy(&waterDistance, &m_dword288, sizeof(waterDistance));
-#if defined(__APPLE__)
-                // [CHOSEN, not recovered] Retain the FSub intermediate through the comparison.
-                const bool farWater = bf2x87::greater(bf2x87::sub(bf2x87::wide(waterDistance),
-                    bf2x87::wide(bounds->radius)), bf2x87::wide(threshold));
-#else
-                const bool farWater = waterDistance - bounds->radius > threshold;
-#endif
-                // The shipped FCOM branch selects the near shader for unordered values too.
-                staticMeshMaterialShader(material) =
-                    farWater ? farShader : nearShader;
-
-                // The material block's CubeMap holder (material + 0x148 / +0x14C): the terrain's
-                // +0x6C0 object's texture, else the LightManager's cube at its +0x248.
-                if (!staticMeshMaterialCubeMap(material))
-                {
-                    const TerrainEnvMapRecord* const terrainCube =
-                        static_cast<const Terrain*>(g_Terrain)->m_waterEnvMap; // +0x6C0, fresh owner
-                    dx9rend::EngineTexture* const cube = terrainCube
-                        ? static_cast<dx9rend::EngineTexture*>(terrainCube->texture)    // +0x10
-                        : lightManagerBlackCubeTexture(g_LightManager);                  // +0x248
-                    holderSetTexture(staticMeshMaterialParameters(material).cubeMap, cube);
-                }
-                entry->shader = staticMeshMaterialShader(material);
-                dx9rend::renderQueueAddToSlot(9, entry);                         // RSMTWater, +0x28
-            }
-            else if (t->m_isRoad)
-            {
-                // the road arm
-                std::memcpy(op.world.value, m_transform->m, sizeof(op.world.value));
-                std::memcpy(op.viewProjection.value,
-                            dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
-                            sizeof(op.viewProjection.value));
-                dx9rend::EngineTexture* const scratch =
-                    dx9rend::rendererGetHemiScratchTexture();                    // Renderer +0x774
-                if (scratch)
-                    staticMeshSwapD3DTexture(entry->lighting.lightMap.value, scratch->baseTexture);
-
-                dx9rend::Ra::RaShader* shader;
-                // DetailMap.value: material +0xF0, parameter block +0xC4.
-                if (staticMeshMaterialParameters(material).detailMap.value == 0)
-                    shader = staticMeshFindShaderBits(0xF1000000u);
-                else if (t->m_roadNoBlend)
-                    shader = staticMeshFindShaderBits(0xF4000000u);
-                else
-                    shader = staticMeshFindShaderBits(0xF2000000u);
-                staticMeshMaterialShader(material) = shader;
-                entry->shader = shader;
-                dx9rend::renderQueueAddToSlot(8, entry);                         // RSMTRoad, +0x24
-            }
-            else
-            {
-                // the ordinary arm
-                const unsigned int bits = materialShaderBits(material, false);
-                if (!t->m_isVegetation)
-                {
-                    staticMeshMaterialShader(material) = staticMeshFindShaderBits(qualityMask & bits);
-                }
-                else if (material->m_vegetationNonTiled)                       // +0x1EC
-                {
-                    const float f = m_float25C;
-                    // [RENDER] One sun: trees take the static sun (retail: treeSunColor, +0x1C8)
-                    const Vec3& treeSun = g_LightManager->getStaticSunColor();
-                    const float sx = f * treeSun.x;
-                    const float sy = f * treeSun.y;
-                    const float sz = f * treeSun.z;
-                    sun->color[2] = sz * f;
-                    sun->color[0] = sx * f;
-                    sun->color[1] = sy * f;
-                    staticMeshMaterialShader(material) = staticMeshFindShaderBits(
-                        qualityMask & 0xF0000000u);
-
-                    const Vec3& ambient = g_LightManager->getTreeAmbientColor();  // +0x40
-                    const float scaled[3] = { f * ambient.x, f * ambient.y, f * ambient.z };
-                    const float* const packed = staticMeshPackVec4(scaled, 1.0f);
-                    entry->lighting.overGrowthAmbient.value[0] = packed[0];
-                    entry->lighting.overGrowthAmbient.value[1] = packed[1];
-                    entry->lighting.overGrowthAmbient.value[2] = packed[2];
-                    entry->lighting.overGrowthAmbient.value[3] = packed[3];
-
-                    IBase* const found =
-                        classManager->getSingleton(renddx9abi::HostString("WindManager"));
-                    world::WindManager* const wind =
-                        static_cast<world::WindManager*>(static_cast<void*>(found));
-                    op.windSpeed.value = wind->getWindSpeed(
-                        *reinterpret_cast<const Vec3*>(&m_transform->m[12]));     // +0x30
-                    std::memcpy(op.world.value, m_transform->m, sizeof(op.world.value));
-                }
-                else
-                {
-                    const unsigned int key = (bits & 4u) ? 0xF9000000u : 0xFA000000u;
-                    staticMeshMaterialShader(material) = staticMeshFindShaderBits(qualityMask & key);
-
-                    const float f2 = m_float25C * m_float25C;
-                    sun->color[0] *= f2;
-                    sun->color[1] *= f2;
-                    sun->color[2] *= f2;
-                    sun->scaled24 *= f2;
-
-                    const Vec3& skyColor = g_LightManager->getStaticSkyColor();   // +0x1E8
-                    const float f = m_float25C;
-                    const float scaled[3] = { f * skyColor.x, f * skyColor.y, f * skyColor.z };
-                    const float* const packed = staticMeshPackVec4(scaled, 1.0f);
-                    entry->lighting.overGrowthAmbient.value[0] = packed[0];
-                    entry->lighting.overGrowthAmbient.value[1] = packed[1];
-                    entry->lighting.overGrowthAmbient.value[2] = packed[2];
-                    entry->lighting.overGrowthAmbient.value[3] = packed[3];
-                }
-
-                dx9rend::EngineTexture* const lightmap =
-                    reinterpret_cast<dx9rend::EngineTexture*>(m_dword26C);
-                if (lightmap && (bits & 1u) != 0)
-                {
-                    staticMeshSwapD3DTexture(entry->lighting.lightMap.value, lightmap->baseTexture);
-                    staticMeshStoreLightMapOffset(entry, this);
-                }
-
-                entry->shader = staticMeshMaterialShader(material);
-                dx9rend::renderQueueEnqueue(entry, transparent, false, false);
-
-                if (m_byte354)
-                {
-                    // the point-light pass: one entry per gathered light
-                    dx9rend::Ra::RaShader* pointShader;
-                    if (material->m_vegetationNonTiled)                        // +0x1EC
+                    StaticMeshBoundsCorners corners(material->m_bounds, *m_transform);   // +0x198
+                    const Frustum* const frustum =
+                        dx9rend::rendererSubmitCullFrustum();   // [RENDER] submission context; retail +0x50, +0x74
+                    if (corners.outside(*frustum))
                     {
-                        pointShader = staticMeshFindShaderBits(0xF0000400u);
+                        ++smr->m_culledMaterials;
+                        continue;
+                    }
+                }
+
+                dx9rend::RenderQueueEntry* const entry = dx9rend::renderEntryPoolAcquire();
+                entry->materialParameters = material->m_parameters;              // +0x2C
+                entry->material           = material;
+                entry->objectParameters   = &op;
+
+                dx9rend::Ra::RaLightRecord* const sun =
+                    static_cast<dx9rend::Ra::RaLightRecord*>(entry->lightArray.lights.value);
+                {
+                    const Vec3& sunColor = g_LightManager->getStaticSunColor();      // +0x1D8
+                    sun->color[0] = sunColor.x;
+                    sun->color[1] = sunColor.y;
+                    sun->color[2] = sunColor.z;
+                    sun->direction[0] = sunDirection[0];
+                    sun->direction[1] = sunDirection[1];
+                    sun->direction[2] = sunDirection[2];
+                }
+
+                if (t->m_isWater && g_Terrain && m_dword26C)
+                {
+                    // the water arm
+                    std::memcpy(op.world.value, m_transform->m, sizeof(op.world.value));
+                    std::memcpy(op.viewProjection.value,
+                                dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
+                                sizeof(op.viewProjection.value));
+                    dx9rend::EngineTexture* const lightmap =
+                        reinterpret_cast<dx9rend::EngineTexture*>(m_dword26C);
+                    if (lightmap)
+                    {
+                        staticMeshSwapD3DTexture(entry->lighting.lightMap.value, lightmap->baseTexture);
+                        staticMeshStoreLightMapOffset(entry, this);
+                    }
+
+                    const Terrain* const terrain = static_cast<const Terrain*>(g_Terrain);
+                    dx9rend::Ra::RaShader* const nearShader = terrain->m_waterDistantTechnique;   // +0x718
+                    dx9rend::Ra::RaShader* const farShader  = terrain->m_waterDistantTechnique2;  // +0x71C
+                    const float threshold = terrain->m_waterTechniqueMargin;                      // +0x70C
+                    MeshBounds* const bounds = &m_dword30C->bounds;
+                    if (bounds->dirty)
+                        meshBoundsFinalize(*bounds);
+                    float waterDistance;
+                    std::memcpy(&waterDistance, &m_dword288, sizeof(waterDistance));
+    #if defined(__APPLE__)
+                    // [CHOSEN, not recovered] Retain the FSub intermediate through the comparison.
+                    const bool farWater = bf2x87::greater(bf2x87::sub(bf2x87::wide(waterDistance),
+                        bf2x87::wide(bounds->radius)), bf2x87::wide(threshold));
+    #else
+                    const bool farWater = waterDistance - bounds->radius > threshold;
+    #endif
+                    // The shipped FCOM branch selects the near shader for unordered values too.
+                    staticMeshMaterialShader(material) =
+                        farWater ? farShader : nearShader;
+
+                    // The material block's CubeMap holder (material + 0x148 / +0x14C): the terrain's
+                    // +0x6C0 object's texture, else the LightManager's cube at its +0x248.
+                    if (!staticMeshMaterialCubeMap(material))
+                    {
+                        const TerrainEnvMapRecord* const terrainCube =
+                            static_cast<const Terrain*>(g_Terrain)->m_waterEnvMap; // +0x6C0, fresh owner
+                        dx9rend::EngineTexture* const cube = terrainCube
+                            ? static_cast<dx9rend::EngineTexture*>(terrainCube->texture)    // +0x10
+                            : lightManagerBlackCubeTexture(g_LightManager);                  // +0x248
+                        holderSetTexture(staticMeshMaterialParameters(material).cubeMap, cube);
+                    }
+                    entry->shader = staticMeshMaterialShader(material);
+                    dx9rend::renderQueueAddToSlot(9, entry);                         // RSMTWater, +0x28
+                }
+                else if (t->m_isRoad)
+                {
+                    // the road arm
+                    std::memcpy(op.world.value, m_transform->m, sizeof(op.world.value));
+                    std::memcpy(op.viewProjection.value,
+                                dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
+                                sizeof(op.viewProjection.value));
+                    dx9rend::EngineTexture* const scratch =
+                        dx9rend::rendererGetHemiScratchTexture();                    // Renderer +0x774
+                    if (scratch)
+                        staticMeshSwapD3DTexture(entry->lighting.lightMap.value, scratch->baseTexture);
+
+                    dx9rend::Ra::RaShader* shader;
+                    // DetailMap.value: material +0xF0, parameter block +0xC4.
+                    if (staticMeshMaterialParameters(material).detailMap.value == 0)
+                        shader = staticMeshFindShaderBits(0xF1000000u);
+                    else if (t->m_roadNoBlend)
+                        shader = staticMeshFindShaderBits(0xF4000000u);
+                    else
+                        shader = staticMeshFindShaderBits(0xF2000000u);
+                    staticMeshMaterialShader(material) = shader;
+                    entry->shader = shader;
+                    dx9rend::renderQueueAddToSlot(8, entry);                         // RSMTRoad, +0x24
+                }
+                else
+                {
+                    // the ordinary arm
+                    const unsigned int bits = materialShaderBits(material, false);
+                    if (!t->m_isVegetation)
+                    {
+                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(qualityMask & bits);
+                    }
+                    else if (material->m_vegetationNonTiled)                       // +0x1EC
+                    {
+                        const float f = m_float25C;
+                        // [RENDER] One sun: trees take the static sun (retail: treeSunColor, +0x1C8)
+                        const Vec3& treeSun = g_LightManager->getStaticSunColor();
+                        const float sx = f * treeSun.x;
+                        const float sy = f * treeSun.y;
+                        const float sz = f * treeSun.z;
+                        sun->color[2] = sz * f;
+                        sun->color[0] = sx * f;
+                        sun->color[1] = sy * f;
+                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(
+                            qualityMask & 0xF0000000u);
+
+                        const Vec3& ambient = g_LightManager->getTreeAmbientColor();  // +0x40
+                        const float scaled[3] = { f * ambient.x, f * ambient.y, f * ambient.z };
+                        const float* const packed = staticMeshPackVec4(scaled, 1.0f);
+                        entry->lighting.overGrowthAmbient.value[0] = packed[0];
+                        entry->lighting.overGrowthAmbient.value[1] = packed[1];
+                        entry->lighting.overGrowthAmbient.value[2] = packed[2];
+                        entry->lighting.overGrowthAmbient.value[3] = packed[3];
+
+                        IBase* const found =
+                            classManager->getSingleton(renddx9abi::HostString("WindManager"));
+                        world::WindManager* const wind =
+                            static_cast<world::WindManager*>(static_cast<void*>(found));
+                        op.windSpeed.value = wind->getWindSpeed(
+                            *reinterpret_cast<const Vec3*>(&m_transform->m[12]));     // +0x30
+                        std::memcpy(op.world.value, m_transform->m, sizeof(op.world.value));
                     }
                     else
                     {
-                        const ShaderMaterial* const shaderMaterial = material->m_shaderMaterial;
-                        unsigned int pointBits = g_shaderComboFlags[shaderMaterial->shaderCombo];
-                        typedef unsigned int (__thiscall* GetFlagsFn)(const void*);
-                        if ((reinterpret_cast<GetFlagsFn>(m_vptr[0xC4 / 4])(this)
-                             & 1u) != 0)
-                            pointBits &= ~8u;
-                        pointBits |= 0x400u;
-                        if (material->m_alphaMode == 2u)                       // +0x17C
-                            pointBits |= 0x800u;
-                        pointShader = staticMeshFindShaderBits(qualityMask & pointBits);
+                        const unsigned int key = (bits & 4u) ? 0xF9000000u : 0xFA000000u;
+                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(qualityMask & key);
+
+                        const float f2 = m_float25C * m_float25C;
+                        sun->color[0] *= f2;
+                        sun->color[1] *= f2;
+                        sun->color[2] *= f2;
+                        sun->scaled24 *= f2;
+
+                        const Vec3& skyColor = g_LightManager->getStaticSkyColor();   // +0x1E8
+                        const float f = m_float25C;
+                        const float scaled[3] = { f * skyColor.x, f * skyColor.y, f * skyColor.z };
+                        const float* const packed = staticMeshPackVec4(scaled, 1.0f);
+                        entry->lighting.overGrowthAmbient.value[0] = packed[0];
+                        entry->lighting.overGrowthAmbient.value[1] = packed[1];
+                        entry->lighting.overGrowthAmbient.value[2] = packed[2];
+                        entry->lighting.overGrowthAmbient.value[3] = packed[3];
                     }
-                    staticMeshMaterialShader(material) = pointShader;
 
-                    for (unsigned int k = 0; ; ++k)
+                    dx9rend::EngineTexture* const lightmap =
+                        reinterpret_cast<dx9rend::EngineTexture*>(m_dword26C);
+                    if (lightmap && (bits & 1u) != 0)
                     {
-                        const unsigned int recordCount =
-                            static_cast<unsigned int>(m_vector2E0.size());
-                        if (k >= recordCount)
-                            break;
+                        staticMeshSwapD3DTexture(entry->lighting.lightMap.value, lightmap->baseTexture);
+                        staticMeshStoreLightMapOffset(entry, this);
+                    }
 
-                        dx9rend::RenderQueueEntry* const lightEntry =
-                            dx9rend::renderEntryPoolAcquire();
-                        dx9rend::Ra::RaLightRecord* const destination =
-                            static_cast<dx9rend::Ra::RaLightRecord*>(
-                                lightEntry->lightArray.lights.value);
-                        lightEntry->material           = material;
-                        lightEntry->materialParameters = material->m_parameters;
-                        lightEntry->objectParameters   = &op;
-                        lightEntry->shader             = staticMeshMaterialShader(material);
-                        *destination = m_vector2E0[k];
-                        dx9rend::renderQueueEnqueue(lightEntry, transparent, false, true);
+                    entry->shader = staticMeshMaterialShader(material);
+                    dx9rend::renderQueueEnqueue(entry, transparent, false, false);
+
+                    if (m_byte354)
+                    {
+                        // the point-light pass: one entry per gathered light
+                        dx9rend::Ra::RaShader* pointShader;
+                        if (material->m_vegetationNonTiled)                        // +0x1EC
+                        {
+                            pointShader = staticMeshFindShaderBits(0xF0000400u);
+                        }
+                        else
+                        {
+                            const ShaderMaterial* const shaderMaterial = material->m_shaderMaterial;
+                            unsigned int pointBits = g_shaderComboFlags[shaderMaterial->shaderCombo];
+                            typedef unsigned int (__thiscall* GetFlagsFn)(const void*);
+                            if ((reinterpret_cast<GetFlagsFn>(m_vptr[0xC4 / 4])(this)
+                                 & 1u) != 0)
+                                pointBits &= ~8u;
+                            pointBits |= 0x400u;
+                            if (material->m_alphaMode == 2u)                       // +0x17C
+                                pointBits |= 0x800u;
+                            pointShader = staticMeshFindShaderBits(qualityMask & pointBits);
+                        }
+                        staticMeshMaterialShader(material) = pointShader;
+
+                        for (unsigned int k = 0; ; ++k)
+                        {
+                            const unsigned int recordCount =
+                                static_cast<unsigned int>(m_vector2E0.size());
+                            if (k >= recordCount)
+                                break;
+
+                            dx9rend::RenderQueueEntry* const lightEntry =
+                                dx9rend::renderEntryPoolAcquire();
+                            dx9rend::Ra::RaLightRecord* const destination =
+                                static_cast<dx9rend::Ra::RaLightRecord*>(
+                                    lightEntry->lightArray.lights.value);
+                            lightEntry->material           = material;
+                            lightEntry->materialParameters = material->m_parameters;
+                            lightEntry->objectParameters   = &op;
+                            lightEntry->shader             = staticMeshMaterialShader(material);
+                            *destination = m_vector2E0[k];
+                            dx9rend::renderQueueEnqueue(lightEntry, transparent, false, true);
+                        }
                     }
                 }
             }
@@ -2602,6 +2719,7 @@ void staticMeshDrawExpansion(void* self)
     std::memcpy(&op.tail220, &distance, sizeof(distance));
 
     // 3. lod selection
+    StaticMeshLodCrossfade crossfade = { -1, { 0.0f, 1.0f }, { 0.0f, 1.0f } };
     if (!mesh.m_byte357)
     {
         const float radius = mesh.m_geomRadii.data()[mesh.m_dword314];
@@ -2636,6 +2754,13 @@ void staticMeshDrawExpansion(void* self)
                 [t, geom](int lod) { return t->getPrimitiveCount(static_cast<int>(geom), lod, -1); });
         }
 
+        // [RENDER] Step 8: the LOD crossfade.
+        if (!t->m_isRoad && !t->m_isWater && !dx9rend::rendererCasterCaptureActive())
+            crossfade = staticMeshLodCrossfade(t->m_geoms[mesh.m_dword314].lodDistances.data(),
+                static_cast<int>(mesh.m_geomLodDistanceCounts.data()[mesh.m_dword314]),
+                static_cast<float>(ExpansionReal(rendererFloat(0x8B0)) * ExpansionReal(rendererFloat(0x84C)) * ExpansionReal(kStaticMeshLodDistanceScale)),
+                lodDistance, selected);
+
         if (selected != static_cast<int>(mesh.m_dword318))
         {
             typedef void (__thiscall* SetLodFn)(void*, int);
@@ -2648,6 +2773,7 @@ void staticMeshDrawExpansion(void* self)
         typedef void (__thiscall* SetLodFn)(void*, int);
         reinterpret_cast<SetLodFn>(mesh.m_vptr[0x78 / 4])(&mesh, 0);
         mesh.m_byte357 = 0;
+        crossfade.other = -1;
     }
 
     // 4. the lightmap, the view, the parameters
@@ -2697,281 +2823,254 @@ void staticMeshDrawExpansion(void* self)
         }
     }
 
-    // 7. the materials
-    if (!mesh.m_byte356)
+    // 7. the materials. [RENDER] Step 8: once per LOD drawn (StaticMeshLodPass).
+    for (int lodPass = 0; lodPass < staticMeshLodPassCount(crossfade); ++lodPass)
     {
-        // [RENDER] Step 8: the shader quality is the renderer's, at every distance. Retail could
-        // raise it by a distance bucket (+0x708 / +0x70C) or key it to the LOD index (+0x6D0).
-        const unsigned int qualityMask = g_staticMeshQualityMasks.data()[rendererDword(0x6CC)];
-
-        StaticMeshMaterial* const materialsFirst =
-            mesh.m_dword310->data();
-        const unsigned int materialCount = materialsFirst
-            ? static_cast<unsigned int>(
-                  (mesh.m_dword310->data() + mesh.m_dword310->size()) - materialsFirst)
-            : 0u;
-
-        for (unsigned int i = 0; i < materialCount; ++i)
+        const StaticMeshLodPass pass(mesh, crossfade, lodPass);
+        if (!mesh.m_byte356)
         {
-            mesh.m_dword31C = i;
-            StaticMeshMaterial* const material =
-                mesh.m_dword310->data() + i;
+            // [RENDER] Step 8: the shader quality is the renderer's, at every distance. Retail could
+            // raise it by a distance bucket (+0x708 / +0x70C) or key it to the LOD index (+0x6D0).
+            const unsigned int qualityMask = g_staticMeshQualityMasks.data()[rendererDword(0x6CC)];
 
-            if (smr->m_flags60[0])
+            StaticMeshMaterial* const materialsFirst =
+                mesh.m_dword310->data();
+            const unsigned int materialCount = materialsFirst
+                ? static_cast<unsigned int>(
+                      (mesh.m_dword310->data() + mesh.m_dword310->size()) - materialsFirst)
+                : 0u;
+
+            for (unsigned int i = 0; i < materialCount; ++i)
             {
-                StaticMeshBoundsCorners corners(material->m_bounds, *mesh.m_transform);   // +0x198
-                const Frustum* const frustum =
-                    dx9rend::rendererSubmitCullFrustum();   // [RENDER] submission context; retail +0x50, +0x74
-                if (corners.outside(*frustum))
+                mesh.m_dword31C = i;
+                StaticMeshMaterial* const material =
+                    mesh.m_dword310->data() + i;
+
+                if (smr->m_flags60[0])
                 {
-                    ++smr->m_culledMaterials;
-                    continue;
-                }
-            }
-
-            dx9rend::RenderQueueEntry* const entry = dx9rend::renderEntryPoolAcquire();
-            entry->materialParameters = material->m_parameters;              // +0x2C
-            entry->material           = material;
-            entry->objectParameters   = &op;
-
-            dx9rend::Ra::RaLightRecord* const sun =
-                static_cast<dx9rend::Ra::RaLightRecord*>(entry->lightArray.lights.value);
-            {
-                const Vec3& sunColor = g_LightManager->getStaticSunColor();      // +0x1D8
-                sun->color[0] = sunColor.x;
-                sun->color[1] = sunColor.y;
-                sun->color[2] = sunColor.z;
-                sun->direction[0] = sunDirection[0];
-                sun->direction[1] = sunDirection[1];
-                sun->direction[2] = sunDirection[2];
-            }
-
-            if (rendererByte(0x69C))
-            {
-                const Mat4* const view = dx9rend::rendererGetRenderView()->getViewMatrixPtr();
-                const float* const m = mesh.m_matrix290.m;
-                sun->position[0] = static_cast<float>(((ExpansionReal(m[8]) * ExpansionReal(view->m[14])
-                    + ExpansionReal(m[4]) * ExpansionReal(view->m[13]))
-                    + ExpansionReal(view->m[12]) * ExpansionReal(m[0])) + ExpansionReal(m[12]));
-                sun->position[1] = static_cast<float>(((ExpansionReal(m[9]) * ExpansionReal(view->m[14])
-                    + ExpansionReal(m[1]) * ExpansionReal(view->m[12]))
-                    + ExpansionReal(m[5]) * ExpansionReal(view->m[13])) + ExpansionReal(m[13]));
-                sun->position[2] = static_cast<float>(((ExpansionReal(m[10]) * ExpansionReal(view->m[14])
-                    + ExpansionReal(m[2]) * ExpansionReal(view->m[12]))
-                    + ExpansionReal(m[6]) * ExpansionReal(view->m[13])) + ExpansionReal(m[14]));
-                staticMeshMaterialParameters(material).pointSun.value = 1;
-            }
-            else
-                staticMeshMaterialParameters(material).pointSun.value = 0;
-            // [RENDER] Retail bound the point/spot shadow atlas here (TerrainLightMap, an identity
-            // matBones); the atlas is deleted and no static-mesh shader samples it.
-
-            if (t->m_isWater && g_Terrain && mesh.m_dword26C)
-            {
-                // PE 0x100FB610, inlined water arm.
-                std::memcpy(op.world.value, mesh.m_transform->m, sizeof(op.world.value));
-                std::memcpy(op.viewProjection.value,
-                            dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
-                            sizeof(op.viewProjection.value));
-                dx9rend::EngineTexture* const lightmap =
-                    reinterpret_cast<dx9rend::EngineTexture*>(mesh.m_dword26C);
-                if (lightmap)
-                {
-                    staticMeshSwapD3DTexture(entry->lighting.lightMap.value, lightmap->baseTexture);
-                    staticMeshStoreLightMapOffset(entry, &mesh);
+                    StaticMeshBoundsCorners corners(material->m_bounds, *mesh.m_transform);   // +0x198
+                    const Frustum* const frustum =
+                        dx9rend::rendererSubmitCullFrustum();   // [RENDER] submission context; retail +0x50, +0x74
+                    if (corners.outside(*frustum))
+                    {
+                        ++smr->m_culledMaterials;
+                        continue;
+                    }
                 }
 
-                const Terrain* const terrain = static_cast<const Terrain*>(g_Terrain);
-                dx9rend::Ra::RaShader* const nearShader = terrain->m_waterDistantTechnique;   // +0x718
-                dx9rend::Ra::RaShader* const farShader  = terrain->m_waterDistantTechnique2;  // +0x71C
-                const float threshold = terrain->m_waterTechniqueMargin;                      // +0x70C
-                MeshBounds* const bounds = &mesh.m_dword30C->bounds;
-                if (bounds->dirty)
-                    meshBoundsFinalize(*bounds);
-                float waterDistance;
-                std::memcpy(&waterDistance, &mesh.m_dword288, sizeof(waterDistance));
-#if defined(__APPLE__)
-                // [CHOSEN, not recovered] PE 0x100FB6D7 retains the subtraction through FCOM.
-                const bool farWater = bf2x87::greater(bf2x87::sub(bf2x87::wide(waterDistance),
-                    bf2x87::wide(bounds->radius)), bf2x87::wide(threshold));
-#else
-                const bool farWater = waterDistance - bounds->radius > threshold;
-#endif
-                staticMeshMaterialShader(material) =
-                    farWater ? farShader : nearShader;
+                dx9rend::RenderQueueEntry* const entry = dx9rend::renderEntryPoolAcquire();
+                entry->materialParameters = material->m_parameters;              // +0x2C
+                entry->material           = material;
+                entry->objectParameters   = &op;
 
-                // The material block's CubeMap holder (material + 0x148 / +0x14C): the terrain's
-                // +0x6C0 object's texture, else the LightManager's cube at its +0x248.
-                if (!staticMeshMaterialCubeMap(material))
+                dx9rend::Ra::RaLightRecord* const sun =
+                    static_cast<dx9rend::Ra::RaLightRecord*>(entry->lightArray.lights.value);
                 {
-                    const TerrainEnvMapRecord* const terrainCube =
-                        static_cast<const Terrain*>(g_Terrain)->m_waterEnvMap; // +0x6C0, fresh owner
-                    dx9rend::EngineTexture* const cube = terrainCube
-                        ? static_cast<dx9rend::EngineTexture*>(terrainCube->texture)    // +0x10
-                        : lightManagerBlackCubeTexture(g_LightManager);                  // +0x248
-                    holderSetTexture(staticMeshMaterialParameters(material).cubeMap, cube);
+                    const Vec3& sunColor = g_LightManager->getStaticSunColor();      // +0x1D8
+                    sun->color[0] = sunColor.x;
+                    sun->color[1] = sunColor.y;
+                    sun->color[2] = sunColor.z;
+                    sun->direction[0] = sunDirection[0];
+                    sun->direction[1] = sunDirection[1];
+                    sun->direction[2] = sunDirection[2];
                 }
-                entry->shader = staticMeshMaterialShader(material);
-                dx9rend::renderQueueAddToSlot(9, entry);                         // RSMTWater, +0x28
-            }
-            else if (t->m_isRoad)
-            {
-                // PE 0x100FB760, inlined road arm.
-                std::memcpy(op.world.value, mesh.m_transform->m, sizeof(op.world.value));
-                std::memcpy(op.viewProjection.value,
-                            dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
-                            sizeof(op.viewProjection.value));
-                dx9rend::EngineTexture* const scratch =
-                    dx9rend::rendererGetHemiScratchTexture();                    // Renderer +0x774
-                if (scratch)
-                    staticMeshSwapD3DTexture(entry->lighting.lightMap.value, scratch->baseTexture);
 
-                dx9rend::Ra::RaShader* shader;
-                // DetailMap.value: material +0xF0, parameter block +0xC4.
-                if (staticMeshMaterialParameters(material).detailMap.value == 0)
-                    shader = staticMeshFindShaderBits(0xF1000000u);
-                else if (t->m_roadNoBlend)
-                    shader = staticMeshFindShaderBits(0xF4000000u);
+                if (rendererByte(0x69C))
+                {
+                    const Mat4* const view = dx9rend::rendererGetRenderView()->getViewMatrixPtr();
+                    const float* const m = mesh.m_matrix290.m;
+                    sun->position[0] = static_cast<float>(((ExpansionReal(m[8]) * ExpansionReal(view->m[14])
+                        + ExpansionReal(m[4]) * ExpansionReal(view->m[13]))
+                        + ExpansionReal(view->m[12]) * ExpansionReal(m[0])) + ExpansionReal(m[12]));
+                    sun->position[1] = static_cast<float>(((ExpansionReal(m[9]) * ExpansionReal(view->m[14])
+                        + ExpansionReal(m[1]) * ExpansionReal(view->m[12]))
+                        + ExpansionReal(m[5]) * ExpansionReal(view->m[13])) + ExpansionReal(m[13]));
+                    sun->position[2] = static_cast<float>(((ExpansionReal(m[10]) * ExpansionReal(view->m[14])
+                        + ExpansionReal(m[2]) * ExpansionReal(view->m[12]))
+                        + ExpansionReal(m[6]) * ExpansionReal(view->m[13])) + ExpansionReal(m[14]));
+                    staticMeshMaterialParameters(material).pointSun.value = 1;
+                }
                 else
-                    shader = staticMeshFindShaderBits(0xF2000000u);
-                staticMeshMaterialShader(material) = shader;
-                entry->shader = shader;
-                dx9rend::renderQueueAddToSlot(8, entry);                         // RSMTRoad, +0x24
-            }
-            else
-            {
-                unsigned int bits = mesh.materialShaderBits(material, false);
-                if ((t->m_dword2B4 & 2) && dx9rend::rendererGetVideoOptions()->getQuality(4) < 3)
-                    bits &= ~0x200u;
-                const bool lowShader = dx9rend::deviceCapsPixelShaderMajor() < 2
-                                    || dx9rend::Ra::effectManagerFlag40() != 0;
-                if (!t->m_isVegetation && !transparent && dx9rend::rendererIsExpansionPack()
-                    && !dx9rend::rendererPerformanceFlag(0) && !lowShader
-                    && dx9rend::rendererGetVideoOptions()->getQuality(4) >= 3)
+                    staticMeshMaterialParameters(material).pointSun.value = 0;
+                // [RENDER] Retail bound the point/spot shadow atlas here (TerrainLightMap, an identity
+                // matBones); the atlas is deleted and no static-mesh shader samples it.
+
+                if (t->m_isWater && g_Terrain && mesh.m_dword26C)
                 {
-                    staticMeshMaterialShader(material) = staticMeshFindShaderBits(bits & qualityMask);
-                    if (mesh.m_dword26C && (bits & 1u))
-                        expansionLightmapThroughSetter(mesh, entry);
-                    if (t->m_byte2A5)
+                    // PE 0x100FB610, inlined water arm.
+                    std::memcpy(op.world.value, mesh.m_transform->m, sizeof(op.world.value));
+                    std::memcpy(op.viewProjection.value,
+                                dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
+                                sizeof(op.viewProjection.value));
+                    dx9rend::EngineTexture* const lightmap =
+                        reinterpret_cast<dx9rend::EngineTexture*>(mesh.m_dword26C);
+                    if (lightmap)
                     {
-                        // PE 0x100FB980; the clamp argument is stored before the call.
-                        if (distance < t->m_float2AC)
-                        {
-                            float fade = static_cast<float>(ExpansionReal(1.0f)
-                                - (ExpansionReal(distance) - ExpansionReal(t->m_float2A8))
-                                / (ExpansionReal(t->m_float2AC) - ExpansionReal(t->m_float2A8)));
-                            // FCMOVNB followed by FCMOVB: unordered values select the lower bound.
-                            fade = fade >= 1.0f ? 1.0f : fade;
-                            fade = !(fade >= 0.0f) ? 0.0f : fade;
-                            op.transparency.value = fade;
-                            entry->shader = staticMeshMaterialShader(material);
-                            entry->techniqueKey = dx9rend::raHashString(std::string("Glowing"));
-                            dx9rend::renderQueueAddToSlot(31, entry);
-                        }
-                        continue;
+                        staticMeshSwapD3DTexture(entry->lighting.lightMap.value, lightmap->baseTexture);
+                        staticMeshStoreLightMapOffset(entry, &mesh);
                     }
-                    if (cone)
+
+                    const Terrain* const terrain = static_cast<const Terrain*>(g_Terrain);
+                    dx9rend::Ra::RaShader* const nearShader = terrain->m_waterDistantTechnique;   // +0x718
+                    dx9rend::Ra::RaShader* const farShader  = terrain->m_waterDistantTechnique2;  // +0x71C
+                    const float threshold = terrain->m_waterTechniqueMargin;                      // +0x70C
+                    MeshBounds* const bounds = &mesh.m_dword30C->bounds;
+                    if (bounds->dirty)
+                        meshBoundsFinalize(*bounds);
+                    float waterDistance;
+                    std::memcpy(&waterDistance, &mesh.m_dword288, sizeof(waterDistance));
+    #if defined(__APPLE__)
+                    // [CHOSEN, not recovered] PE 0x100FB6D7 retains the subtraction through FCOM.
+                    const bool farWater = bf2x87::greater(bf2x87::sub(bf2x87::wide(waterDistance),
+                        bf2x87::wide(bounds->radius)), bf2x87::wide(threshold));
+    #else
+                    const bool farWater = waterDistance - bounds->radius > threshold;
+    #endif
+                    staticMeshMaterialShader(material) =
+                        farWater ? farShader : nearShader;
+
+                    // The material block's CubeMap holder (material + 0x148 / +0x14C): the terrain's
+                    // +0x6C0 object's texture, else the LightManager's cube at its +0x248.
+                    if (!staticMeshMaterialCubeMap(material))
                     {
-                        // PE 0x100FB200.
-                        entry->shader = staticMeshMaterialShader(material);
-                        entry->techniqueKey = dx9rend::raHashString(std::string("LightCone"));
-                        dx9rend::renderQueueAddToSlot(10, entry);
-                        continue;
-                    }
-                    if (!mesh.m_byte354)
-                    {
-                        // PE 0x100FBA30.
-                        entry->shader = staticMeshMaterialShader(material);
-                        entry->techniqueKey = 0;
-                        expansionEnqueue(entry, op.transparency.value < 1.0f, 0);
-                        continue;
+                        const TerrainEnvMapRecord* const terrainCube =
+                            static_cast<const Terrain*>(g_Terrain)->m_waterEnvMap; // +0x6C0, fresh owner
+                        dx9rend::EngineTexture* const cube = terrainCube
+                            ? static_cast<dx9rend::EngineTexture*>(terrainCube->texture)    // +0x10
+                            : lightManagerBlackCubeTexture(g_LightManager);                  // +0x248
+                        holderSetTexture(staticMeshMaterialParameters(material).cubeMap, cube);
                     }
                     entry->shader = staticMeshMaterialShader(material);
-                    entry->techniqueKey = kBeforeLight;
-                    // ds:1025A968 has no writer and is loader-zero.
-                    if (!dx9rend::rendererPerformanceFlag(17))
-                        expansionEnqueue(entry, false, 0);
-                    if (material->m_vegetationNonTiled)
-                    {
-                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(0xF0000400u);
-                    }
-                    else
-                    {
-                        bits = mesh.materialShaderBits(material, true);
-                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(bits & qualityMask);
-                    }
-                    // [RENDER] Retail drew each light with its point/spot shadow records (dynamic
-                    // lights without records unshadowed; static lights only through records) and
-                    // switched the after-light shader to `shadow` (0x200) when one projected. The
-                    // records are deleted: dynamic lights draw unshadowed, static lights not at all.
-                    for (size_t k = 0; k < projectedLights.size(); ++k)
-                    {
-                        XpLight* const light = projectedLights[k];
-                        if (xpLightCategory(light) == 0)
-                        {
-                            dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
-                            expansionClearShadowArrays(out);
-                            expansionProjectedEntry(mesh, material, qualityMask, light, out);
-                        }
-                    }
-                    // ds:1025A964 is 0 and ds:1023969C is 1; neither has a writer.
-                    const unsigned int afterBits = mesh.materialShaderBits(material, false);
-                    bits = afterBits;
-                    dx9rend::Ra::RaShader* const after = staticMeshFindShaderBits(
-                        afterBits & qualityMask);
-                    dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
-                    if (mesh.m_dword26C && (bits & 1u))
-                        expansionLightmapThroughSetter(mesh, out);
-                    out->material = entry->material;
-                    out->materialParameters = entry->materialParameters;
-                    out->objectParameters = entry->objectParameters;
-                    // PE 0x100FF680, including the otherwise-unwritten +0x38 word.
-                    std::memcpy(out->lightArray.lights.value, entry->lightArray.lights.value,
-                                sizeof(dx9rend::Ra::RaLightRecord));
-                    out->shader = after;
-                    out->techniqueKey = kAfterLight;
-                    expansionEnqueue(out, false, 0);
-                    continue;
+                    dx9rend::renderQueueAddToSlot(9, entry);                         // RSMTWater, +0x28
                 }
-                if (!t->m_isVegetation)
-                    staticMeshMaterialShader(material) = staticMeshFindShaderBits(bits & qualityMask);
+                else if (t->m_isRoad)
+                {
+                    // PE 0x100FB760, inlined road arm.
+                    std::memcpy(op.world.value, mesh.m_transform->m, sizeof(op.world.value));
+                    std::memcpy(op.viewProjection.value,
+                                dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
+                                sizeof(op.viewProjection.value));
+                    dx9rend::EngineTexture* const scratch =
+                        dx9rend::rendererGetHemiScratchTexture();                    // Renderer +0x774
+                    if (scratch)
+                        staticMeshSwapD3DTexture(entry->lighting.lightMap.value, scratch->baseTexture);
+
+                    dx9rend::Ra::RaShader* shader;
+                    // DetailMap.value: material +0xF0, parameter block +0xC4.
+                    if (staticMeshMaterialParameters(material).detailMap.value == 0)
+                        shader = staticMeshFindShaderBits(0xF1000000u);
+                    else if (t->m_roadNoBlend)
+                        shader = staticMeshFindShaderBits(0xF4000000u);
+                    else
+                        shader = staticMeshFindShaderBits(0xF2000000u);
+                    staticMeshMaterialShader(material) = shader;
+                    entry->shader = shader;
+                    dx9rend::renderQueueAddToSlot(8, entry);                         // RSMTRoad, +0x24
+                }
                 else
                 {
-                    if (material->m_vegetationNonTiled)
+                    unsigned int bits = mesh.materialShaderBits(material, false);
+                    if ((t->m_dword2B4 & 2) && dx9rend::rendererGetVideoOptions()->getQuality(4) < 3)
+                        bits &= ~0x200u;
+                    const bool lowShader = dx9rend::deviceCapsPixelShaderMajor() < 2
+                                        || dx9rend::Ra::effectManagerFlag40() != 0;
+                    if (!t->m_isVegetation && !transparent && dx9rend::rendererIsExpansionPack()
+                        && !dx9rend::rendererPerformanceFlag(0) && !lowShader
+                        && dx9rend::rendererGetVideoOptions()->getQuality(4) >= 3)
                     {
-                        const float f = mesh.m_float25C;
-                        // [RENDER] One sun: the static sun (retail: treeSunColor)
-                        const Vec3& color = g_LightManager->getStaticSunColor();
-                        const ExpansionReal red = ExpansionReal(f) * ExpansionReal(color.x);
-                        const float green = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.y));
-                        const float blue = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.z));
-                        const float second = mesh.m_float25C;
-                        sun->color[2] = static_cast<float>(ExpansionReal(second) * ExpansionReal(blue));
-                        sun->color[0] = static_cast<float>(red * ExpansionReal(second));
-                        sun->color[1] = static_cast<float>(ExpansionReal(second) * ExpansionReal(green));
-                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(0xF0000000u & qualityMask);
-                        const float ambientScale = mesh.m_float25C;
-                        const Vec3& ambient = g_LightManager->getTreeAmbientColor();
-                        const float scaled[] = {
-                            static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.x)),
-                            static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.y)),
-                            static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.z))
-                        };
-                        std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(scaled,1.0f),
-                                    sizeof(entry->lighting.overGrowthAmbient.value));
-                        IBase* const found = classManager->getSingleton(renddx9abi::HostString("WindManager"));
-                        op.windSpeed.value = static_cast<world::WindManager*>(static_cast<void*>(found))
-                            ->getWindSpeed(*reinterpret_cast<const Vec3*>(&mesh.m_transform->m[12]));
-                        std::memcpy(op.world.value, mesh.m_transform->m, sizeof(op.world.value));
+                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(bits & qualityMask);
+                        if (mesh.m_dword26C && (bits & 1u))
+                            expansionLightmapThroughSetter(mesh, entry);
+                        if (t->m_byte2A5)
+                        {
+                            // PE 0x100FB980; the clamp argument is stored before the call.
+                            if (distance < t->m_float2AC)
+                            {
+                                float fade = static_cast<float>(ExpansionReal(1.0f)
+                                    - (ExpansionReal(distance) - ExpansionReal(t->m_float2A8))
+                                    / (ExpansionReal(t->m_float2AC) - ExpansionReal(t->m_float2A8)));
+                                // FCMOVNB followed by FCMOVB: unordered values select the lower bound.
+                                fade = fade >= 1.0f ? 1.0f : fade;
+                                fade = !(fade >= 0.0f) ? 0.0f : fade;
+                                op.transparency.value = fade;
+                                entry->shader = staticMeshMaterialShader(material);
+                                entry->techniqueKey = dx9rend::raHashString(std::string("Glowing"));
+                                dx9rend::renderQueueAddToSlot(31, entry);
+                            }
+                            continue;
+                        }
+                        if (cone)
+                        {
+                            // PE 0x100FB200.
+                            entry->shader = staticMeshMaterialShader(material);
+                            entry->techniqueKey = dx9rend::raHashString(std::string("LightCone"));
+                            dx9rend::renderQueueAddToSlot(10, entry);
+                            continue;
+                        }
+                        if (!mesh.m_byte354)
+                        {
+                            // PE 0x100FBA30.
+                            entry->shader = staticMeshMaterialShader(material);
+                            entry->techniqueKey = 0;
+                            expansionEnqueue(entry, op.transparency.value < 1.0f, 0);
+                            continue;
+                        }
+                        entry->shader = staticMeshMaterialShader(material);
+                        entry->techniqueKey = kBeforeLight;
+                        // ds:1025A968 has no writer and is loader-zero.
+                        if (!dx9rend::rendererPerformanceFlag(17))
+                            expansionEnqueue(entry, false, 0);
+                        if (material->m_vegetationNonTiled)
+                        {
+                            staticMeshMaterialShader(material) = staticMeshFindShaderBits(0xF0000400u);
+                        }
+                        else
+                        {
+                            bits = mesh.materialShaderBits(material, true);
+                            staticMeshMaterialShader(material) = staticMeshFindShaderBits(bits & qualityMask);
+                        }
+                        // [RENDER] Retail drew each light with its point/spot shadow records (dynamic
+                        // lights without records unshadowed; static lights only through records) and
+                        // switched the after-light shader to `shadow` (0x200) when one projected. The
+                        // records are deleted: dynamic lights draw unshadowed, static lights not at all.
+                        for (size_t k = 0; k < projectedLights.size(); ++k)
+                        {
+                            XpLight* const light = projectedLights[k];
+                            if (xpLightCategory(light) == 0)
+                            {
+                                dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
+                                expansionClearShadowArrays(out);
+                                expansionProjectedEntry(mesh, material, qualityMask, light, out);
+                            }
+                        }
+                        // ds:1025A964 is 0 and ds:1023969C is 1; neither has a writer.
+                        const unsigned int afterBits = mesh.materialShaderBits(material, false);
+                        bits = afterBits;
+                        dx9rend::Ra::RaShader* const after = staticMeshFindShaderBits(
+                            afterBits & qualityMask);
+                        dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
+                        if (mesh.m_dword26C && (bits & 1u))
+                            expansionLightmapThroughSetter(mesh, out);
+                        out->material = entry->material;
+                        out->materialParameters = entry->materialParameters;
+                        out->objectParameters = entry->objectParameters;
+                        // PE 0x100FF680, including the otherwise-unwritten +0x38 word.
+                        std::memcpy(out->lightArray.lights.value, entry->lightArray.lights.value,
+                                    sizeof(dx9rend::Ra::RaLightRecord));
+                        out->shader = after;
+                        out->techniqueKey = kAfterLight;
+                        expansionEnqueue(out, false, 0);
+                        continue;
                     }
+                    if (!t->m_isVegetation)
+                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(bits & qualityMask);
                     else
                     {
-                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(
-                            (bits & 4u ? 0xF9000000u : 0xFA000000u) & qualityMask);
-                        if (dx9rend::rendererIsExpansionPack())
+                        if (material->m_vegetationNonTiled)
                         {
                             const float f = mesh.m_float25C;
-                            const Vec3& color = g_LightManager->getTreeSkyColor();
+                            // [RENDER] One sun: the static sun (retail: treeSunColor)
+                            const Vec3& color = g_LightManager->getStaticSunColor();
                             const ExpansionReal red = ExpansionReal(f) * ExpansionReal(color.x);
                             const float green = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.y));
                             const float blue = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.z));
@@ -2979,65 +3078,96 @@ void staticMeshDrawExpansion(void* self)
                             sun->color[2] = static_cast<float>(ExpansionReal(second) * ExpansionReal(blue));
                             sun->color[0] = static_cast<float>(red * ExpansionReal(second));
                             sun->color[1] = static_cast<float>(ExpansionReal(second) * ExpansionReal(green));
+                            staticMeshMaterialShader(material) = staticMeshFindShaderBits(0xF0000000u & qualityMask);
+                            const float ambientScale = mesh.m_float25C;
+                            const Vec3& ambient = g_LightManager->getTreeAmbientColor();
+                            const float scaled[] = {
+                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.x)),
+                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.y)),
+                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.z))
+                            };
+                            std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(scaled,1.0f),
+                                        sizeof(entry->lighting.overGrowthAmbient.value));
+                            IBase* const found = classManager->getSingleton(renddx9abi::HostString("WindManager"));
+                            op.windSpeed.value = static_cast<world::WindManager*>(static_cast<void*>(found))
+                                ->getWindSpeed(*reinterpret_cast<const Vec3*>(&mesh.m_transform->m[12]));
+                            std::memcpy(op.world.value, mesh.m_transform->m, sizeof(op.world.value));
                         }
                         else
                         {
-                            const float f = mesh.m_float25C;
-                            const ExpansionReal square = ExpansionReal(f) * ExpansionReal(f);
-                            for (unsigned int c = 0; c < 3; ++c)
-                                sun->color[c] = static_cast<float>(square * ExpansionReal(sun->color[c]));
-                            sun->scaled24 = static_cast<float>(square * ExpansionReal(sun->scaled24));
+                            staticMeshMaterialShader(material) = staticMeshFindShaderBits(
+                                (bits & 4u ? 0xF9000000u : 0xFA000000u) & qualityMask);
+                            if (dx9rend::rendererIsExpansionPack())
+                            {
+                                const float f = mesh.m_float25C;
+                                const Vec3& color = g_LightManager->getTreeSkyColor();
+                                const ExpansionReal red = ExpansionReal(f) * ExpansionReal(color.x);
+                                const float green = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.y));
+                                const float blue = static_cast<float>(ExpansionReal(f) * ExpansionReal(color.z));
+                                const float second = mesh.m_float25C;
+                                sun->color[2] = static_cast<float>(ExpansionReal(second) * ExpansionReal(blue));
+                                sun->color[0] = static_cast<float>(red * ExpansionReal(second));
+                                sun->color[1] = static_cast<float>(ExpansionReal(second) * ExpansionReal(green));
+                            }
+                            else
+                            {
+                                const float f = mesh.m_float25C;
+                                const ExpansionReal square = ExpansionReal(f) * ExpansionReal(f);
+                                for (unsigned int c = 0; c < 3; ++c)
+                                    sun->color[c] = static_cast<float>(square * ExpansionReal(sun->color[c]));
+                                sun->scaled24 = static_cast<float>(square * ExpansionReal(sun->scaled24));
+                            }
+                            const float ambientScale = mesh.m_float25C;
+                            const Vec3& ambient = g_LightManager->getStaticSkyColor();
+                            const float scaled[] = {
+                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.x)),
+                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.y)),
+                                static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.z))
+                            };
+                            std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(scaled,1.0f),
+                                        sizeof(entry->lighting.overGrowthAmbient.value));
                         }
-                        const float ambientScale = mesh.m_float25C;
-                        const Vec3& ambient = g_LightManager->getStaticSkyColor();
-                        const float scaled[] = {
-                            static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.x)),
-                            static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.y)),
-                            static_cast<float>(ExpansionReal(ambientScale) * ExpansionReal(ambient.z))
-                        };
-                        std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(scaled,1.0f),
-                                    sizeof(entry->lighting.overGrowthAmbient.value));
                     }
-                }
-                // PE 0x100FB830.
-                const bool enqueueTransparent = op.transparency.value < 1.0f;
-                if (mesh.m_dword26C && (bits & 1u))
-                    expansionLightmap(mesh, entry);
-                entry->shader = staticMeshMaterialShader(material);
-                entry->techniqueKey = 0;
-                dx9rend::renderQueueEnqueue(entry, enqueueTransparent, false, false);
-                if (!lights.empty())
-                {
-                    unsigned int pointBits;
-                    if (material->m_vegetationNonTiled)
+                    // PE 0x100FB830.
+                    const bool enqueueTransparent = op.transparency.value < 1.0f;
+                    if (mesh.m_dword26C && (bits & 1u))
+                        expansionLightmap(mesh, entry);
+                    entry->shader = staticMeshMaterialShader(material);
+                    entry->techniqueKey = 0;
+                    dx9rend::renderQueueEnqueue(entry, enqueueTransparent, false, false);
+                    if (!lights.empty())
                     {
-                        pointBits = 0xF0000000u;
-                        if (dx9rend::rendererGetVideoOptions()->getQuality(3))
-                            pointBits = 0xF0000400u;
-                    }
-                    else
-                    {
-                        pointBits = g_shaderComboFlags[material->m_shaderMaterial->shaderCombo];
-                        typedef unsigned int (__thiscall* FlagsFn)(const void*);
-                        if (reinterpret_cast<FlagsFn>(mesh.m_vptr[0xC4 / 4])(&mesh) & 1u)
-                            pointBits &= ~8u;
-                        pointBits |= 0x400u;
-                        if (material->m_alphaMode == 2)
-                            pointBits |= 0x800u;
-                        bits = pointBits;
-                        pointBits &= qualityMask;
-                    }
-                    staticMeshMaterialShader(material) = staticMeshFindShaderBits(pointBits);
-                    for (size_t k = 0; k < lights.size(); ++k)
-                    {
-                        // PE 0x100FB8F0; the bits stack word is unused.
-                        dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
-                        const bool blend = op.transparency.value < 1.0f;
-                        out->material = material;
-                        out->materialParameters = material->m_parameters;
-                        out->objectParameters = &op;
-                        out->shader = staticMeshMaterialShader(material);
-                        submitSourceLightRecord(lights[k], mesh.m_matrix290, out, blend);
+                        unsigned int pointBits;
+                        if (material->m_vegetationNonTiled)
+                        {
+                            pointBits = 0xF0000000u;
+                            if (dx9rend::rendererGetVideoOptions()->getQuality(3))
+                                pointBits = 0xF0000400u;
+                        }
+                        else
+                        {
+                            pointBits = g_shaderComboFlags[material->m_shaderMaterial->shaderCombo];
+                            typedef unsigned int (__thiscall* FlagsFn)(const void*);
+                            if (reinterpret_cast<FlagsFn>(mesh.m_vptr[0xC4 / 4])(&mesh) & 1u)
+                                pointBits &= ~8u;
+                            pointBits |= 0x400u;
+                            if (material->m_alphaMode == 2)
+                                pointBits |= 0x800u;
+                            bits = pointBits;
+                            pointBits &= qualityMask;
+                        }
+                        staticMeshMaterialShader(material) = staticMeshFindShaderBits(pointBits);
+                        for (size_t k = 0; k < lights.size(); ++k)
+                        {
+                            // PE 0x100FB8F0; the bits stack word is unused.
+                            dx9rend::RenderQueueEntry* const out = dx9rend::renderEntryPoolAcquire();
+                            const bool blend = op.transparency.value < 1.0f;
+                            out->material = material;
+                            out->materialParameters = material->m_parameters;
+                            out->objectParameters = &op;
+                            out->shader = staticMeshMaterialShader(material);
+                            submitSourceLightRecord(lights[k], mesh.m_matrix290, out, blend);
+                        }
                     }
                 }
             }

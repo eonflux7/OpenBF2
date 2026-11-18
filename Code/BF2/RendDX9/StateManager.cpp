@@ -871,15 +871,16 @@ int __stdcall smSetVertexShaderConstantF(StateManager* self, unsigned int reg, c
     return 0;
 }
 // PE 0x10026A80.
-// [RENDER] The registers kSunCascadeRegister.. hold the frame's sun cascade constants (RASM),
-// written only by stateManagerSetSunCascadeConstants. Every effect that samples the cascades
-// declares RASM at those registers, and D3DX uploads the parameter's own zeros at each pass; that
-// part of a write is dropped, so the range keeps the frame's values. Retail mirrors every write.
+// [RENDER] The registers kSunCascadeRegister..kEngineRegisterEnd hold the frame's sun cascade
+// constants (RASM, stateManagerSetSunCascadeConstants) and the entry's LOD dither (RaLodDither,
+// renderEntryBindLodDither). The effects that read them declare them at those registers, and D3DX
+// uploads the parameters' own zeros at each pass; that part of a write is dropped, so the range
+// keeps the engine's values. Retail mirrors every write.
 int __stdcall smSetPixelShaderConstantF(StateManager* self, unsigned int reg, const float* data,
                                         unsigned int count)
 {
     const unsigned int first = kSunCascadeRegister;
-    const unsigned int end = kSunCascadeRegister + kSunCascadeVec4s;
+    const unsigned int end = kEngineRegisterEnd;
     if (reg < end && reg + count > first)
     {
         if (reg < first)
@@ -1601,6 +1602,15 @@ void stateManagerSetSunCascadeConstants(const float* constants)
     StateManager* const self = sm();
     constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin, &self->psConstMax,
                    kSunCascadeRegister, constants, kSunCascadeVec4s);
+}
+
+// [RENDER] RaLodDither into its reserved pixel register, past the filter above.
+void stateManagerSetLodDither(float a, float b)
+{
+    StateManager* const self = sm();
+    const float value[4] = { a, b, 0.0f, 0.0f };
+    constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin, &self->psConstMax,
+                   kLodDitherRegister, value, 1u);
 }
 
 // FXParameter.cpp's sparse-matrix fast path uploads bone rows through vslot +0x38.

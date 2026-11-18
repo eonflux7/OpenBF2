@@ -1647,6 +1647,7 @@ void RenderQueue::drawWalkDefault()
                         stateManagerSetRenderState(20, 6);         // D3DRS_DESTBLEND = invsrcalpha
                     }
                     stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] step 8
+                    renderEntryBindLodDither(e);                   // [RENDER] step 8
                     shader->draw(e);                               // +0x18
                 }
             }
@@ -1710,6 +1711,7 @@ void RenderQueue::drawWalkNear()
                 {
                     shader->applyInstanceParameters(e);            // +0x10
                     stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] step 8
+                    renderEntryBindLodDither(e);                   // [RENDER] step 8
                     shader->draw(e);                               // +0x18
                 }
             }
@@ -2241,6 +2243,21 @@ RenderQueueEntry* renderQueueEntryConstruct(void* storage)
 // Acquires a pooled entry, resetting only lighting.tail10C and dword13C.
 // Allocation failure is inserted into the pool and then dereferenced without a guard.
 
+namespace {
+float g_acquireLodDither[2] = { 0.0f, 1.0f };   // every pixel
+}
+
+void renderEntryPoolSetLodDither(float a, float b)
+{
+    g_acquireLodDither[0] = a;
+    g_acquireLodDither[1] = b;
+}
+
+void renderEntryBindLodDither(const RenderQueueEntry* entry)
+{
+    stateManagerSetLodDither(entry->lodDither[0], entry->lodDither[1]);
+}
+
 RenderQueueEntry* renderEntryPoolAcquire()
 {
     RenderEntryPool* const pool = static_cast<RenderEntryPool*>(g_renderEntryPool);
@@ -2257,6 +2274,8 @@ RenderQueueEntry* renderEntryPoolAcquire()
     RenderQueueEntry* const entry = entries[pool->next];
     entry->lighting.tail10C = 0;
     entry->techniqueKey     = 0;
+    entry->lodDither[0]     = g_acquireLodDither[0];  // [RENDER] step 8
+    entry->lodDither[1]     = g_acquireLodDither[1];
     ++pool->next;
     return entries[pool->next - 1];
 }
@@ -2509,6 +2528,7 @@ void drawDepthEntries(std::vector<RenderQueueEntry*>& list, unsigned int key, bo
         if (prepass
             && (!stateManagerWantedRenderState(7u) || !stateManagerWantedRenderState(14u)))
             continue;                                  // D3DRS_ZENABLE, D3DRS_ZWRITEENABLE
+        renderEntryBindLodDither(e);
         shader->draw(e);
         if (prepass)
             g_prepassed.push_back(e);
@@ -2665,6 +2685,11 @@ void rendererEndCasterCapture()
                      CasterDrawOrder());
 }
 
+bool rendererCasterCaptureActive()
+{
+    return g_casterCapture.active;
+}
+
 const Frustum* rendererSubmitCullFrustum()
 {
     if (g_casterCapture.active && g_casterCapture.volume)
@@ -2747,6 +2772,7 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
             continue;
         shader->applyTemplateParameters(e);
         shader->applyInstanceParameters(e);
+        renderEntryBindLodDither(e);
         shader->draw(e);
     }
     if (active)

@@ -376,6 +376,8 @@ struct RenderQueueEntry
                                                     //         walk stamps the queue's shared key here
                                                     //         (raHashString of "draw_1p") and
                                                     //         RaShader::begin selects the technique
+    float                      lodDither[2];        // [RENDER] step 8: RaLodDither.xy for this draw
+                                                    //         (kLodDitherRegister), set on acquire
 };
 
 #if defined(_M_IX86)
@@ -386,6 +388,10 @@ struct RenderQueueEntry
 // sub_100D13E0 on dword_1023DE08: the next unused entry this frame, growing the pool by one
 // freshly constructed entry when it runs dry.  Zeroes lighting.tail10C and dword13C on the way out.
 RenderQueueEntry* renderEntryPoolAcquire();
+
+// [RENDER] Step 8: the RaLodDither (a, b) every entry acquired from now on carries; (0, 1), every
+// pixel, unless a static mesh is submitting one LOD of a crossfade (StaticMeshLodPass).
+void renderEntryPoolSetLodDither(float a, float b);
 
 // sub_10041A70, PE 0x10041A70.  Route an entry to its queue: bit 0 transparent, bit 1 first-person,
 // bit 2 the delta (point-light) pass.  Index 0 and 4 go to the entry's shader's OWN queue; every

@@ -757,6 +757,7 @@ struct ShadowCaster
 void rendererBeginCasterCapture(const Frustum* volume);
 void rendererEndCasterCapture();
 const Frustum* rendererSubmitCullFrustum();
+bool rendererCasterCaptureActive();   // a shadow pass is capturing (draw() submits casters)
 std::vector<ShadowCaster>& rendererShadowCasters();
 // Gives every caster captured from index `first` on the world sphere (centre, radius).
 void rendererSetCasterBounds(size_t first, const float sphere[4]);
@@ -795,6 +796,16 @@ const unsigned int kSunCascadeVec4s = 22;
 const unsigned int kSunCascadeRegister = 200;
 // Writes RASM to pixel registers kSunCascadeRegister.. through the StateManager's mirror.
 void stateManagerSetSunCascadeConstants(const float* constants);
+// [RENDER] Step 8 LOD crossfade: RaLodDither, one float4 in pixel register c222, engine-owned like
+// RASM. While a static mesh is in the band around a LOD switch it submits both LODs, and each
+// entry's lodDither (a, b) keeps the pixels where a * t + b >= 0 for the screen's 4x4 Bayer
+// threshold t, so the two LODs cover complementary pixels. (0, 1) keeps every pixel. The queues
+// write it before every entry draw (renderEntryBindLodDither).
+const unsigned int kLodDitherRegister = 222;
+const unsigned int kEngineRegisterEnd = 223;   // c200..c222 dropped from effect writes
+void stateManagerSetLodDither(float a, float b);
+struct RenderQueueEntry;
+void renderEntryBindLodDither(const RenderQueueEntry* entry);
 // The sun shadow tuning, read each frame: the renderer.sunShadow* console variables
 // (RendererConsole.cpp), which clamp to their ranges. A new resolution re-creates the atlas.
 struct SunShadowSettings
