@@ -101,7 +101,7 @@ kits created once, soldier geometry and 1P arms present).
 Also found: retail runs a level's `Init.con` with every argument empty (`bf2_w32ded.exe` 0x465D50;
 `BF2.exe` 0x4ED7xx passes `BF2Editor` only in editor mode), as this engine does.
 
-### Q. StateManager indexes its mirrors with vertex-texture stages (fixed, commit below)
+### Q. StateManager indexes its mirrors with vertex-texture stages (fixed, `6eb1a727`)
 The D3DX effect state manager's `SetTexture` and `SetSamplerState` (`StateManager.cpp`) index the
 texture mirror (16 stages) and the sampler mirror (8 stages) with the stage D3DX passes, unchecked.
 An effect that samples a texture in a vertex shader gets `D3DVERTEXTEXTURESAMPLER0..3` (257..260)
