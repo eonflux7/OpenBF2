@@ -89,7 +89,10 @@ compared the literal name. Now as `bf2_w32ded.exe` 1.50 does (line handler 0x651
 its strings): `var v_name [= value]` (one or three tokens, `v_` prefix, "Variable redefinition" in
 the same scope) and `const c_name = value` (three tokens, `c_` prefix, "Constant redefinition").
 Plain assignment `v_name = value` is not located in the binary yet; mods rely on it (PR's
-`setLayerMode.tweak`). Not done: retail's `command -> v_name` output capture.
+`setLayerMode.tweak`). Also missing were `return` (ends the running script) and `command -> v_name`
+(0x652735..0x6527EF: exactly one `v_` name after `->`, the command's output stored in it); PR's
+kit files guard with `ObjectTemplate.active -> v_exists` / `return`, and without them a second
+faction pass (night layers) created kits twice and `Kit::init` aborted on the duplicate item index.
 Also found: retail runs a level's `Init.con` with every argument empty (`bf2_w32ded.exe` 0x465D50;
 `BF2.exe` 0x4ED7xx passes `BF2Editor` only in editor mode), as this engine does.
 

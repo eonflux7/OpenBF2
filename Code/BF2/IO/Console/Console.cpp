@@ -196,6 +196,8 @@ struct BranchState { bool executing; bool branchTaken; int skipNesting; };
 std::vector<BranchState> s_branch[kMaxBlockDepth + 1];
 int s_remDepth[kMaxBlockDepth + 1];
 int s_noExecDepth[kMaxBlockDepth + 1];
+// [FIX] `return` ends the script running at that depth (see handleCommand and executeLine).
+bool s_returnRequested[kMaxBlockDepth + 1];
 
 int blockStateIndex(int depth)
 {
@@ -213,6 +215,7 @@ void clearBlockState(int depth)
     s_branch[depth].clear();
     s_remDepth[depth] = 0;
     s_noExecDepth[depth] = 0;
+    s_returnRequested[depth] = false;
 }
 
 } // namespace
@@ -473,6 +476,13 @@ void OldConsole::executeLine(const std::string& command, std::string& out,
 
         m_outputRedirectFile.clear();                    // redirection is per-command
         out += result;
+
+        // [FIX] `return` ends this script: the rest of its lines are not executed.
+        if (m_depth > 0 && s_returnRequested[blockStateIndex(m_depth)])
+        {
+            s_returnRequested[blockStateIndex(m_depth)] = false;
+            break;
+        }
     }
 }
 
@@ -768,6 +778,57 @@ int OldConsole::handleCommand(const std::string& cmd, std::string& result, Acces
             include(tokens[0], tokens[1], tokens[2], tokens[3], tokens[4], tokens[5], tokens[6],
                     tokens[7], tokens[8], out);                                // virtual +0x30
             return 1;
+        }
+
+        // [FIX] `return` (retail keyword, bf2_w32ded.exe string 0x7F3C58): ends the running script.
+        // PR's kit and pickup files start with a guard that returns when the template exists.
+        if (mayBeKeyword && compareIgnoreCase(kw, "return") == 0)
+        {
+            if (m_depth > 0)
+                s_returnRequested[blockStateIndex(m_depth)] = true;
+            return 1;
+        }
+
+        // [FIX] `command args -> v_name` stores the command's output in a variable. Retail
+        // (bf2_w32ded.exe 0x652735..0x6527EF) scans the tokens for "->", requires exactly one
+        // name after it that begins with "v_", and runs the command before it. The reconstruction
+        // ran the whole line as the command, so PR's existence guards
+        // (`ObjectTemplate.active -> v_exists`) never fired and night layers created their kits
+        // twice (Kit::init aborts on the duplicate item index). Assigning to an undeclared name
+        // declares it in the current scope [not checked against the binary].
+        {
+            const std::string::size_type arrow = line.find(" -> ");
+            if (arrow != std::string::npos)
+            {
+                ConsoleLineReader ain(line.substr(arrow + 4));
+                std::string name, extra;
+                if (!ain.readToken(name))
+                {
+                    result = "A variable is required after \"->\"!";
+                    return 2;
+                }
+                if (ain.readToken(extra))
+                {
+                    result = "There can only be one variable after \"->\"!";
+                    return 2;
+                }
+                if (name.compare(0, 2, "v_") != 0)
+                {
+                    result = "The variable after \"->\" must have a name that begins with \"v_\"!";
+                    return 2;
+                }
+                std::string value;
+                stageClock.pause();
+                handleCommand(line.substr(0, arrow), value, access);
+                while (!value.empty() && (value[value.size() - 1] == '\n' || value[value.size() - 1] == '\r'))
+                    value.erase(value.size() - 1);
+                if (!setVariable(name, value))
+                    addVariable(name, value);
+                if (consoleTraceEnabled())
+                    std::fprintf(stderr, "[CONTRACE] d%d %s -> %s = [%s]\n", m_depth,
+                                 line.substr(0, arrow).c_str(), name.c_str(), value.c_str());
+                return 1;
+            }
         }
 
         // [FIX] Script variables and constants. The reconstruction had no `var`, `const` or
