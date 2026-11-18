@@ -8,7 +8,7 @@ the next step.
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Steps 1–7 accepted | Step 8, anti-aliasing: thin geometry next | [renderer.md](renderer.md#roadmap) |
+| `render` | Steps 1–7 accepted | Step 8, anti-aliasing: LOD crossfade next | [renderer.md](renderer.md#roadmap) |
 | `ui` | Steps 1–4 accepted | — | [ui.md](ui.md#steps) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
 | `perf` (frame) | `/O2` plugins, `tailField` table | Parked until renderer step 9 | [perf-frame.md](perf-frame.md#plan) |
@@ -17,7 +17,8 @@ the next step.
 
 ## Current step: `render` step 8, anti-aliasing
 
-Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: transparent depth rebuild, Muttrah City, 2026-11-18.
+Plan: [renderer.md](renderer.md#roadmap) (step 8). Last seen in game: transparent depth rebuild, Muttrah City, 2026-11-18. Thin geometry dropped
+(owner, 2026-11-18; why: [renderer.md](renderer.md#roadmap)).
 
 Sub-steps, in order, each seen in game before the next:
 - [x] Sampler policy (`28487a35`; seen on Kashan Desert 2026-11-18)
@@ -39,7 +40,6 @@ Sub-steps, in order, each seen in game before the next:
   their alpha test; prepass alpha sharpened to a one-pixel ramp. Seen on Saaremaa 2026-11-18.
   Not done: the mip-loss alpha correction, which needs texture sizes from the engine; add it if
   distant foliage thins)
-- [ ] Thin geometry
 - [ ] LOD crossfade
 - [ ] Acceptance: GPU timer spans and the reference views
 

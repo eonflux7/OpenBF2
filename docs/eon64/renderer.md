@@ -87,10 +87,12 @@ screen-space term cannot be made per-sample; the mask goes instead.
   to about a one-pixel edge, and corrected for the alpha the mips lose, so foliage does not thin out
   with distance. Retail enables it through vendor render-state hacks (NVIDIA `ATOC`); DXVK honours
   it (active only while a draw alpha-tests), so the whole mesh prepass runs inside retail's bracket.
-- **Thin geometry.** MSAA cannot help what is thinner than its sample spacing; power lines, antennas
-  and wires break into dashes. They are widened to at least about one pixel in the vertex shader and
-  their alpha lowered by the same factor. They are recognised by material, or by flagging thin static
-  meshes.
+- **Dropped: thin geometry** (the owner's call, 2026-11-18). 4x MSAA keeps the 5–7 cm cables solid
+  to about 100 m at 1080p; beyond that they break into dashes, as in retail. Widening them needs a
+  shape classifier at load, since cables share `StaticMesh.fx` materials with everything else: a
+  sweep of PR's statics found it catches planks and roof slats (which would turn see-through at
+  distance) unless strands are required to stand alone, and that test rejects the older cables,
+  which are two crossed strips. The cost was not worth a defect retail also has.
 - **LOD crossfade.** Static, overgrowth and tree LOD switches and the distance cull fade become a
   dithered crossfade instead of popping: one screen-space Bayer threshold, `clip()` against it for
   the outgoing LOD and against its complement for the incoming one. Alpha-to-coverage cannot do
@@ -117,7 +119,7 @@ screen-space term cannot be made per-sample; the mask goes instead.
   a reference to compare against, not a mode.
 - **Order within the step**, each seen in game before the next: sampler policy; shadows in the lit
   shaders and the mask deleted, with the centroid cascade position; prepass into the MSAA depth with
-  EQUAL, centroid UVs and the transparent depth rebuild; alpha-to-coverage; thin geometry; LOD
+  EQUAL, centroid UVs and the transparent depth rebuild; alpha-to-coverage; LOD
   crossfade.
 - **Moved to step 10: the compressed resolve.** Averaging linear HDR leaves high-contrast edges
   aliased; writing colour compressed (Karis, 1 / (1 + luma)) before the resolve and expanding after
