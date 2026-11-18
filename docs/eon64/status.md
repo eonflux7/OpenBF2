@@ -53,6 +53,11 @@ Sub-steps, in order, each seen in game before the next:
   - [ ] Dithered crossfade for the remaining mesh and overgrowth LOD switches
 - [ ] Acceptance: GPU timer spans and the reference views
 
+Open: about 20% lower frame rate on Muttrah City than before step 8's LOD work (owner, 2026-11-19;
+when it started is not known). GPU spans there sum to about 5.7 ms of a 12.6 ms frame, the rest is
+the `hud` span (present wait), so likely CPU: more draws from full-detail terrain, LOD 0 bundled
+meshes, static switch distances x3 and no object distance cull. For the optimization pass.
+
 Open: the default video profile picks 8x antialiasing (log) while the scene runs 4x; settle with fixed 4x
 (single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
 
