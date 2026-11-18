@@ -77,7 +77,11 @@ per-sample evaluation at edges, or another anti-aliasing approach) before step 1
   prefiltered sky where the ray leaves the screen.
 
 **9. HDR bloom + auto-exposure.** An energy-conserving bloom without threshold, and exposure that
-adapts between interiors and open terrain, both before the frame grade.
+adapts between interiors and open terrain, both before the frame grade. Night layers need it: with
+the fixed exposure (−1.25 stops) The Falklands night terrain reaches the tonemap at about 0.0155, and
+Khronos Neutral's toe (6.25·x² below 0.08) shows it at 5/255, where retail drew about 30/255. The
+adaptation needs an upper limit so night stays dark (about retail's level), and the toe may need
+softening for what stays below 0.08.
 
 **10. GTAO + lightmap channel ownership.** GTAO for small-scale occlusion. Lightmaps are kept, with
 one owner per channel: inside cascade range the cascades own sun visibility and the baked sun term
