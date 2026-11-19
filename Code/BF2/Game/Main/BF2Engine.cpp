@@ -7,6 +7,7 @@
 #include "../PunkBuster/PbGlue.h"
 #include "PerformanceLogging.h"             // +0x74, deleted in shutdownGame and shutdownEngine (every image)
 #include "BF2EngineSetup.h"
+#include "../Tools/ViewTool.h"                // [TOOLS] free fly takes the player input
 #include "BF2Log.h"                         // [INFERRED] path; Game/Main/BF2Log.cpp is attested
 #include "BF2Console.h"                     // [INFERRED] path
 #include "IFSMoviePlayer.h"                 // [INFERRED] path; the renderer plugin's movie player (checkMovie, the mainLoop movie arm)
@@ -2876,6 +2877,8 @@ bool BF2Engine::filterPlayerInput(io::PlayerInput& input)
             raw[i] = 0;
         return false;
     }
+    if (!viewToolFilterPlayerInput(input))                  // [TOOLS] free fly takes the sample
+        return false;
 #endif
     if (*reinterpret_cast<const bool*>(bf2Console))         // BF2Console +0x00
     {

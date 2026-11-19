@@ -33,6 +33,7 @@
 #include "../../Physics/LatencyCompensation.h"   // the two frame-telemetry words render publishes
 #include "../../Physics/CollisionManager.h"
 #include "../../Core/LoadTrace.h"               // [DEV] BF2_LOAD_TRACE: renderer init stages
+#include "../Tools/ViewTool.h"                   // [TOOLS] the view tool's camera override
 
 #include <algorithm>                              // std::find - listScreenModes' discarded search
 #include <cassert>
@@ -357,6 +358,10 @@ bool BF2Render::render(double frameTime, DemoRecorder* recorder)
     const int& viewDistance = settings->intGet(viewDistanceName, viewDistanceDefault);
     const float farPlane = videoOptions->getViewDistanceScale() * viewDistance;
     m_renderer->getRenderView()->setFarPlane(farPlane);             // +0x38
+
+    // [TOOLS] The view tool's camera replaces the game's here, before anything culls or draws.
+    if (g_viewToolActive)
+        viewToolApplyCamera(m_renderer->getRenderView());
 
     // : ordinarily one pass. A demo carrying the VTune flag suspends the profiler around
     // the loop and repeats the same frame vtuneRepeatCount times. The `config` null test retail

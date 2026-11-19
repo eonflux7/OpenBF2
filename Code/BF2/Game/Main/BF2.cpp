@@ -10,6 +10,7 @@
 #include "../../Core/System.h"                      // [INFERRED] Core/System.cpp attested (anon-ns)
 #include "../../IO/SettingsManager.h"               // [INFERRED] IO/SettingsManager.cpp attested
 #include "../../Core/SettingsRepostitory.h"
+#include "../Tools/ViewTool.h"                      // [TOOLS] tools.flyKey
 
 // [UNRESOLVED] memory_update_modules takes const char*, but this call omits it.
 // The declaration's default preserves the current call until argument evidence resolves it.
@@ -756,6 +757,10 @@ static int bf2MessageHandler(HWND /*hwnd*/, UINT message, WPARAM wParam, LPARAM 
     case WM_KEYDOWN:                                // 0x100
         if (!menuLogic && wParam == VK_CAPITAL && (GetKeyState(VK_CAPITAL) & 1))
             toggleCapsLockOff();                    // in-game, Caps Lock is switched straight back off
+#if !DEDICATED
+        if (!menuLogic && !(lParam & 0x40000000))   // [TOOLS] tools.flyKey; first press, not repeats
+            viewToolKeyDown(static_cast<unsigned int>(wParam));
+#endif
         if (!settings)
             return 0;
         if (settings->boolGet("GSDedicated", false))

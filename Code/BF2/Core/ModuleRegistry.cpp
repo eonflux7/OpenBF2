@@ -28,6 +28,7 @@ std::list<ConsoleObject*>& swiffHostConsoleObjects();       // client gameModes.
 std::list<ConsoleObject*>& localProfileConsoleObjects();    // Game/LocalProfileConsole.cpp, the Profile.con object
 std::list<ConsoleObject*>& bf2RenderConsoleObjects();       // Game/Main/BF2RenderConsole.cpp, renderer.*
 std::list<ConsoleObject*>& settingsConsoleObjects();        // Game/SettingsConsole.cpp, the five profile-file objects
+std::list<ConsoleObject*>& viewToolConsoleObjects();        // [TOOLS] Game/Tools/ViewTool.cpp, view.* and tools.*
 #endif
 std::list<ConsoleObject*>& banListConsoleObjects();         // Game/GameServer/BanListConsole.cpp
 std::list<ConsoleObject*>& spawnSystemConsoleObjects();     // Game/GameLogic/SpawnSystem/SpawnSystemConsole.cpp
@@ -1015,6 +1016,7 @@ bool ModuleGame::init()
     consoleObjects()->registerConsoleObjects(swiffHostConsoleObjects());
     // Renderer screen-mode console bindings.
     consoleObjects()->registerConsoleObjects(bf2RenderConsoleObjects());
+    consoleObjects()->registerConsoleObjects(viewToolConsoleObjects());   // [TOOLS]
     // Profile-file bindings populate account names and settings. [INFERRED] Module placement.
     consoleObjects()->registerConsoleObjects(localProfileConsoleObjects());
     // Bindings used by Audio, Video, General, Haptic and ServerSettings profile files.
@@ -1147,6 +1149,7 @@ bool ModuleGame::close()
     consoleObjects()->unregisterConsoleObjects(localProfileConsoleObjects());
     consoleObjects()->unregisterConsoleObjects(swiffHostConsoleObjects());
     consoleObjects()->unregisterConsoleObjects(bf2RenderConsoleObjects());
+    consoleObjects()->unregisterConsoleObjects(viewToolConsoleObjects());   // [TOOLS]
     consoleObjects()->unregisterConsoleObjects(settingsConsoleObjects());
 #endif
     return true;
