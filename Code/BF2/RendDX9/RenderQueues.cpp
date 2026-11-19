@@ -2613,10 +2613,14 @@ bool isWorldQueue(const RenderQueue* queue)
                               static_cast<const void*>(queue)) != table->worldQueues.end();
 }
 
-// RaShadowViewProj's handle per ID3DXEffect (null when the effect has no such parameter).
+// RaShadowViewProj's handle per ID3DXEffect (null when the effect has no such parameter). Emptied
+// by renderQueuesResetEffects: the effects are recreated after a reset, and a new one can take a
+// freed one's address, which would hand it the old effect's handle.
+std::vector<std::pair<ID3DXEffect*, D3DXHANDLE> > g_shadowViewProjectionHandles;
+
 D3DXHANDLE shadowViewProjectionHandle(ID3DXEffect* effect)
 {
-    static std::vector<std::pair<ID3DXEffect*, D3DXHANDLE> > cache;
+    std::vector<std::pair<ID3DXEffect*, D3DXHANDLE> >& cache = g_shadowViewProjectionHandles;
     for (size_t i = 0; i < cache.size(); ++i)
         if (cache[i].first == effect)
             return cache[i].second;
@@ -2818,6 +2822,7 @@ void renderQueuesResetEffects()
     for (std::map<std::string, Ra::RaShader*>::iterator node = table->shaders.begin();
          node != table->shaders.end(); ++node)
         resetOneHemiMaterialQueue(node->second);
+    g_shadowViewProjectionHandles.clear();   // [RENDER] handles of the dropped effects
 }
 
 // PE 0x10041C00. Unreachable in 1.50: no code or data references. The same in-order walk over the
