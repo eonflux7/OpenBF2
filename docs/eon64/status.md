@@ -34,7 +34,9 @@ Found (2026-11-19):
 - Screenshot: `renderer.dumpScreen` reads the back buffer at end of scene, after the HUD and before
   ImGui.
 
-Tasks (state: 1–2 built `0179ea64`, not yet seen in game):
+Tasks (state: 1–2 built `0179ea64`. Seen on Muttrah City, spawn screen, by console: `view.fly 1`
+takes over the spawn camera and hides the HUD and spawn menu; `view.leave` brings both back. Not
+yet tried: flying with mouse and keys, F8, the wheel FOV):
 1. Camera override: `view.*` state in a `[TOOLS]` module, applied at the hook; HUD hidden through
    `renderer.drawHud` and restored on leaving; idle is one test.
 2. Free fly: `view.fly`, mouse look, speed, wheel FOV, no collision.
