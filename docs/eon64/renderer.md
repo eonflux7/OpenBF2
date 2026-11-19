@@ -5,9 +5,9 @@ pipeline built on a depth prepass and cascaded sun shadows, and later on a share
 image-based ambient specular and screen-space ambient occlusion. It is a new design: retail
 behaviour is not a constraint, and an accepted milestone leaves no legacy path behind it.
 
-The engine side is mostly in `Code/BF2/RendDX9/` (`BF2Render.cpp`, `SunShadows.cpp`,
-`StateManager.cpp`, `RenderQueues.cpp`, `Ra/EffectManager.cpp`). The shaders are PR's, kept in a
-private repository; these documents describe only the contract between the two.
+The engine side is mostly in `Code/BF2/RendDX9/` (`Frame.cpp`, `BF2Render.cpp`,
+`SunShadows.cpp`, `StateManager.cpp`, `RenderQueues.cpp`, `Ra/EffectManager.cpp`). The shaders are
+PR's, kept in a private repository; these documents describe only the contract between the two.
 
 This document is the plan: the roadmap and the milestones still to do. What the renderer does today
 is in [renderer-pipeline.md](renderer-pipeline.md).

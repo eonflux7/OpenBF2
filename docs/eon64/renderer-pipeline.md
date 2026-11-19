@@ -115,6 +115,11 @@ GPU timings: [perf-frame.md](perf-frame.md#after-render-milestone-8).
 
 ## Frame
 
+The frame module (`Frame.cpp`, `frameRender`) owns the scene, items 1–10 below, and the targets it
+draws through. `Renderer::renderFrame` (`BF2Render.cpp`) runs the per-frame updates before it,
+passes it a `FrameInputs` (time, the `renderer.draw*` switches, the object drawer and weather
+managers), then draws the overlays and presents.
+
 In draw order, for the main world view:
 
 1. **Scene target.** From frame prepare to resolve, the scene draws into an `A16B16G16R16F`

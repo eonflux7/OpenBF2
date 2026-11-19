@@ -90,7 +90,7 @@ acceptance number); the breakdown that steers the work is taken at fixed views, 
 holds still: CPU samples by subsystem ([perf-frame.md](perf-frame.md#measuring)), GPU spans and
 draws per technique and pass.
 
-Tasks (owner breakdown pending, 2026-11-19; tasks 1–2 done by an agent, 2026-11-19):
+Tasks (owner breakdown pending, 2026-11-19; tasks 1–3 done by an agent, 2026-11-19):
 1. Breakdown at fixed views: one view each on Muttrah City and Fallujah West (the dense ones),
    CPU samples by subsystem, GPU spans, draws per pass (`BF2_DRAW_STATS`), and the same with the
    sun cascades off, for the caster pass's whole cost. Recorded in
@@ -108,7 +108,12 @@ Tasks (owner breakdown pending, 2026-11-19; tasks 1–2 done by an agent, 2026-1
    `#error` itself not exercised; until the load gate (`tools` milestone 2) exists, a failure shows
    only in the log.
 3. Frame module: the pass sequence moves out of `BF2Render.cpp`'s `renderFrame` into its own
-   module. No change in what is drawn: view shots before and after match.
+   module. No change in what is drawn: view shots before and after match. Done (`0a623df8`):
+   `Frame.cpp` owns the scene from the post-production prepare through its finish and the targets
+   it draws through; `renderFrame` fills `FrameInputs` and calls `frameRender`. Loaded by an
+   agent on Muttrah City, 2026-11-19: views `high` and `market` against the task 1 shots, 22 and
+   588 pixels of 1.44 M differ, all on wind-blown palms (PSNR 60 and 44 dB). Not yet seen by
+   the owner.
 4. Caster culling: the sun caster pass takes the camera's object culling instead of culling again
    over the cascades' light volume.
 5. Submission layer and its A/B variable: the packet (shaders, constants, buffers, states), shaders
