@@ -2,7 +2,8 @@
 //
 // Menu (the menu key), in tabs:
 //   Commands  the mod's command file as buttons, grouped by section, with fields for arguments.
-//   Views     [TOOLS] the map's views and sets (docs/eon64/tools.md#1-views), through view.* lines.
+//   Views     [TOOLS] the map's views, sets and paths (docs/eon64/tools.md#1-views), through view.*
+//             and path.* lines.
 //   Shadows   the sun shadow variables.   Renderer  every other renderer.* variable, filtered.
 //   Settings  the overlay, the console height, the menu key, the files.
 // Variable widgets are generated from the console registry (range from the registry, help from
@@ -687,6 +688,9 @@ char g_viewSaveNote[128] = "";
 char g_viewNote[128] = "";
 char g_viewSetText[256] = "";
 char g_viewNewSet[64] = "";
+std::string g_pathSelected;        // path name
+char g_pathKeyName[64] = "";
+char g_pathKeyTime[16] = "";
 
 // A note as one console argument: quoted, without quotes of its own.
 std::string quoted(const char* text)
@@ -860,6 +864,94 @@ void drawViewSets(dx9rend::IUiViewTool* t)
     ImGui::EndDisabled();
 }
 
+// Paths (tools milestone 3): the list, Play and Stop, a key at the held camera, the selected
+// path's keys (edited by hand in the file).
+void drawViewPaths(dx9rend::IUiViewTool* t, bool active)
+{
+    ImGui::SeparatorText("Paths");
+    const std::string playing = t->uiPlayingPath();
+    dx9rend::UiPath p;
+    int selected = -1;
+    const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV;
+    if (t->uiPathCount() == 0)
+        ImGui::TextDisabled("No paths yet: hold a camera (F8 or a view), then Add key.");
+    else if (ImGui::BeginTable("##pathlist", 3, flags))
+    {
+        ImGui::TableSetupColumn("path", ImGuiTableColumnFlags_WidthFixed, 160.0f * uiScale());
+        ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthFixed, 110.0f * uiScale());
+        ImGui::TableSetupColumn("note", ImGuiTableColumnFlags_WidthStretch);
+        for (int i = 0; i < t->uiPathCount(); ++i)
+        {
+            if (!t->uiPathAt(i, p))
+                continue;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushID(i);
+            const std::string label = std::string(playing == p.name ? "> " : "  ") + p.name;
+            if (ImGui::Selectable(label.c_str(), g_pathSelected == p.name,
+                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick))
+            {
+                g_pathSelected = p.name;
+                std::snprintf(g_pathKeyName, sizeof(g_pathKeyName), "%s", p.name);
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    runViewLine(std::string("path.play ") + p.name);
+            }
+            ImGui::TableNextColumn();
+            ImGui::Text("%d keys, %.1f s", p.keyCount, p.length);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(p.note);
+            ImGui::PopID();
+            if (g_pathSelected == p.name)
+                selected = i;
+        }
+        ImGui::EndTable();
+    }
+    if (selected < 0)
+        g_pathSelected.clear();
+
+    ImGui::BeginDisabled(selected < 0);
+    if (ImGui::Button("Play"))
+        runViewLine("path.play " + g_pathSelected);
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("path.play NAME (or double-click): real time, then the camera goes back");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(playing.empty());
+    if (ImGui::Button("Stop"))
+        runViewLine("path.stop");
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("path.stop: hands the camera back");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(140.0f * uiScale());
+    ImGui::InputTextWithHint("##keypath", "path name", g_pathKeyName, sizeof(g_pathKeyName));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80.0f * uiScale());
+    ImGui::InputTextWithHint("##keytime", "time (s)", g_pathKeyTime, sizeof(g_pathKeyTime),
+                             ImGuiInputTextFlags_CharsDecimal);
+    ImGui::SetItemTooltip("Seconds from the path's start; empty: 0 for a new path, else the last "
+                          "key + 5 s. A key at the same time is replaced.");
+    ImGui::SameLine();
+    const std::string pathName = trim(g_pathKeyName);
+    const bool badName = pathName.find_first_of(" \t|#=\"") != std::string::npos;
+    ImGui::BeginDisabled(!active || pathName.empty() || badName);
+    if (ImGui::Button("Add key"))
+    {
+        const std::string time = trim(g_pathKeyTime);
+        runViewLine("path.key " + pathName + (time.empty() ? std::string() : " " + time));
+        g_pathSelected = pathName;
+        g_pathKeyTime[0] = '\0';
+    }
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip(active ? "path.key NAME [TIME]: the camera the tool holds"
+                                 : "Needs a camera held by the tool: free fly (F8) or a view");
+    if (badName)
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+                           "A path name has no spaces, '|', '#', '=' or quotes.");
+
+    if (selected >= 0 && t->uiPathAt(selected, p))
+        for (int k = 0; k < p.keyCount; ++k)
+            ImGui::TextDisabled("  %s", t->uiPathKey(selected, k));
+}
+
 void drawViewsTab()
 {
     dx9rend::IUiViewTool* const t = g_host ? g_host->uiViewTool() : 0;
@@ -881,6 +973,8 @@ void drawViewsTab()
     ImGui::AlignTextToFramePadding();
     if (!active)
         ImGui::TextUnformatted("Game camera");
+    else if (*t->uiPlayingPath())
+        ImGui::Text("Path %s, %.1f s", t->uiPlayingPath(), t->uiPathTime());
     else if (*t->uiHeldView())
         ImGui::Text("View %s%s", t->uiHeldView(), t->uiViewFlying() ? ", free fly" : "");
     else
@@ -986,6 +1080,7 @@ void drawViewsTab()
         ImGui::PopID();
     }
     drawViewSets(t);
+    drawViewPaths(t, active);
     if (t->uiViewProblemCount() > 0)
     {
         ImGui::SeparatorText("Lines not understood");

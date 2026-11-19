@@ -27,6 +27,15 @@ struct UiView
     int   runCount;
 };
 
+// A camera path of the view file (tools milestone 3).
+struct UiPath
+{
+    const char* name;
+    const char* note;       // empty when none
+    int   keyCount;
+    float length;           // seconds: the last key's time
+};
+
 class IUiViewTool
 {
 public:
@@ -47,6 +56,12 @@ public:
     virtual bool uiViewActive() const = 0;            // the tool holds the camera
     virtual bool uiViewFlying() const = 0;
     virtual const char* uiHeldView() const = 0;       // the view held, empty when none
+    virtual int uiPathCount() const = 0;
+    virtual bool uiPathAt(int index, UiPath& path) const = 0;
+    // A key of the path as its file line ("key 4 pos=... yaw=..."); valid until the next call.
+    virtual const char* uiPathKey(int path, int key) const = 0;
+    virtual const char* uiPlayingPath() const = 0;    // the path playing, empty when none
+    virtual float uiPathTime() const = 0;             // seconds into the playing path
 
 protected:
     ~IUiViewTool() {}

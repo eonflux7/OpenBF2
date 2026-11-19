@@ -134,6 +134,12 @@ lines between them in place. `view.note` with no note removes it. `view.set NAME
 or adds the set (after the last set); `view.set NAME` alone removes it. Run lines are shown, not
 edited: they are added by hand.
 
+Paths in the tab (milestone 3): the list (`>` marks the one playing) with key count, length and
+note; double-click or Play runs `path.play`, Stop `path.stop`; Add key runs `path.key NAME [TIME]`
+with the name and optional time fields (selecting a path fills the name). The selected path's
+keys are shown as their file lines, edited by hand. The camera line reads "Path NAME, T s" while
+one plays.
+
 **Screenshot in the engine.** The scene is read back before the HUD (or with it, by option) and
 written as PNG, plus a 960-wide JPEG for quick review. It works when the window is covered.
 

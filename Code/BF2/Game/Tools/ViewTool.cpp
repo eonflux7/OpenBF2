@@ -982,9 +982,43 @@ public:
     virtual bool uiViewActive() const { return g_viewToolActive; }
     virtual bool uiViewFlying() const { return g_state.fly; }
     virtual const char* uiHeldView() const { return g_state.view.c_str(); }
+    virtual int uiPathCount() const
+    {
+        return m_path.empty() ? 0 : static_cast<int>(g_views.paths().size());
+    }
+    virtual bool uiPathAt(int index, dx9rend::UiPath& out) const
+    {
+        if (index < 0 || index >= uiPathCount())
+            return false;
+        const ViewPath& p = g_views.paths()[index];
+        out.name = p.name.c_str();
+        out.note = p.note.c_str();
+        out.keyCount = static_cast<int>(p.keys.size());
+        out.length = p.keys.empty() ? 0.0f : p.keys.back().time;
+        return true;
+    }
+    virtual const char* uiPathKey(int path, int key) const
+    {
+        if (path < 0 || path >= uiPathCount() || key < 0
+            || key >= static_cast<int>(g_views.paths()[path].keys.size()))
+            return "";
+        m_keyLine = pathKeyLine(g_views.paths()[path].keys[key]);
+        return m_keyLine.c_str();
+    }
+    virtual const char* uiPlayingPath() const
+    {
+        return g_play.playing ? g_play.name.c_str() : "";
+    }
+    virtual float uiPathTime() const
+    {
+        if (!g_play.playing || !g_play.started)
+            return 0.0f;
+        return std::chrono::duration<float>(std::chrono::steady_clock::now() - g_play.start).count();
+    }
 
 private:
     std::string m_path;
+    mutable std::string m_keyLine;
     bool m_haveCheck;
     std::chrono::steady_clock::time_point m_lastCheck;
 };
