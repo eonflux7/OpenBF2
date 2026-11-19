@@ -603,6 +603,9 @@ void          vertexDeclarationRelease(void* wrapper);
 unsigned int  effectBegin(void* effect);
 void          effectBeginPass(void* effect, unsigned int index);
 void          effectEnd(void* effect);
+// [RENDER] Effect.cpp: the effect's passes draw through the submission layer from now on
+// (Submit.h, render milestone 9): terrain and undergrowth.
+void          effectEnableSubmit(void* effect);
 // Effect.cpp - sub_1001DC20: a cached technique record with a live D3DX handle exists for `name`.
 bool          effectHasTechnique(void* effect, const std::string& name);
 const std::string& effectCurrentTechniqueName(void* effect);   // Effect +0x38

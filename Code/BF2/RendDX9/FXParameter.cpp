@@ -70,6 +70,9 @@ private:
 // Effect.cpp - the owning effect's compiled ID3DXEffect, or null before bind.
 void* effectD3dxHandle(void* effect);
 bool effectIsParameterUsed(void* effect, void* parameter);
+// [RENDER] The D3DX effect, or the submission layer's sink while the effect is opted in
+// (Effect.cpp, Submit.h).
+void* effectParameterTarget(void* effect, void* d3dxParameter);
 
 namespace {
 
@@ -233,7 +236,7 @@ void parameterValueError(int line, const char* message)
 // PE 0x10021A10.
 void FXParameterImpl::setValue(const void* data, unsigned int count)
 {
-    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectD3dxHandle(m_effect));
+    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectParameterTarget(m_effect, m_handle));
     const D3DXHANDLE handle = ::renddx9abi::d3dxHandle(m_handle);
     if (!count)
         count = m_elements;
@@ -382,7 +385,7 @@ void FXParameterImpl::setValue(const void* data, unsigned int count)
 // PE 0x100215E0.
 void FXParameterImpl::setBool(unsigned char value)
 {
-    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectD3dxHandle(m_effect));
+    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectParameterTarget(m_effect, m_handle));
     fx->SetBool(::renddx9abi::d3dxHandle(m_handle), value);
 }
 
@@ -390,7 +393,7 @@ void FXParameterImpl::setBool(unsigned char value)
 // PE 0x10021600.
 void FXParameterImpl::setInt(int value)
 {
-    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectD3dxHandle(m_effect));
+    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectParameterTarget(m_effect, m_handle));
     fx->SetInt(::renddx9abi::d3dxHandle(m_handle), value);
 }
 
@@ -398,7 +401,7 @@ void FXParameterImpl::setInt(int value)
 // PE 0x10021620.
 void FXParameterImpl::setFloat(float value)
 {
-    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectD3dxHandle(m_effect));
+    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectParameterTarget(m_effect, m_handle));
     fx->SetFloat(::renddx9abi::d3dxHandle(m_handle), value);
 }
 
@@ -422,7 +425,7 @@ void FXParameterImpl::setMatrixPointerArray(const void* const* matrices, unsigne
         return;
     }
 
-    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectD3dxHandle(m_effect));
+    ID3DXEffect* const fx = static_cast<ID3DXEffect*>(effectParameterTarget(m_effect, m_handle));
     const D3DXHANDLE handle = ::renddx9abi::d3dxHandle(m_handle);
     fx->SetArrayRange(handle, 0, count);
     // The SDK spells the array as CONST D3DXMATRIX**; D3DX only reads through it.

@@ -760,6 +760,7 @@ void Terrain::init()
         m_renderStyle = (static_cast<unsigned int>(dx9rend::deviceCapsVertexShaderMajor()) < 2u) ? 1 : 0;
 
     m_effect = dx9rend::shaderManagerGetEffect(dx9rend::g_shaderManager, "Shaders/TerrainShader");
+    dx9rend::effectEnableSubmit(m_effect);   // [RENDER] milestone 9, Submit.h
 
     dx9rend::Effect* const fx = static_cast<dx9rend::Effect*>(m_effect);
 #define TERRAIN_PARAM(member, name) member = dx9rend::effectGetShaderParameter(fx, std::string(name))

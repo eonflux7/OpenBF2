@@ -183,6 +183,7 @@ class Effect;
 Effect* createEffectObject();
 bool effectBind(Effect* self, void* d3dxEffect);
 void* effectD3dxHandle(void* effect);   // wrapper+0x08, the ID3DXEffect* (the listener walks)
+void effectDeviceLost(void* effect);   // [RENDER] Effect.cpp, the submission store before a reset
 const std::string& effectName(void* effect);   // wrapper+0x0C, the effect's name
 void deobfuscateShader(unsigned char* buf, unsigned int size);   // the include Open uses it too
 
@@ -537,6 +538,11 @@ void forEachShaderManagerEffect(ShaderManager* sm, EffectDeviceNotifyFn notify)
 
 void RD9_THUNK sm_onDeviceLost(void* listener RD9_THUNK_EDX)
 {
+    // [RENDER] Opted-in effects write their store back and let its textures go (Submit.h).
+    ShaderManager* const sm = smFromListener(listener);
+    for (std::map<std::string, Effect*>::iterator node = sm->effectCache.begin();
+         node != sm->effectCache.end(); ++node)
+        effectDeviceLost(node->second);
     forEachShaderManagerEffect(smFromListener(listener), &ID3DXEffect::OnLostDevice);
 }
 

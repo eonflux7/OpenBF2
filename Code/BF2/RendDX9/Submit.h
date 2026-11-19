@@ -15,6 +15,7 @@
 // the parameters with semantic RaAlphaTest, RaAlphaRef and RaDepthWrite.
 #pragma once
 
+#include <string>
 #include <vector>
 
 namespace dice {
@@ -52,6 +53,31 @@ bool submitEntry(SubmitProgram* program, RenderQueueEntry* entry);
 
 // Drops every program (effects reset or reloaded).
 void submitReset();
+
+// Effect programs: the passes of an engine Effect (Effect.cpp) that opted in (effectEnableSubmit),
+// drawn the same way. Terrain and undergrowth.
+//
+// While opted in, the effect's parameter writes go to a value store (submitEffectParameterTarget
+// answers the sink in place of the D3DX effect), uploaded straight into the registers of the
+// active program; the store is written to D3DX only before a pass that still draws through D3DX
+// (renderer.submit 0, or a pass refused here), during which writes also go to D3DX.
+struct SubmitEffect;
+SubmitEffect* submitEffectCreate(void* d3dxEffect, const std::string& name);
+void submitEffectDestroy(SubmitEffect* effect);
+// The store into D3DX (before it is read or let go).
+void submitEffectFlush(SubmitEffect* effect);
+// Flushes, then drops the store and the programs and takes `d3dxEffect` (a rebound effect, or the
+// same one before a device loss, so the store holds no texture through the reset).
+void submitEffectRebind(SubmitEffect* effect, void* d3dxEffect);
+// Binds the program of `technique`'s pass `pass` (a D3DX technique handle) and uploads the
+// store's values into it; false when renderer.submit is 0 or the pass cannot be drawn here.
+bool submitEffectBeginPass(SubmitEffect* effect, void* technique, unsigned int pass);
+// The caller begins a D3DX pass instead: the store is flushed and writes go to D3DX too.
+void submitEffectBeginD3dxPass(SubmitEffect* effect);
+void submitEffectEndPass(SubmitEffect* effect);
+// What a parameter write of `d3dxParameter` goes to: the sink (an ID3DXEffect), or the D3DX effect
+// for a parameter the store does not keep.
+void* submitEffectParameterTarget(SubmitEffect* effect, void* d3dxParameter);
 
 } // namespace dx9rend
 } // namespace hfe

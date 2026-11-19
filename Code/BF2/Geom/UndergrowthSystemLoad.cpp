@@ -622,6 +622,7 @@ void UndergrowthSystem::load(const std::string& levelPathArgument)
     // the effect and its parameters, in the shipped order
     assignEffect(m_effect, static_cast<dx9rend::Effect*>(dx9rend::shaderManagerGetEffect(
                                dx9rend::g_shaderManager, "Shaders/Undergrowth")));
+    dx9rend::effectEnableSubmit(m_effect);   // [RENDER] milestone 9, Submit.h
     bindParameter(m_paramTexLayer0, m_effect, "TEXLAYER0");                  // +0x6C
     bindParameter(m_paramTexLayer1, m_effect, "TEXLAYER1");                  // +0x70
     bindParameter(m_paramTexLayer2, m_effect, "TEXLAYER2");                  // +0x74

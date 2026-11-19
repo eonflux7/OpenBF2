@@ -176,9 +176,20 @@ struct Binding
     bool held;                          // a Ra holder sets it
     std::vector<std::uint32_t> defaultWords;
     IDirect3DBaseTexture9* defaultTexture;
+    // An effect program's binding reads its value from the effect's value store (`shared`); a
+    // store entry holds a reference on its texture and is `dirty` until written to D3DX.
+    Binding* shared;
+    IDirect3DBaseTexture9* texture;
+    bool stored;
+    bool dirty;
 
     Binding() : handle(0), type(D3DXPT_VOID), rows(0), cols(0), elements(1), stateSlot(-1),
-                held(false), defaultTexture(0) {}
+                held(false), defaultTexture(0), shared(0), texture(0), stored(false), dirty(false) {}
+    ~Binding()
+    {
+        if (stored && texture)
+            texture->Release();
+    }
 };
 
 std::uint32_t g_registers[4 * 256];
@@ -237,8 +248,9 @@ void emitTarget(const Target& t, const std::uint32_t* words, unsigned int)
 
 void emitBinding(const Binding& b, std::uint32_t* stateValues)
 {
-    const unsigned int wordCount = static_cast<unsigned int>(b.words.size());
-    const std::uint32_t* const words = wordCount ? &b.words[0] : 0;
+    const std::vector<std::uint32_t>& value = b.shared ? b.shared->words : b.words;
+    const unsigned int wordCount = static_cast<unsigned int>(value.size());
+    const std::uint32_t* const words = wordCount ? &value[0] : 0;
     for (size_t i = 0; i < b.targets.size(); ++i)
         emitTarget(b.targets[i], words, wordCount);
     if (b.stateSlot >= 0 && wordCount)
@@ -263,12 +275,14 @@ struct UsedParameter
 
 struct SubmitProgram
 {
-    Ra::RaShader* shader;
+    Ra::RaShader* shader;   // null for an effect program (SubmitEffect)
     void* effect;
     int buildSerial;
     unsigned int key;
     bool valid;
+    std::string effectName;
     std::string techniqueName;
+    unsigned int pass;
     IDirect3DVertexShader9* vs;
     IDirect3DPixelShader9* ps;
     std::vector<std::pair<unsigned int, unsigned int> > renderStates;
@@ -281,7 +295,8 @@ struct SubmitProgram
     std::uint32_t stateValues[kStateSlots];
     bool hasState[kStateSlots];
 
-    SubmitProgram() : shader(0), effect(0), buildSerial(-1), key(0), valid(false), vs(0), ps(0)
+    SubmitProgram() : shader(0), effect(0), buildSerial(-1), key(0), valid(false), pass(0), vs(0),
+                      ps(0)
     {
         std::memset(stateValues, 0, sizeof(stateValues));
         std::memset(hasState, 0, sizeof(hasState));
@@ -309,22 +324,29 @@ struct SubmitProgram
 namespace {
 
 // The holders' sink: every Ra holder applies its value through an ID3DXEffect, and this one turns
-// it into register writes for the binding the caller selected (`current`), ignoring the handle.
+// it into register writes for the binding the caller selected, ignoring the handle. `current`
+// takes the value; `target`, when set, is the binding of `program` uploaded from it (the same
+// binding for a Ra program; an effect program's binding reading the store entry `current`).
+// With `mirror` the call also goes to that D3DX effect (a D3DX pass of the effect is active).
 class ParameterSink : public ID3DXEffect
 {
 public:
     Binding* current;
+    Binding* target;
     SubmitProgram* program;
+    ID3DXEffect* mirror;
 
-    ParameterSink() : current(0), program(0) {}
+    ParameterSink() : current(0), target(0), program(0), mirror(0) {}
 
     // IUnknown: the sink lives in static storage and is never handed out.
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** out) override { *out = 0; return E_NOINTERFACE; }
     ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
     ULONG STDMETHODCALLTYPE Release() override { return 1; }
 
-    HRESULT STDMETHODCALLTYPE SetValue(D3DXHANDLE, LPCVOID data, UINT bytes) override
+    HRESULT STDMETHODCALLTYPE SetValue(D3DXHANDLE h, LPCVOID data, UINT bytes) override
     {
+        if (mirror)
+            mirror->SetValue(h, data, bytes);
         if (!current)
             return E_FAIL;
         std::vector<std::uint32_t>& w = current->words;
@@ -333,64 +355,115 @@ public:
             std::memcpy(&w[0], data, count * 4u);
         return emit();
     }
-    HRESULT STDMETHODCALLTYPE SetBool(D3DXHANDLE, BOOL b) override
+    HRESULT STDMETHODCALLTYPE SetBool(D3DXHANDLE h, BOOL b) override
     {
+        if (mirror)
+            mirror->SetBool(h, b);
         return setInts(reinterpret_cast<const int*>(&b), 1u);
     }
-    HRESULT STDMETHODCALLTYPE SetBoolArray(D3DXHANDLE, const BOOL* b, UINT n) override
+    HRESULT STDMETHODCALLTYPE SetBoolArray(D3DXHANDLE h, const BOOL* b, UINT n) override
     {
+        if (mirror)
+            mirror->SetBoolArray(h, b, n);
         return setInts(reinterpret_cast<const int*>(b), n);
     }
-    HRESULT STDMETHODCALLTYPE SetInt(D3DXHANDLE, INT i) override { return setInts(&i, 1u); }
-    HRESULT STDMETHODCALLTYPE SetIntArray(D3DXHANDLE, const INT* i, UINT n) override
+    HRESULT STDMETHODCALLTYPE SetInt(D3DXHANDLE h, INT i) override
     {
+        if (mirror)
+            mirror->SetInt(h, i);
+        return setInts(&i, 1u);
+    }
+    HRESULT STDMETHODCALLTYPE SetIntArray(D3DXHANDLE h, const INT* i, UINT n) override
+    {
+        if (mirror)
+            mirror->SetIntArray(h, i, n);
         return setInts(i, n);
     }
-    HRESULT STDMETHODCALLTYPE SetFloat(D3DXHANDLE, FLOAT f) override { return setFloats(&f, 1u); }
-    HRESULT STDMETHODCALLTYPE SetFloatArray(D3DXHANDLE, const FLOAT* f, UINT n) override
+    HRESULT STDMETHODCALLTYPE SetFloat(D3DXHANDLE h, FLOAT f) override
     {
+        if (mirror)
+            mirror->SetFloat(h, f);
+        return setFloats(&f, 1u);
+    }
+    HRESULT STDMETHODCALLTYPE SetFloatArray(D3DXHANDLE h, const FLOAT* f, UINT n) override
+    {
+        if (mirror)
+            mirror->SetFloatArray(h, f, n);
         return setFloats(f, n);
     }
-    HRESULT STDMETHODCALLTYPE SetVector(D3DXHANDLE, const D3DXVECTOR4* v) override
+    HRESULT STDMETHODCALLTYPE SetVector(D3DXHANDLE h, const D3DXVECTOR4* v) override
     {
+        if (mirror)
+            mirror->SetVector(h, v);
         return setVectors(v, 1u);
     }
-    HRESULT STDMETHODCALLTYPE SetVectorArray(D3DXHANDLE, const D3DXVECTOR4* v, UINT n) override
+    HRESULT STDMETHODCALLTYPE SetVectorArray(D3DXHANDLE h, const D3DXVECTOR4* v, UINT n) override
     {
+        if (mirror)
+            mirror->SetVectorArray(h, v, n);
         return setVectors(v, n);
     }
-    HRESULT STDMETHODCALLTYPE SetMatrix(D3DXHANDLE, const D3DXMATRIX* m) override
+    HRESULT STDMETHODCALLTYPE SetMatrix(D3DXHANDLE h, const D3DXMATRIX* m) override
     {
+        if (mirror)
+            mirror->SetMatrix(h, m);
         return setMatrices(&m, 1u, false, false);
     }
-    HRESULT STDMETHODCALLTYPE SetMatrixArray(D3DXHANDLE, const D3DXMATRIX* m, UINT n) override
+    HRESULT STDMETHODCALLTYPE SetMatrixArray(D3DXHANDLE h, const D3DXMATRIX* m, UINT n) override
     {
+        if (mirror)
+            mirror->SetMatrixArray(h, m, n);
         return setMatrices(reinterpret_cast<const D3DXMATRIX* const*>(m), n, false, true);
     }
-    HRESULT STDMETHODCALLTYPE SetMatrixPointerArray(D3DXHANDLE, const D3DXMATRIX** m, UINT n) override
+    HRESULT STDMETHODCALLTYPE SetMatrixPointerArray(D3DXHANDLE h, const D3DXMATRIX** m, UINT n) override
     {
+        if (mirror)
+            mirror->SetMatrixPointerArray(h, m, n);
         return setMatrices(m, n, false, false);
     }
-    HRESULT STDMETHODCALLTYPE SetMatrixTranspose(D3DXHANDLE, const D3DXMATRIX* m) override
+    HRESULT STDMETHODCALLTYPE SetMatrixTranspose(D3DXHANDLE h, const D3DXMATRIX* m) override
     {
+        if (mirror)
+            mirror->SetMatrixTranspose(h, m);
         return setMatrices(&m, 1u, true, false);
     }
-    HRESULT STDMETHODCALLTYPE SetMatrixTransposeArray(D3DXHANDLE, const D3DXMATRIX* m, UINT n) override
+    HRESULT STDMETHODCALLTYPE SetMatrixTransposeArray(D3DXHANDLE h, const D3DXMATRIX* m, UINT n) override
     {
+        if (mirror)
+            mirror->SetMatrixTransposeArray(h, m, n);
         return setMatrices(reinterpret_cast<const D3DXMATRIX* const*>(m), n, true, true);
     }
-    HRESULT STDMETHODCALLTYPE SetMatrixTransposePointerArray(D3DXHANDLE, const D3DXMATRIX** m, UINT n) override
+    HRESULT STDMETHODCALLTYPE SetMatrixTransposePointerArray(D3DXHANDLE h, const D3DXMATRIX** m, UINT n) override
     {
+        if (mirror)
+            mirror->SetMatrixTransposePointerArray(h, m, n);
         return setMatrices(m, n, true, false);
     }
-    HRESULT STDMETHODCALLTYPE SetTexture(D3DXHANDLE, IDirect3DBaseTexture9* texture) override
+    HRESULT STDMETHODCALLTYPE SetTexture(D3DXHANDLE h, IDirect3DBaseTexture9* texture) override
     {
+        if (mirror)
+            mirror->SetTexture(h, texture);
         if (!current)
             return E_FAIL;
-        bindTexture(*current, texture);
+        if (current->stored)
+        {
+            if (texture)
+                texture->AddRef();
+            if (current->texture)
+                current->texture->Release();
+            current->texture = texture;
+            current->dirty |= !mirror;
+        }
+        if (target)
+            bindTexture(*target, texture);
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE SetArrayRange(D3DXHANDLE, UINT, UINT) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetArrayRange(D3DXHANDLE h, UINT start, UINT end) override
+    {
+        if (mirror)
+            mirror->SetArrayRange(h, start, end);
+        return S_OK;
+    }
 
     // Nothing else is reached by a holder.
 #define SUBMIT_SINK_NONE(name, args) \
@@ -455,7 +528,10 @@ public:
 private:
     HRESULT emit()
     {
-        emitBinding(*current, program->stateValues);
+        if (current->stored)
+            current->dirty |= !mirror;
+        if (target)
+            emitBinding(*target, program->stateValues);
         return S_OK;
     }
     HRESULT setInts(const int* values, unsigned int n)
@@ -558,6 +634,9 @@ public:
     IDirect3DPixelShader9* ps;
     std::string unsupported;
     unsigned int passes;
+    // The constant registers the pass uploaded: (pixel, register set, first register, count).
+    struct Constants { bool pixel; D3DXREGISTER_SET set; unsigned int reg, count; };
+    std::vector<Constants> constants;
 
     PassRecorder() : vs(0), ps(0), passes(0) {}
 
@@ -593,12 +672,13 @@ public:
         return S_OK;
     }
     // The constants D3DX uploads are the parameters' current values; the program sets its own.
-    HRESULT STDMETHODCALLTYPE SetVertexShaderConstantF(UINT, const FLOAT*, UINT) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE SetVertexShaderConstantI(UINT, const INT*, UINT) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE SetVertexShaderConstantB(UINT, const BOOL*, UINT) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE SetPixelShaderConstantF(UINT, const FLOAT*, UINT) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE SetPixelShaderConstantI(UINT, const INT*, UINT) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE SetPixelShaderConstantB(UINT, const BOOL*, UINT) override { return S_OK; }
+    // Only where they go is kept, to check that the program's bindings cover them.
+    HRESULT STDMETHODCALLTYPE SetVertexShaderConstantF(UINT r, const FLOAT*, UINT n) override { return at(false, D3DXRS_FLOAT4, r, n); }
+    HRESULT STDMETHODCALLTYPE SetVertexShaderConstantI(UINT r, const INT*, UINT n) override { return at(false, D3DXRS_INT4, r, n); }
+    HRESULT STDMETHODCALLTYPE SetVertexShaderConstantB(UINT r, const BOOL*, UINT n) override { return at(false, D3DXRS_BOOL, r, n); }
+    HRESULT STDMETHODCALLTYPE SetPixelShaderConstantF(UINT r, const FLOAT*, UINT n) override { return at(true, D3DXRS_FLOAT4, r, n); }
+    HRESULT STDMETHODCALLTYPE SetPixelShaderConstantI(UINT r, const INT*, UINT n) override { return at(true, D3DXRS_INT4, r, n); }
+    HRESULT STDMETHODCALLTYPE SetPixelShaderConstantB(UINT r, const BOOL*, UINT n) override { return at(true, D3DXRS_BOOL, r, n); }
     // Fixed-function state has no place in a program.
     HRESULT STDMETHODCALLTYPE SetTransform(D3DTRANSFORMSTATETYPE, const D3DMATRIX*) override { return no("SetTransform"); }
     HRESULT STDMETHODCALLTYPE SetMaterial(const D3DMATERIAL9*) override { return no("SetMaterial"); }
@@ -609,6 +689,12 @@ public:
     HRESULT STDMETHODCALLTYPE SetFVF(DWORD) override { return no("SetFVF"); }
 
 private:
+    HRESULT at(bool pixel, D3DXREGISTER_SET set, UINT reg, UINT count)
+    {
+        Constants c = { pixel, set, reg, count };
+        constants.push_back(c);
+        return S_OK;
+    }
     HRESULT no(const char* what)
     {
         if (unsupported.empty())
@@ -617,7 +703,8 @@ private:
     }
 };
 
-void recordPass(ID3DXEffect* effect, D3DXHANDLE technique, PassRecorder& recorder)
+void recordPass(ID3DXEffect* effect, D3DXHANDLE technique, unsigned int pass,
+                PassRecorder& recorder)
 {
     effect->SetStateManager(&recorder);
     effect->SetTechnique(technique);
@@ -625,9 +712,9 @@ void recordPass(ID3DXEffect* effect, D3DXHANDLE technique, PassRecorder& recorde
     if (effect->Begin(&passes, 7u) >= 0)
     {
         recorder.passes = passes;
-        if (passes)
+        if (pass < passes)
         {
-            effect->BeginPass(0);
+            effect->BeginPass(pass);
             effect->EndPass();
         }
         effect->End();
@@ -745,8 +832,10 @@ const DWORD* shaderFunction(Shader* shader, std::vector<DWORD>& out)
     return &out[0];
 }
 
+// The parameter each constant of `function` reads gets its targets. A constant with no effect
+// parameter of its name is skipped for a Ra program; an effect program refuses it (`missing`).
 bool addShaderConstants(SubmitProgram& program, ID3DXEffect* effect, const DWORD* function,
-                        bool pixel)
+                        bool pixel, std::string* missing)
 {
     if (!function)
         return false;
@@ -766,7 +855,11 @@ bool addShaderConstants(SubmitProgram& program, ID3DXEffect* effect, const DWORD
             continue;                      // reached through the texture parameters
         const D3DXHANDLE parameter = effect->GetParameterByName(0, desc.Name);
         if (!parameter)
+        {
+            if (missing && missing->empty())
+                *missing = desc.Name ? desc.Name : "?";
             continue;
+        }
         Binding* const b = bindingFor(program, effect, parameter);
         if (b)
             addTargets(program, *b, table, constant, desc, pixel, 0u);
@@ -775,15 +868,32 @@ bool addShaderConstants(SubmitProgram& program, ID3DXEffect* effect, const DWORD
     return true;
 }
 
-void buildProgram(SubmitProgram& program)
+// What a program records from its effect, either kind.
+struct ProgramSource
 {
-    Ra::RaShader* const shader = program.shader;
-    ID3DXEffect* const effect = static_cast<ID3DXEffect*>(shader->m_effect);
-    const D3DXHANDLE technique = ::renddx9abi::d3dxHandle(shader->m_activeTechnique);
+    ID3DXEffect* effect;
+    D3DXHANDLE technique;
+    unsigned int pass;
+    IDirect3DDevice9* device;
+    bool ra;   // Ra contract: one pass, the material states (contract 2), constants by name
+};
+
+void logRefused(const SubmitProgram& program, const char* why)
+{
+    ::renddx9abi::logf("Submit: %s %s pass %u: not drawable here (%s)", program.effectName.c_str(),
+                       program.techniqueName.c_str(), program.pass, why);
+}
+
+// Records the pass into `program`: shaders, fixed states, sampler stages, constant targets.
+// False (logged) when it cannot be drawn here.
+bool recordProgram(SubmitProgram& program, const ProgramSource& source, PassRecorder& recorder)
+{
+    ID3DXEffect* const effect = source.effect;
+    const D3DXHANDLE technique = source.technique;
     D3DXTECHNIQUE_DESC techniqueDesc;
     if (effect->GetTechniqueDesc(technique, &techniqueDesc) >= 0 && techniqueDesc.Name)
         program.techniqueName = techniqueDesc.Name;
-    for (unsigned int s = 0; s < kStateSlots; ++s)
+    for (unsigned int s = 0; source.ra && s < kStateSlots; ++s)
     {
         const D3DXHANDLE parameter = effect->GetParameterBySemantic(0, kStateSemantics[s]);
         if (!parameter)
@@ -806,7 +916,7 @@ void buildProgram(SubmitProgram& program)
         if (!parameter || effect->GetParameterDesc(parameter, &desc) < 0
             || !isTextureType(desc.Type) || desc.Elements > 1)
             continue;
-        IDirect3DTexture9* const mark = marker(shader->m_device, saved.size());
+        IDirect3DTexture9* const mark = marker(source.device, saved.size());
         if (!mark)
             break;
         IDirect3DBaseTexture9* previous = 0;
@@ -815,8 +925,7 @@ void buildProgram(SubmitProgram& program)
         effect->SetTexture(parameter, mark);
     }
 
-    PassRecorder recorder;
-    recordPass(effect, technique, recorder);
+    recordPass(effect, technique, source.pass, recorder);
 
     // A material state is per draw only where the pass's state follows its parameter: recorded
     // again with the parameter changed, the state must change with it. Otherwise the pass's own
@@ -834,7 +943,7 @@ void buildProgram(SubmitProgram& program)
             : b->type == D3DXPT_INT ? original + 1u : floatWord(wordFloat(original) + 1.0f);
         effect->SetValue(b->handle, &changed, 4u);
         PassRecorder probe;
-        recordPass(effect, technique, probe);
+        recordPass(effect, technique, source.pass, probe);
         effect->SetValue(b->handle, &original, 4u);
         if (recordedState(recorder, kStateRenderState[s]) == recordedState(probe, kStateRenderState[s]))
         {
@@ -861,18 +970,17 @@ void buildProgram(SubmitProgram& program)
         }
     }
 
-    if (recorder.passes != 1u)
+    char why[160];
+    if (source.ra ? recorder.passes != 1u : source.pass >= recorder.passes)
     {
-        ::renddx9abi::logf("Submit: %s %s: not drawable here (%u passes)", shader->name().c_str(),
-                           program.techniqueName.c_str(), recorder.passes);
-        return;
+        std::snprintf(why, sizeof(why), "%u passes", recorder.passes);
+        logRefused(program, why);
+        return false;
     }
     if (!recorder.unsupported.empty() || !recorder.vs)
     {
-        ::renddx9abi::logf("Submit: %s %s: not drawable here (%s)", shader->name().c_str(),
-                           program.techniqueName.c_str(),
-                           recorder.vs ? recorder.unsupported.c_str() : "no vertex shader");
-        return;
+        logRefused(program, recorder.vs ? recorder.unsupported.c_str() : "no vertex shader");
+        return false;
     }
     program.vs = recorder.vs;
     program.vs->AddRef();
@@ -883,13 +991,21 @@ void buildProgram(SubmitProgram& program)
     // The constant tables of the shaders the pass bound. The effects' pass descriptions carry no
     // shader functions (GetPassDesc answers null), the shader objects keep theirs.
     std::vector<DWORD> function;
-    if (!addShaderConstants(program, effect, shaderFunction(program.vs, function), false)
+    std::string missing;
+    std::string* const report = source.ra ? 0 : &missing;
+    if (!addShaderConstants(program, effect, shaderFunction(program.vs, function), false, report)
         || (program.ps
-            && !addShaderConstants(program, effect, shaderFunction(program.ps, function), true)))
+            && !addShaderConstants(program, effect, shaderFunction(program.ps, function), true,
+                                   report)))
     {
-        ::renddx9abi::logf("Submit: %s %s: no constant table", shader->name().c_str(),
-                           program.techniqueName.c_str());
-        return;
+        logRefused(program, "no constant table");
+        return false;
+    }
+    if (!missing.empty())
+    {
+        std::snprintf(why, sizeof(why), "constant %s is no parameter", missing.c_str());
+        logRefused(program, why);
+        return false;
     }
     for (size_t i = 0; i < recorder.renderStates.size(); ++i)
     {
@@ -900,6 +1016,52 @@ void buildProgram(SubmitProgram& program)
             program.renderStates.push_back(recorder.renderStates[i]);
     }
     program.samplerStates = recorder.samplerStates;
+    return true;
+}
+
+void logProgram(const SubmitProgram& program)
+{
+    if (!drawStatsOn())   // [DEV] BF2_DRAW_STATS: what each program reads, and from where
+        return;
+    ::renddx9abi::logf("Submit: %s %s pass %u: %u bindings, %u fixed states, %u sampler states",
+                       program.effectName.c_str(), program.techniqueName.c_str(), program.pass,
+                       static_cast<unsigned int>(program.bindings.size()),
+                       static_cast<unsigned int>(program.renderStates.size()),
+                       static_cast<unsigned int>(program.samplerStates.size()));
+    for (size_t i = 0; i < program.bindings.size(); ++i)
+    {
+        const Binding& b = *program.bindings[i];
+        std::string where;
+        char text[96];
+        for (size_t t = 0; t < b.targets.size(); ++t)
+        {
+            const Target& g = b.targets[t];
+            std::snprintf(text, sizeof(text), " %s%c%u+%u(c%d %ux%u e%u @%u)",
+                          g.pixel ? "ps" : "vs", "bifs"[g.set], g.reg, g.regCount,
+                          static_cast<int>(g.cls), g.rows, g.cols, g.elements, g.offset);
+            where += text;
+        }
+        for (size_t t = 0; t < b.stages.size(); ++t)
+        {
+            std::snprintf(text, sizeof(text), " s%u", b.stages[t]);
+            where += text;
+        }
+        ::renddx9abi::logf("Submit:   %s %s state%d words%u%s", b.name.c_str(),
+                           b.shared ? "store" : b.held ? "held" : "effect", b.stateSlot,
+                           static_cast<unsigned int>(b.words.size()), where.c_str());
+    }
+}
+
+void buildProgram(SubmitProgram& program)
+{
+    Ra::RaShader* const shader = program.shader;
+    program.effectName = shader->name();
+    const ProgramSource source = { static_cast<ID3DXEffect*>(shader->m_effect),
+                                   ::renddx9abi::d3dxHandle(shader->m_activeTechnique), 0u,
+                                   shader->m_device, true };
+    PassRecorder recorder;
+    if (!recordProgram(program, source, recorder))
+        return;
 
     // The Ra holders the program reads; the rest of its parameters keep their effect values.
     std::vector<Ra::RaBoundParameter>* const sets[3] = {
@@ -924,37 +1086,7 @@ void buildProgram(SubmitProgram& program)
         if (!program.bindings[i]->held)
             program.unheld.push_back(program.bindings[i].get());
     program.valid = true;
-
-    if (drawStatsOn())   // [DEV] BF2_DRAW_STATS: what each program reads, and from where
-    {
-        ::renddx9abi::logf("Submit: %s %s: %u bindings, %u fixed states, %u sampler states",
-                           shader->name().c_str(), program.techniqueName.c_str(),
-                           static_cast<unsigned int>(program.bindings.size()),
-                           static_cast<unsigned int>(program.renderStates.size()),
-                           static_cast<unsigned int>(program.samplerStates.size()));
-        for (size_t i = 0; i < program.bindings.size(); ++i)
-        {
-            const Binding& b = *program.bindings[i];
-            std::string where;
-            char text[96];
-            for (size_t t = 0; t < b.targets.size(); ++t)
-            {
-                const Target& g = b.targets[t];
-                std::snprintf(text, sizeof(text), " %s%c%u+%u(c%d %ux%u e%u @%u)",
-                              g.pixel ? "ps" : "vs", "bifs"[g.set], g.reg, g.regCount,
-                              static_cast<int>(g.cls), g.rows, g.cols, g.elements, g.offset);
-                where += text;
-            }
-            for (size_t t = 0; t < b.stages.size(); ++t)
-            {
-                std::snprintf(text, sizeof(text), " s%u", b.stages[t]);
-                where += text;
-            }
-            ::renddx9abi::logf("Submit:   %s %s state%d words%u%s", b.name.c_str(),
-                               b.held ? "held" : "effect", b.stateSlot,
-                               static_cast<unsigned int>(b.words.size()), where.c_str());
-        }
-    }
+    logProgram(program);
 }
 
 // RaShader::applyParameterVector with the sink in place of the effect.
@@ -971,11 +1103,13 @@ void applyUsed(SubmitProgram* program, void* block, const std::vector<UsedParame
     {
         unsigned char* const holder = bytes + offsets[used[i].registryOffset];
         g_sink.current = used[i].binding;
+        g_sink.target = used[i].binding;
         reinterpret_cast<ApplyFn>((*reinterpret_cast<void***>(holder))[0])(
             holder, static_cast<ID3DXEffect*>(&g_sink),
             const_cast<char*>(used[i].handle));
     }
     g_sink.current = 0;
+    g_sink.target = 0;
 }
 
 void applySet(SubmitProgram* program, unsigned int set, RenderQueueEntry* entry)
@@ -1038,7 +1172,7 @@ void submitBegin(SubmitProgram* program, RenderQueueEntry* entry)
     }
     applySet(program, 1u, entry);
     if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
-        drawStatsBeginPass(program->shader->name(), program->techniqueName, 0);
+        drawStatsBeginPass(program->effectName, program->techniqueName, 0);
 }
 
 void submitEnd(SubmitProgram*)
@@ -1063,8 +1197,10 @@ bool submitSetMatrix(SubmitProgram* program, const char* semantic, const float* 
         return false;
     g_sink.program = program;
     g_sink.current = b;
+    g_sink.target = b;
     g_sink.SetMatrix(handle, reinterpret_cast<const D3DXMATRIX*>(matrix));
     g_sink.current = 0;
+    g_sink.target = 0;
     return true;
 }
 
@@ -1090,6 +1226,281 @@ bool submitEntry(SubmitProgram* program, RenderQueueEntry* entry)
 void submitReset()
 {
     g_programs.clear();
+}
+
+// ---- Effect programs (SubmitEffect) ----
+
+struct SubmitEffect
+{
+    ID3DXEffect* fx;
+    IDirect3DDevice9* device;
+    std::string name;
+    // The value store: every parameter written since the effect opted in, by handle (a
+    // parameter reached through two handles maps both to one entry, owned once).
+    std::map<D3DXHANDLE, Binding*> values;
+    std::vector<std::unique_ptr<Binding> > owned;
+    std::map<std::pair<D3DXHANDLE, unsigned int>, std::unique_ptr<SubmitProgram> > programs;
+    SubmitProgram* active;
+    bool d3dxPass;
+
+    SubmitEffect() : fx(0), device(0), active(0), d3dxPass(false) {}
+};
+
+namespace {
+
+ParameterSink g_effectSink;
+
+void setEffect(SubmitEffect& e, ID3DXEffect* fx)
+{
+    e.fx = fx;
+    e.device = 0;
+    if (fx && fx->GetDevice(&e.device) >= 0 && e.device)
+        e.device->Release();   // the effect keeps it
+}
+
+// The store entry for `handle`, read from D3DX when first reached; null for a parameter the
+// store does not keep (strings, texture arrays, shaders).
+Binding* storeValue(SubmitEffect& e, D3DXHANDLE handle)
+{
+    const std::map<D3DXHANDLE, Binding*>::const_iterator found = e.values.find(handle);
+    if (found != e.values.end())
+        return found->second;
+    D3DXPARAMETER_DESC desc;
+    if (!handle || e.fx->GetParameterDesc(handle, &desc) < 0)
+        return e.values[handle] = 0;
+    const D3DXHANDLE canonical = desc.Name ? e.fx->GetParameterByName(0, desc.Name) : 0;
+    if (canonical && canonical != handle)
+        return e.values[handle] = storeValue(e, canonical);
+    const bool texture = isTextureType(desc.Type) && desc.Elements <= 1;
+    const bool numeric = desc.Class == D3DXPC_SCALAR || desc.Class == D3DXPC_VECTOR
+        || desc.Class == D3DXPC_MATRIX_ROWS || desc.Class == D3DXPC_MATRIX_COLUMNS
+        || desc.Class == D3DXPC_STRUCT;
+    if (!texture && (!numeric || !desc.Bytes || desc.Type == D3DXPT_STRING))
+        return e.values[handle] = 0;
+    std::unique_ptr<Binding> b(new Binding);
+    b->handle = handle;
+    b->name = desc.Name ? desc.Name : "";
+    b->type = desc.Class == D3DXPC_STRUCT ? D3DXPT_VOID : desc.Type;
+    b->rows = desc.Rows;
+    b->cols = desc.Columns;
+    b->elements = (std::max)(1u, desc.Elements);
+    b->stored = true;
+    if (texture)
+        e.fx->GetTexture(handle, &b->texture);   // the reference the entry holds
+    else
+    {
+        b->words.assign(desc.Bytes / 4u, 0u);
+        e.fx->GetValue(handle, &b->words[0], desc.Bytes);
+    }
+    e.owned.push_back(std::move(b));
+    return e.values[handle] = e.owned.back().get();
+}
+
+bool rangeCovered(const SubmitProgram& program, const PassRecorder::Constants& c)
+{
+    for (unsigned int r = c.reg; r < c.reg + c.count; ++r)
+    {
+        bool hit = false;
+        for (size_t i = 0; i < program.bindings.size() && !hit; ++i)
+        {
+            const std::vector<Target>& targets = program.bindings[i]->targets;
+            for (size_t t = 0; t < targets.size() && !hit; ++t)
+                hit = targets[t].pixel == c.pixel && targets[t].set == c.set
+                    && r >= targets[t].reg && r < targets[t].reg + targets[t].regCount;
+        }
+        if (!hit)
+            return false;
+    }
+    return true;
+}
+
+// Whether a fixed state of the pass follows a parameter: recorded again with every numeric
+// parameter changed, the states must stay as recorded.
+bool statesFollowParameters(ID3DXEffect* effect, const ProgramSource& source,
+                            const PassRecorder& recorder)
+{
+    D3DXEFFECT_DESC effectDesc;
+    effect->GetDesc(&effectDesc);
+    std::vector<std::pair<D3DXHANDLE, std::vector<std::uint32_t> > > saved;
+    for (unsigned int i = 0; i < effectDesc.Parameters; ++i)
+    {
+        const D3DXHANDLE parameter = effect->GetParameter(0, i);
+        D3DXPARAMETER_DESC desc;
+        if (!parameter || effect->GetParameterDesc(parameter, &desc) < 0 || !desc.Bytes
+            || desc.Bytes > 0x800u || desc.Class == D3DXPC_STRUCT || desc.Class == D3DXPC_OBJECT)
+            continue;
+        if (desc.Type != D3DXPT_FLOAT && desc.Type != D3DXPT_INT && desc.Type != D3DXPT_BOOL)
+            continue;
+        std::vector<std::uint32_t> words(desc.Bytes / 4u, 0u);
+        effect->GetValue(parameter, &words[0], desc.Bytes);
+        std::vector<std::uint32_t> changed(words);
+        for (size_t w = 0; w < changed.size(); ++w)
+            changed[w] = desc.Type == D3DXPT_BOOL ? (changed[w] ? 0u : 1u)
+                : desc.Type == D3DXPT_INT ? changed[w] + 1u : floatWord(wordFloat(changed[w]) + 1.0f);
+        effect->SetValue(parameter, &changed[0], desc.Bytes);
+        saved.push_back(std::make_pair(parameter, words));
+    }
+    PassRecorder probe;
+    recordPass(effect, source.technique, source.pass, probe);
+    for (size_t i = 0; i < saved.size(); ++i)
+        effect->SetValue(saved[i].first, &saved[i].second[0],
+                         static_cast<UINT>(saved[i].second.size() * 4u));
+    if (probe.renderStates != recorder.renderStates
+        || probe.samplerStates.size() != recorder.samplerStates.size())
+        return true;
+    for (size_t i = 0; i < probe.samplerStates.size(); ++i)
+        if (probe.samplerStates[i].stage != recorder.samplerStates[i].stage
+            || probe.samplerStates[i].type != recorder.samplerStates[i].type
+            || probe.samplerStates[i].value != recorder.samplerStates[i].value)
+            return true;
+    return false;
+}
+
+void buildEffectProgram(SubmitEffect& e, SubmitProgram& program, D3DXHANDLE technique)
+{
+    program.effectName = e.name;
+    const ProgramSource source = { e.fx, technique, program.pass, e.device, false };
+    PassRecorder recorder;
+    if (!e.device || !recordProgram(program, source, recorder))
+        return;
+    for (size_t i = 0; i < recorder.constants.size(); ++i)
+    {
+        if (rangeCovered(program, recorder.constants[i]))
+            continue;
+        char why[96];
+        const PassRecorder::Constants& c = recorder.constants[i];
+        std::snprintf(why, sizeof(why), "%s %c%u+%u set by the effect, no parameter",
+                      c.pixel ? "ps" : "vs", "bifs"[c.set], c.reg, c.count);
+        logRefused(program, why);
+        return;
+    }
+    if (statesFollowParameters(e.fx, source, recorder))
+    {
+        logRefused(program, "a state follows a parameter");
+        return;
+    }
+    for (size_t i = 0; i < program.bindings.size(); ++i)
+    {
+        Binding& b = *program.bindings[i];
+        b.shared = storeValue(e, b.handle);
+        if (!b.shared)
+        {
+            logRefused(program, ("parameter " + b.name + " not storable").c_str());
+            return;
+        }
+        b.handle = b.shared->handle;   // the store's handle, as the writes find it
+    }
+    program.valid = true;
+    logProgram(program);
+}
+
+} // namespace
+
+SubmitEffect* submitEffectCreate(void* d3dxEffect, const std::string& name)
+{
+    SubmitEffect* const e = new SubmitEffect;
+    e->name = name;
+    setEffect(*e, static_cast<ID3DXEffect*>(d3dxEffect));
+    return e;
+}
+
+void submitEffectDestroy(SubmitEffect* e)
+{
+    delete e;
+}
+
+void submitEffectFlush(SubmitEffect* e)
+{
+    if (!e->fx)
+        return;
+    for (size_t i = 0; i < e->owned.size(); ++i)
+    {
+        Binding& b = *e->owned[i];
+        if (!b.dirty)
+            continue;
+        b.dirty = false;
+        if (b.words.empty())
+            e->fx->SetTexture(b.handle, b.texture);
+        else
+            e->fx->SetValue(b.handle, &b.words[0], static_cast<UINT>(b.words.size() * 4u));
+    }
+}
+
+void submitEffectRebind(SubmitEffect* e, void* d3dxEffect)
+{
+    submitEffectFlush(e);
+    e->programs.clear();
+    e->values.clear();
+    e->owned.clear();
+    e->active = 0;
+    e->d3dxPass = false;
+    setEffect(*e, static_cast<ID3DXEffect*>(d3dxEffect));
+}
+
+bool submitEffectBeginPass(SubmitEffect* e, void* technique, unsigned int pass)
+{
+    e->active = 0;
+    e->d3dxPass = false;
+    if (!submitEnabled() || !e->fx || !technique)
+        return false;
+    const D3DXHANDLE handle = ::renddx9abi::d3dxHandle(technique);
+    std::unique_ptr<SubmitProgram>& slot = e->programs[std::make_pair(handle, pass)];
+    if (!slot)
+    {
+        slot.reset(new SubmitProgram);
+        slot->effect = e->fx;
+        slot->pass = pass;
+        buildEffectProgram(*e, *slot, handle);
+    }
+    SubmitProgram* const program = slot.get();
+    if (!program->valid)
+        return false;
+
+    // As D3DX's BeginPass with the effect begun under flags 7: nothing saved, nothing restored.
+    stateManagerSetVertexShader(program->vs);
+    stateManagerSetPixelShader(program->ps);
+    for (size_t i = 0; i < program->renderStates.size(); ++i)
+        stateManagerSetRenderState(program->renderStates[i].first, program->renderStates[i].second);
+    for (size_t i = 0; i < program->samplerStates.size(); ++i)
+        stateManagerSetSamplerState(program->samplerStates[i].stage,
+                                    program->samplerStates[i].type,
+                                    program->samplerStates[i].value);
+    for (size_t i = 0; i < program->bindings.size(); ++i)
+    {
+        Binding& b = *program->bindings[i];
+        if (!b.stages.empty())
+            bindTexture(b, b.shared->texture);
+        else
+            emitBinding(b, program->stateValues);
+    }
+    e->active = program;
+    return true;
+}
+
+void submitEffectBeginD3dxPass(SubmitEffect* e)
+{
+    submitEffectFlush(e);
+    e->active = 0;
+    e->d3dxPass = true;
+}
+
+void submitEffectEndPass(SubmitEffect* e)
+{
+    e->active = 0;
+    e->d3dxPass = false;
+}
+
+void* submitEffectParameterTarget(SubmitEffect* e, void* d3dxParameter)
+{
+    const D3DXHANDLE handle = ::renddx9abi::d3dxHandle(d3dxParameter);
+    Binding* const value = e->fx ? storeValue(*e, handle) : 0;
+    if (!value)
+        return e->fx;
+    g_effectSink.current = value;
+    g_effectSink.program = e->active;
+    g_effectSink.target = e->active ? e->active->find(value->handle) : 0;
+    g_effectSink.mirror = e->d3dxPass ? e->fx : 0;
+    return static_cast<ID3DXEffect*>(&g_effectSink);
 }
 
 } // namespace dx9rend

@@ -15,6 +15,7 @@
 #include "../../RendDX9Abi/PluginEntry.h"
 #include "RendDX9Base.h"
 #include "ShaderParameter.h"
+#include "Submit.h"              // [RENDER] effect programs (milestone 9)
 #include "../RendMisc/IRenderer.h"
 #include "../GeomMisc/Debug.h"
 
@@ -301,6 +302,12 @@ public:
     // Clears texture parameters held by the effect.
     void  clearTextureParameters();
 
+    // [RENDER] Draw submission (Submit.h): the effect's passes draw through programs and its
+    // parameter writes go to the submission layer's store.
+    void  enableSubmit();
+    SubmitEffect* submit() const { return m_submit; }
+    void  deviceLost();
+
 private:
     void*            m_vptr;          // +0x00
     int              m_refCount;      // +0x04
@@ -320,6 +327,11 @@ private:
     unsigned char    m_byte74;        // +0x74  ctor: 1
     unsigned char    m_pad75[3];
     std::vector<std::string> m_stringVec; // retail +0x78, state-technique names
+    // [RENDER] Not retail. The opted-in effect's submission state; whether D3DX's Begin is open
+    // (begun lazily for a pass a program cannot draw); whether a program pass is active.
+    SubmitEffect*    m_submit;
+    bool             m_d3dxBegun;
+    bool             m_programPass;
 };
 
 
@@ -332,6 +344,9 @@ Effect::Effect()
     , m_byte6C(0)
     , m_dword70(0)
     , m_byte74(1)
+    , m_submit(0)
+    , m_d3dxBegun(false)
+    , m_programPass(false)
 {
     // The parameter map and the write queue are constructed empty with the members.
 
@@ -356,6 +371,9 @@ Effect::~Effect()
          node != m_parameters.end(); ++node)
         node->second->release();
     m_parameters.clear();
+    if (m_submit)
+        submitEffectDestroy(m_submit);
+    m_submit = 0;
     if (m_d3dxEffect)
     {
         m_d3dxEffect->Release();
@@ -416,6 +434,8 @@ bool Effect::bind(ID3DXEffect* d3dxEffect)
 {
     // A rebind (the ShaderManager reload sweep) first keeps every parameter's current value
     // (sub_1001E570), then lets the outgoing effect go: OnLostDevice (+0x114) and Release.
+    if (m_submit && m_d3dxEffect)
+        submitEffectFlush(m_submit);   // [RENDER] the store's values into the outgoing effect
     if (m_d3dxEffect)
     {
         snapshotParameterValues();
@@ -433,6 +453,8 @@ bool Effect::bind(ID3DXEffect* d3dxEffect)
 
     d3dxEffect->AddRef();
     m_d3dxEffect = d3dxEffect;
+    if (m_submit)
+        submitEffectRebind(m_submit, d3dxEffect);   // [RENDER] programs of the new effect
 
     // when the ShaderManager's +0xA4 byte is clear -
     // and its constructor leaves it clear - every freshly bound effect is handed the StateManager
@@ -875,6 +897,15 @@ unsigned int Effect::begin()
 {
     unsigned int passes; // Retail ignores Begin's HRESULT and does not initialize the output.
     const bool smDisabled = shaderManagerStateManagerDisabled(g_shaderManager) != 0;
+    if (m_submit && !smDisabled)
+    {
+        // [RENDER] D3DX's Begin waits for a pass that draws through it (beginPass).
+        m_d3dxBegun = false;
+        m_programPass = false;
+        if (m_currentTechnique && m_currentTechnique->declaration)
+            vertexDeclarationBind(m_currentTechnique->declaration);
+        return currentTechniquePassCount();
+    }
 #if !defined(_WIN32)
     // Retail crash path, not missing code. The body above and below is complete; PE
     // 0x1001D793..0x1001D796 loads the D3DX effect and calls through it without a null check, so a
@@ -910,6 +941,37 @@ unsigned int Effect::begin()
 
 void Effect::beginPass(unsigned int index)
 {
+    if (m_submit && !shaderManagerStateManagerDisabled(g_shaderManager))
+    {
+        // [RENDER] Opted in (Submit.h): the pass draws through its program when it has one, else
+        // through D3DX, begun here. D3DX is closed first either way: a program is recorded
+        // through D3DX's Begin, and the commit walk must not see the effect while a program draws.
+        if (m_byte6C)
+            m_d3dxEffect->EndPass();
+        m_byte6C = 0;
+        if (m_d3dxBegun)
+        {
+            m_d3dxEffect->End();
+            shaderManagerSetCurrentEffect(0);
+        }
+        m_d3dxBegun = false;
+        submitEffectEndPass(m_submit);
+        m_programPass = m_currentTechnique
+            && submitEffectBeginPass(m_submit, m_currentTechnique->handle, index);
+        if (!m_programPass)
+        {
+            submitEffectBeginD3dxPass(m_submit);
+            unsigned int passes = 0;
+            m_d3dxEffect->Begin(&passes, 7u);
+            shaderManagerSetCurrentEffect(this);
+            m_d3dxBegun = true;
+            m_d3dxEffect->BeginPass(index);
+            m_byte6C = 1;
+        }
+        if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+            drawStatsBeginPass(m_string0C, m_string38, index);
+        return;
+    }
     if (m_byte6C)
         m_d3dxEffect->EndPass();
     m_d3dxEffect->BeginPass(index);
@@ -920,12 +982,61 @@ void Effect::beginPass(unsigned int index)
 
 void Effect::end()
 {
+    if (m_submit && !shaderManagerStateManagerDisabled(g_shaderManager))
+    {
+        // [RENDER] See beginPass.
+        if (m_byte6C)
+            m_d3dxEffect->EndPass();
+        if (m_d3dxBegun)
+            m_d3dxEffect->End();
+        m_byte6C = 0;
+        m_d3dxBegun = false;
+        m_programPass = false;
+        submitEffectEndPass(m_submit);
+        shaderManagerSetCurrentEffect(0);
+        drawStatsEndPass();   // [DEV] BF2_DRAW_STATS
+        return;
+    }
     if (m_byte6C)
         m_d3dxEffect->EndPass();
     m_d3dxEffect->End();
     m_byte6C = 0;
     shaderManagerSetCurrentEffect(0);
     drawStatsEndPass();   // [DEV] BF2_DRAW_STATS
+}
+
+// [RENDER] See the declaration.
+void Effect::enableSubmit()
+{
+    if (!m_submit && m_d3dxEffect)
+        m_submit = submitEffectCreate(m_d3dxEffect, m_string0C);
+}
+
+void Effect::deviceLost()
+{
+    if (m_submit)
+        submitEffectRebind(m_submit, m_d3dxEffect);
+}
+
+void effectEnableSubmit(void* effect)
+{
+    if (effect)
+        static_cast<Effect*>(effect)->enableSubmit();
+}
+
+void effectDeviceLost(void* effect)
+{
+    if (effect)
+        static_cast<Effect*>(effect)->deviceLost();
+}
+
+// [RENDER] What an FX parameter of `effect` writes to: the submission layer's sink while the
+// effect is opted in, else its D3DX effect.
+void* effectParameterTarget(void* effect, void* d3dxParameter)
+{
+    Effect* const self = static_cast<Effect*>(effect);
+    return self->submit() ? submitEffectParameterTarget(self->submit(), d3dxParameter)
+                          : self->d3dxEffect();
 }
 
 
