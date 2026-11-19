@@ -71,8 +71,9 @@ SubmitProgram* submitProgramForWalk(Ra::RaShader* shader, unsigned int key, bool
 // draw (each records its instance), bound before the one draw (the instance records on the stream after the material's last,
 // the bound declaration merged with the instance elements, the stream frequencies) and ended after
 // it. Bind fails (nothing to draw) when the declaration or the record buffer cannot be made.
-// A hash of what decides whether two entries can share a group (their instance parameters and LOD
-// dither), for sorting candidates next to each other; submitGroupJoin still compares in full.
+// A 64-bit hash of what decides whether two entries can share a group (their instance parameters
+// and LOD dither). Entries are joined to a group on equal hashes: submitGroupJoin checks only the
+// dither, clip planes and the group's size.
 std::uint64_t submitInstanceKeyHash(SubmitProgram* program, RenderQueueEntry* entry);
 void submitGroupBegin(SubmitProgram* program, RenderQueueEntry* entry);
 bool submitGroupJoin(RenderQueueEntry* entry);

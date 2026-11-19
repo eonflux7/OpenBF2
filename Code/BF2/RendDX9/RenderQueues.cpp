@@ -1627,12 +1627,15 @@ struct InstanceCandidate
     RenderQueueEntry* entry;
     std::uint64_t hash;
     bool prepassed;
+    unsigned int order;   // in the walk, which a group keeps
 
     bool operator<(const InstanceCandidate& o) const
     {
         if (prepassed != o.prepassed)
             return prepassed < o.prepassed;
-        return hash < o.hash;
+        if (hash != o.hash)
+            return hash < o.hash;
+        return order < o.order;
     }
 };
 std::vector<InstanceCandidate> g_instanceCandidates;
@@ -1647,7 +1650,7 @@ void drawInstanceCandidates(SubmitProgram* program, Ra::RaShader* shader)
     {
         for (size_t k = 0; k < list.size(); ++k)
             list[k].hash = submitInstanceKeyHash(program, list[k].entry);
-        std::stable_sort(list.begin(), list.end());
+        std::sort(list.begin(), list.end());
     }
     for (size_t k = 0; k < list.size(); )
     {
@@ -1883,7 +1886,8 @@ void RenderQueue::drawWalkNear()
                 }
                 else if (instanced)
                 {
-                    InstanceCandidate c = { e, 0, renderQueuesIsPrepassed(e) };
+                    InstanceCandidate c = { e, 0, renderQueuesIsPrepassed(e),
+                                            static_cast<unsigned int>(g_instanceCandidates.size()) };
                     g_instanceCandidates.push_back(c);
                 }
                 else

@@ -1165,9 +1165,11 @@ void buildProgram(SubmitProgram& program)
         static const char* const kRecordNames[2] = { "World", "LightMapOffset" };
         for (unsigned int n = 0; n < 2; ++n)
         {
+            static const unsigned int kRecordWords[2] = { 16, 4 };   // RaParamMat4, RaParamVec4
             const D3DXHANDLE handle = source.effect->GetParameterByName(0, kRecordNames[n]);
             D3DXPARAMETER_DESC desc;
-            if (!handle || source.effect->GetParameterDesc(handle, &desc) < 0)
+            if (!handle || source.effect->GetParameterDesc(handle, &desc) < 0
+                || desc.Type != D3DXPT_FLOAT || desc.Rows * desc.Columns != kRecordWords[n])
                 continue;
             for (unsigned int block = 0; block < 5; ++block)
             {
@@ -1414,7 +1416,6 @@ unsigned int g_boundInstanceStream = 0;   // of the group bound, for submitGroup
 // The group being built: its key (the instance parameters its first entry captured) and records.
 SubmitProgram* g_groupProgram = 0;
 const RenderQueueEntry* g_groupFirst = 0;
-std::vector<std::uint32_t> g_groupKey;
 std::vector<std::uint32_t> g_candidateKey;
 std::vector<float> g_groupRecords;
 
@@ -1445,32 +1446,35 @@ void captureInstanceKey(SubmitProgram* program, RenderQueueEntry* entry,
     g_sink.capture = 0;
 }
 
+// The value of a record source's holder, read in place: World is a four-by-four float holder
+// (RaParamMat4), LightMapOffset a four-float one (RaParamVec4); both keep their value right after
+// their binder table (RaParameterBlocks.h).
+const float* recordValue(const SubmitProgram::RecordSource& source, RenderQueueEntry* entry)
+{
+    struct BlockHeader { void* vptr; const std::vector<int>* registry; };
+    unsigned char* const bytes = static_cast<unsigned char*>(entryBlock(entry, source.block));
+    const std::vector<int>& offsets = *reinterpret_cast<const BlockHeader*>(bytes)->registry;
+    return reinterpret_cast<const float*>(bytes + offsets[source.used.registryOffset]
+                                          + sizeof(void*));
+}
+
 void appendRecord(SubmitProgram* program, RenderQueueEntry* entry)
 {
     const size_t at = g_groupRecords.size();
     g_groupRecords.resize(at + kRecordFloats, 0.0f);
     float* const record = &g_groupRecords[at];
-    SubmitProgram::RecordSource& world = program->recordSources[0];
+    const SubmitProgram::RecordSource& world = program->recordSources[0];
     if (world.used.binding)
     {
-        applyOne(program, entryBlock(entry, world.block), world.used, false);
-        const std::vector<std::uint32_t>& w = world.value->words;
-        if (w.size() >= 16)
-        {
-            // Row-vector world matrix (translation in row 3): column c is m[0..3][c].
-            for (unsigned int c = 0; c < 3; ++c)
-                for (unsigned int r = 0; r < 4; ++r)
-                    record[4 * c + r] = wordFloat(w[4 * r + c]);
-        }
+        // Row-vector world matrix (translation in row 3): column c is m[0..3][c].
+        const float* const m = recordValue(world, entry);
+        for (unsigned int c = 0; c < 3; ++c)
+            for (unsigned int r = 0; r < 4; ++r)
+                record[4 * c + r] = m[4 * r + c];
     }
-    SubmitProgram::RecordSource& lightMap = program->recordSources[1];
+    const SubmitProgram::RecordSource& lightMap = program->recordSources[1];
     if (lightMap.used.binding)
-    {
-        applyOne(program, entryBlock(entry, lightMap.block), lightMap.used, false);
-        const std::vector<std::uint32_t>& w = lightMap.value->words;
-        for (unsigned int k = 0; k < 4 && k < w.size(); ++k)
-            record[12 + k] = wordFloat(w[k]);
-    }
+        std::memcpy(record + 12, recordValue(lightMap, entry), 4 * sizeof(float));
 }
 
 const MergedDeclaration* mergedDeclaration(IDirect3DDevice9* device,
@@ -1569,8 +1573,6 @@ void submitGroupBegin(SubmitProgram* program, RenderQueueEntry* entry)
     g_groupFirst = entry;
     g_groupRecords.clear();
     appendRecord(program, entry);
-    if (g_instancing)
-        captureInstanceKey(program, entry, g_groupKey);
 }
 
 bool submitGroupJoin(RenderQueueEntry* entry)
@@ -1583,24 +1585,18 @@ bool submitGroupJoin(RenderQueueEntry* entry)
         || entry->lighting.tail10C || !entry->lighting.tail0FC.empty()
         || first->lighting.tail10C || !first->lighting.tail0FC.empty())
         return false;
-    captureInstanceKey(program, entry, g_candidateKey);
-    if (g_candidateKey != g_groupKey)
-        return false;
     appendRecord(program, entry);
     return true;
 }
 
 std::uint64_t submitInstanceKeyHash(SubmitProgram* program, RenderQueueEntry* entry)
 {
-    // FNV-1a over the instance parameters' values and the LOD dither. An entry with clip planes
-    // never joins a group: its address makes its hash its own.
-    std::uint64_t h = 14695981039346656037ull;
+    // A 64-bit multiply-xorshift over the instance parameters' values and the LOD dither, a word
+    // at a time. An entry with clip planes never joins a group: its address makes its hash its own.
+    std::uint64_t h = 0x9E3779B97F4A7C15ull;
     const auto mix = [&h](std::uint32_t w) {
-        for (unsigned int b = 0; b < 4; ++b)
-        {
-            h ^= (w >> (8 * b)) & 0xFFu;
-            h *= 1099511628211ull;
-        }
+        h = (h ^ w) * 0xBF58476D1CE4E5B9ull;
+        h ^= h >> 31;
     };
     if (entry->lighting.tail10C || !entry->lighting.tail0FC.empty())
     {
