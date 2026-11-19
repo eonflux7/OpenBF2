@@ -22,6 +22,11 @@
 // undone. Free fly started from a view stops where it is and keeps holding the camera there; free
 // fly started from the game's camera hands it back when it stops.
 //
+// Paths (milestone 3): `path NAME` blocks in the same file, keyframes added by path.key at the held
+// camera. path.play takes the camera along the path in real time from its first rendered frame and
+// hands it back at the end; path.stop, view.go, view.leave and free fly end it early (free fly goes
+// on from where the path was).
+//
 // Camera convention: BF2's camera-to-world matrix (rows right, up, forward, position; y up),
 // yaw and pitch in degrees as getRotationZXY reports them (pitch negative looking down), the FOV
 // vertical in degrees.
@@ -49,6 +54,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 #include <string>
@@ -103,6 +109,20 @@ State g_state = { false, false, false, false, false, { 0, 0, 0, 0, 0, 60.0f }, s
                   std::string(), std::vector<std::pair<std::string, std::string> >() };
 
 ViewFile g_views;
+
+// A camera path playing (path.play, milestone 3): the keys as played, yaw unwrapped so each step
+// takes the short way round and every key's FOV filled in.
+struct PathPlay
+{
+    bool playing;
+    bool started;           // the first frame has set the start time
+    bool fovFromGame;       // no key has fov=: the game's FOV at the first frame, for all keys
+    std::string name;
+    std::vector<PathKey> keys;
+    std::chrono::steady_clock::time_point start;
+};
+
+PathPlay g_play = { false, false, false, std::string(), std::vector<PathKey>(), {} };
 
 // tools.* variables
 float g_flySpeed = 20.0f;   // metres per second
@@ -235,6 +255,7 @@ void leave()
     if (!g_viewToolActive)
         return;
     g_viewToolActive = false;
+    g_play.playing = false;
     stopFlying();
     undoRuns();
     g_state.view.clear();
@@ -267,6 +288,7 @@ void setFly(int on)
     {
         if (!g_viewToolActive)
             g_state.seedFromGame = true;
+        g_play.playing = false;     // a path stops where it is, and free fly goes on from there
         startFlying();
         enter();
     }
@@ -335,6 +357,7 @@ std::string viewGo(const std::string& name)
 
     undoRuns();                     // the previous view's variables
     stopFlying();
+    g_play.playing = false;
     g_state.seedFromGame = false;
     g_state.camera.x = view.x;
     g_state.camera.y = view.y;
@@ -429,7 +452,8 @@ std::string viewReload()
         return "view.reload: " + error;
     std::ostringstream out;
     out << g_views.path() << ": " << g_views.views().size() << " views, " << g_views.sets().size()
-        << " sets" << (g_views.exists() ? "" : " (no file yet)");
+        << " sets, " << g_views.paths().size() << " paths"
+        << (g_views.exists() ? "" : " (no file yet)");
     return out.str() + problemsText();
 }
 
@@ -501,6 +525,200 @@ std::string viewSet(const std::string& name, const std::string& list = std::stri
     if (!error.empty())
         return "view.set: " + error;
     return (views.empty() ? "removed set " : existed ? "updated set " : "added set ") + name;
+}
+
+// path.* (milestone 3): camera paths in the view file, played in real time.
+
+std::string pathKeyLine(const PathKey& k)
+{
+    std::string line = "key " + ViewFile::formatNumber(k.time, 2) + " pos="
+        + ViewFile::formatNumber(k.x, 2) + "," + ViewFile::formatNumber(k.y, 2) + ","
+        + ViewFile::formatNumber(k.z, 2) + " yaw=" + ViewFile::formatNumber(k.yaw, 2) + " pitch="
+        + ViewFile::formatNumber(k.pitch, 2);
+    if (k.hasFov)
+        line += " fov=" + ViewFile::formatNumber(k.fov, 1);
+    return line;
+}
+
+// The held camera becomes a keyframe of path NAME at TIME seconds; without TIME, 0 for a new path
+// and 5 s after the last key otherwise. A key at the same time is replaced.
+std::string pathKey(const std::string& name, const std::string& timeText = std::string())
+{
+    if (!g_viewToolActive)
+        return "path.key: no camera to save; start free fly (view.fly 1) or go to a view first";
+    if (!ViewFile::validName(name))
+        return "path.key: a name has no spaces, '|', '#' or '='";
+    std::string error;
+    if (!refreshViews(error))
+        return "path.key: " + error;
+    const ViewPath* path = g_views.findPath(name);
+    float time = path && !path->keys.empty() ? path->keys.back().time + 5.0f : 0.0f;
+    if (!timeText.empty())
+    {
+        char* end = 0;
+        time = static_cast<float>(std::strtod(timeText.c_str(), &end));
+        if (!end || *end != '\0' || time < 0.0f)
+            return "path.key: TIME is seconds from the path's start, 0 or more";
+    }
+    const Camera& c = g_state.camera;
+    g_views.saveKey(name, time, c.x, c.y, c.z, c.yaw, c.pitch, c.fov);
+    CreateDirectoryA(g_views.path().substr(0, g_views.path().find_last_of('/')).c_str(), 0);
+    error = writeViews();
+    if (!error.empty())
+        return "path.key: " + error;
+    path = g_views.findPath(name);
+    std::ostringstream out;
+    out << "path " << name << ": key at " << ViewFile::formatNumber(time, 2) << " s, "
+        << (path ? path->keys.size() : 0) << " keys";
+    return out.str();
+}
+
+std::string pathList()
+{
+    std::string error;
+    if (!refreshViews(error))
+        return "path.list: " + error;
+    std::ostringstream out;
+    out << g_views.path() << (g_views.exists() ? "" : " (no file yet)");
+    const std::vector<ViewPath>& paths = g_views.paths();
+    for (size_t i = 0; i < paths.size(); ++i)
+    {
+        const ViewPath& p = paths[i];
+        out << "\n" << (g_play.playing && p.name == g_play.name ? "* " : "  ") << p.name << "  "
+            << p.keys.size() << " keys, "
+            << ViewFile::formatNumber(p.keys.empty() ? 0.0f : p.keys.back().time, 2) << " s";
+        if (!p.note.empty())
+            out << " | " << p.note;
+        for (size_t k = 0; k < p.keys.size(); ++k)
+            out << "\n      " << pathKeyLine(p.keys[k]);
+    }
+    if (paths.empty())
+        out << "\n  no paths";
+    return out.str() + problemsText();
+}
+
+std::string pathPlay(const std::string& name)
+{
+    std::string error;
+    if (!refreshViews(error))
+        return "path.play: " + error;
+    const ViewPath* path = g_views.findPath(name);
+    if (!path)
+        return "path.play: no path " + name + " in " + g_views.path();
+    if (path->keys.size() < 2)
+        return "path.play: path " + name + " needs at least two keys";
+
+    std::vector<PathKey> keys = path->keys;
+    // Yaw the short way round from each key to the next.
+    for (size_t k = 1; k < keys.size(); ++k)
+    {
+        while (keys[k].yaw - keys[k - 1].yaw > 180.0f)
+            keys[k].yaw -= 360.0f;
+        while (keys[k].yaw - keys[k - 1].yaw < -180.0f)
+            keys[k].yaw += 360.0f;
+    }
+    // A key without fov= takes the previous key's; keys before the first fov= take that one.
+    size_t first = 0;
+    while (first < keys.size() && !keys[first].hasFov)
+        ++first;
+    for (size_t k = 0; first < keys.size() && k < keys.size(); ++k)
+        if (!keys[k].hasFov)
+            keys[k].fov = k < first ? keys[first].fov : keys[k - 1].fov;
+
+    undoRuns();
+    stopFlying();
+    g_state.view.clear();
+    g_state.seedFromGame = false;
+    g_state.seedFovFromGame = false;
+    g_play.keys.swap(keys);
+    g_play.name = name;
+    g_play.fovFromGame = first == g_play.keys.size();
+    g_play.started = false;
+    g_play.playing = true;
+    enter();
+    std::ostringstream out;
+    out << "path " << name << ": " << g_play.keys.size() << " keys, "
+        << ViewFile::formatNumber(g_play.keys.back().time, 2) << " s";
+    return out.str();
+}
+
+// Stops a playing path and hands the camera back to the game.
+void pathStop()
+{
+    if (g_play.playing)
+        leave();
+}
+
+// The camera at time t (seconds) on the playing path: a cubic Hermite through the keys with
+// Catmull-Rom tangents for uneven key times, (p[i+1] - p[i-1]) / (t[i+1] - t[i-1]), one-sided at
+// the ends. Position, yaw, pitch and FOV each follow the same curve.
+void samplePath(float t, Camera& c)
+{
+    const std::vector<PathKey>& k = g_play.keys;
+    const size_t n = k.size();
+    size_t i = 0;
+    while (i + 2 < n && t >= k[i + 1].time)
+        ++i;
+    const float h = k[i + 1].time - k[i].time;
+    float s = (t - k[i].time) / h;
+    if (s < 0.0f) s = 0.0f;
+    if (s > 1.0f) s = 1.0f;
+    const float s2 = s * s;
+    const float s3 = s2 * s;
+    const float h00 = 2.0f * s3 - 3.0f * s2 + 1.0f;
+    const float h10 = s3 - 2.0f * s2 + s;
+    const float h01 = -2.0f * s3 + 3.0f * s2;
+    const float h11 = s3 - s2;
+    const size_t a0 = i == 0 ? 0 : i - 1;       // the tangent at key i spans keys a0 .. i + 1
+    const size_t b1 = i + 2 < n ? i + 2 : i + 1; // the tangent at key i + 1 spans i .. b1
+    const float ta = (k[i + 1].time - k[a0].time);
+    const float tb = (k[b1].time - k[i].time);
+
+    float out[6];
+    for (int ch = 0; ch < 6; ++ch)
+    {
+        float v[4];
+        const PathKey* keys[4] = { &k[a0], &k[i], &k[i + 1], &k[b1] };
+        for (int j = 0; j < 4; ++j)
+        {
+            const PathKey& key = *keys[j];
+            const float values[6] = { key.x, key.y, key.z, key.yaw, key.pitch, key.fov };
+            v[j] = values[ch];
+        }
+        const float m0 = (v[2] - v[0]) / ta;
+        const float m1 = (v[3] - v[1]) / tb;
+        out[ch] = h00 * v[1] + h10 * h * m0 + h01 * v[2] + h11 * h * m1;
+    }
+    c.x = out[0];
+    c.y = out[1];
+    c.z = out[2];
+    c.yaw = out[3];
+    while (c.yaw > 180.0f)   c.yaw -= 360.0f;
+    while (c.yaw <= -180.0f) c.yaw += 360.0f;
+    c.pitch = out[4] > 89.0f ? 89.0f : out[4] < -89.0f ? -89.0f : out[4];
+    if (!g_play.fovFromGame)
+        c.fov = out[5] < kMinFov ? kMinFov : out[5] > kMaxFov ? kMaxFov : out[5];
+}
+
+// One frame of a playing path; false when it has ended (the camera is handed back).
+bool pathStep(dx9rend::IRenderView* view)
+{
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    if (!g_play.started)
+    {
+        g_play.started = true;
+        g_play.start = now;
+        if (g_play.fovFromGame)
+            g_state.camera.fov = view->getFov() / kDegToRad;
+    }
+    const float t = std::chrono::duration<float>(now - g_play.start).count();
+    if (t >= g_play.keys.back().time)
+    {
+        leave();
+        return false;
+    }
+    samplePath(t, g_state.camera);
+    return true;
 }
 
 // view.shot (task 5): the request waits for the next frame's hook, which asks the renderer for a
@@ -860,6 +1078,8 @@ void viewToolFrame(dx9rend::IRenderView* view)
         g_state.camera.fov = view->getFov() / kDegToRad;
         g_state.seedFovFromGame = false;
     }
+    if (g_play.playing && !pathStep(view))
+        return;
     if (g_state.fly)
         flyStep();
     Mat4 m;
@@ -910,6 +1130,14 @@ BF2_CONSOLE_METHOD_0_RET_ACTIVE(reload, viewReload, std::string, true, kViewTool
 BF2_CONSOLE_METHOD_0_1_RET_ACTIVE(shot, viewShot, std::string, true, std::string, std::string(),
                                  kViewToolConsoleTag)
 BF2_CONSOLE_METHOD_0_RET_ACTIVE(lastShot, viewLastShot, std::string, true, kViewToolConsoleTag)
+
+// path.* commands
+BF2_CONSOLE_OBJECT("path", 1, 0)
+BF2_CONSOLE_METHOD_1_2_RET_ACTIVE(key, pathKey, std::string, true, std::string, std::string,
+                                  kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_1_RET_ACTIVE(play, pathPlay, std::string, true, std::string, kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_0_STATIC_ACTIVE(stop, pathStop, true, kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_0_RET_ACTIVE(list, pathList, std::string, true, kViewToolConsoleTag)
 
 // tools.* variables
 BF2_CONSOLE_OBJECT("tools", 1, 0)

@@ -2,8 +2,9 @@
 // Not part of retail BF2; client image only.
 //
 // The file is edited by hand and by the tool, so the tool never rewrites it whole: it keeps the
-// file's lines, parses views and sets out of them, and an edit replaces, inserts or removes only
-// the lines of the view or set it changes. Comments, blank lines, order and line endings stay.
+// file's lines, parses views, paths and sets out of them, and an edit replaces, inserts or removes
+// only the lines of the view, path or set it changes. Comments, blank lines, order and line endings
+// stay.
 #pragma once
 
 #include "../../Core/BuildConfig.h"
@@ -31,6 +32,27 @@ struct ViewDef
     std::vector<int> runLines;
 };
 
+// A keyframe of a camera path: the view fields plus a time in seconds from the path's start.
+struct PathKey
+{
+    float time;
+    float x, y, z;
+    float yaw, pitch;
+    float fov;              // valid when hasFov
+    bool  hasFov;
+    int   line;
+};
+
+// A camera path (docs/eon64/tools.md#3-benchmark-path): "path NAME [| note]" followed by indented
+// "key TIME pos=... yaw=... pitch=... fov=..." lines, kept in time order.
+struct ViewPath
+{
+    std::string name;
+    std::string note;
+    std::vector<PathKey> keys;
+    int header;
+};
+
 struct ViewSet
 {
     std::string name;
@@ -55,10 +77,12 @@ public:
     bool exists() const { return m_exists; }
     const std::vector<ViewDef>& views() const { return m_views; }
     const std::vector<ViewSet>& sets() const { return m_sets; }
+    const std::vector<ViewPath>& paths() const { return m_paths; }
     // "line N: ..." for each line that could not be parsed.
     const std::vector<std::string>& problems() const { return m_problems; }
 
     const ViewDef* find(const std::string& name) const;
+    const ViewPath* findPath(const std::string& name) const;
 
     // Adds the view, or updates the camera fields of the one with that name (its other fields,
     // run lines and, when note is empty, its note stay).
@@ -77,6 +101,12 @@ public:
     // none); no views removes the set.
     void setSet(const std::string& name, const std::vector<std::string>& views);
 
+    // Adds a keyframe at time to the path, creating the path (after the last path, else after the
+    // last view) when there is none. A key at the same time is replaced; otherwise the key line
+    // goes where its time puts it among the path's keys.
+    void saveKey(const std::string& path, float time, float x, float y, float z, float yaw,
+                 float pitch, float fov);
+
     // A valid name: no whitespace, '|' or '#', not empty.
     static bool validName(const std::string& name);
     // "x,y,z" or a number with at most `decimals` places, trailing zeros dropped.
@@ -93,6 +123,7 @@ private:
     std::vector<std::string> m_lines;
     std::vector<ViewDef> m_views;
     std::vector<ViewSet> m_sets;
+    std::vector<ViewPath> m_paths;
     std::vector<std::string> m_problems;
 };
 

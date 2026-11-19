@@ -4,6 +4,9 @@
 //   view market   pos=812.4,62.0,-311.9 yaw=134.5 pitch=-8 fov=75 | rooftop alpha fences
 //     run renderer.sunShadowDebug 1
 //   set default market airfield
+//   path tour
+//     key 0  pos=812.4,62.0,-311.9 yaw=134.5 pitch=-8 fov=75
+//     key 12 pos=-1203.0,48.5,902.2 yaw=12.0 pitch=-3
 
 #include "ViewFile.h"
 
@@ -64,6 +67,32 @@ std::string lineProblem(int index, const std::string& what)
     return out.str();
 }
 
+// The camera fields of a view or key line into the given outputs; problems are reported for line i.
+// Returns false when pos is missing.
+struct CameraFields
+{
+    float x, y, z, yaw, pitch, fov;
+    bool hasFov;
+};
+
+bool parseCameraFields(const std::vector<std::pair<std::string, std::string> >& fields, int i,
+                       CameraFields& c, std::vector<std::string>& problems);
+
+// The key=value words of a line from word `from` on; a word without '=' has an empty value.
+void splitFields(const std::vector<std::string>& w, size_t from,
+                 std::vector<std::pair<std::string, std::string> >& fields)
+{
+    fields.clear();
+    for (size_t i = from; i < w.size(); ++i)
+    {
+        const size_t eq = w[i].find('=');
+        if (eq == std::string::npos)
+            fields.push_back(std::make_pair(w[i], std::string()));
+        else
+            fields.push_back(std::make_pair(w[i].substr(0, eq), w[i].substr(eq + 1)));
+    }
+}
+
 // A view line's parts: the keyword and name, the key=value fields in order, the note.
 struct HeaderParts
 {
@@ -73,30 +102,49 @@ struct HeaderParts
     bool hasNote;
 };
 
-bool splitHeader(const std::string& line, HeaderParts& parts)
+bool splitHeader(const std::string& line, HeaderParts& parts, const char* keyword = "view")
 {
     const size_t bar = line.find('|');
     parts.hasNote = bar != std::string::npos;
     parts.note = parts.hasNote ? trim(line.substr(bar + 1)) : std::string();
     const std::vector<std::string> w = words(parts.hasNote ? line.substr(0, bar) : line);
-    if (w.size() < 2 || w[0] != "view")
+    if (w.size() < 2 || w[0] != keyword)
         return false;
     parts.name = w[1];
-    parts.fields.clear();
-    for (size_t i = 2; i < w.size(); ++i)
-    {
-        const size_t eq = w[i].find('=');
-        if (eq == std::string::npos)
-            parts.fields.push_back(std::make_pair(w[i], std::string()));
-        else
-            parts.fields.push_back(std::make_pair(w[i].substr(0, eq), w[i].substr(eq + 1)));
-    }
+    splitFields(w, 2, parts.fields);
     return true;
 }
 
-std::string joinHeader(const HeaderParts& parts)
+bool parseCameraFields(const std::vector<std::pair<std::string, std::string> >& fields, int i,
+                       CameraFields& c, std::vector<std::string>& problems)
 {
-    std::string line = "view " + parts.name;
+    c.x = c.y = c.z = c.yaw = c.pitch = c.fov = 0.0f;
+    c.hasFov = false;
+    bool hasPos = false;
+    for (size_t f = 0; f < fields.size(); ++f)
+    {
+        const std::string& key = fields[f].first;
+        const std::string& value = fields[f].second;
+        bool ok = true;
+        if (key == "pos")
+            ok = hasPos = parsePos(value, c.x, c.y, c.z);
+        else if (key == "yaw")
+            ok = parseFloat(value, c.yaw);
+        else if (key == "pitch")
+            ok = parseFloat(value, c.pitch);
+        else if (key == "fov")
+            ok = c.hasFov = parseFloat(value, c.fov);
+        else
+            problems.push_back(lineProblem(i, "unknown field " + key + " (kept)"));
+        if (!ok)
+            problems.push_back(lineProblem(i, "bad value in " + key + "=" + value));
+    }
+    return hasPos;
+}
+
+std::string joinHeader(const HeaderParts& parts, const char* keyword = "view")
+{
+    std::string line = std::string(keyword) + " " + parts.name;
     for (size_t i = 0; i < parts.fields.size(); ++i)
     {
         line += ' ';
@@ -177,7 +225,10 @@ void ViewFile::parse()
 {
     m_views.clear();
     m_sets.clear();
+    m_paths.clear();
     m_problems.clear();
+    // run lines belong to the view above them, key lines to the path above them.
+    enum { None, InView, InPath } block = None;
     for (int i = 0; i < static_cast<int>(m_lines.size()); ++i)
     {
         const std::string line = trim(m_lines[i]);
@@ -186,6 +237,7 @@ void ViewFile::parse()
         const std::vector<std::string> w = words(line);
         if (w[0] == "view")
         {
+            block = None;
             HeaderParts parts;
             if (!splitHeader(line, parts) || !validName(parts.name))
             {
@@ -198,49 +250,101 @@ void ViewFile::parse()
                                                     "the first one is used"));
                 continue;
             }
-            ViewDef v;
-            v.name = parts.name;
-            v.x = v.y = v.z = v.yaw = v.pitch = v.fov = 0.0f;
-            v.hasFov = false;
-            v.note = parts.note;
-            v.header = i;
-            bool hasPos = false;
-            for (size_t f = 0; f < parts.fields.size(); ++f)
+            CameraFields c;
+            if (!parseCameraFields(parts.fields, i, c, m_problems))
             {
-                const std::string& key = parts.fields[f].first;
-                const std::string& value = parts.fields[f].second;
-                bool ok = true;
-                if (key == "pos")
-                    ok = hasPos = parsePos(value, v.x, v.y, v.z);
-                else if (key == "yaw")
-                    ok = parseFloat(value, v.yaw);
-                else if (key == "pitch")
-                    ok = parseFloat(value, v.pitch);
-                else if (key == "fov")
-                    ok = v.hasFov = parseFloat(value, v.fov);
-                else
-                    m_problems.push_back(lineProblem(i, "unknown field " + key + " (kept)"));
-                if (!ok)
-                    m_problems.push_back(lineProblem(i, "bad value in " + key + "=" + value));
-            }
-            if (!hasPos)
-            {
-                m_problems.push_back(lineProblem(i, "view " + v.name + " has no pos"));
+                m_problems.push_back(lineProblem(i, "view " + parts.name + " has no pos"));
                 continue;
             }
+            ViewDef v;
+            v.name = parts.name;
+            v.x = c.x;
+            v.y = c.y;
+            v.z = c.z;
+            v.yaw = c.yaw;
+            v.pitch = c.pitch;
+            v.fov = c.fov;
+            v.hasFov = c.hasFov;
+            v.note = parts.note;
+            v.header = i;
             m_views.push_back(v);
+            block = InView;
         }
         else if (w[0] == "run")
         {
             const std::string command = trim(line.substr(3));
-            if (m_views.empty() || command.empty())
+            if (block != InView || command.empty())
             {
-                m_problems.push_back(lineProblem(i, m_views.empty() ? "run line before any view"
+                m_problems.push_back(lineProblem(i, block != InView ? "run line outside a view"
                                                                     : "empty run line"));
                 continue;
             }
             m_views.back().runs.push_back(command);
             m_views.back().runLines.push_back(i);
+        }
+        else if (w[0] == "path")
+        {
+            block = None;
+            HeaderParts parts;
+            if (!splitHeader(line, parts, "path") || !validName(parts.name))
+            {
+                m_problems.push_back(lineProblem(i, "path needs a name"));
+                continue;
+            }
+            if (!parts.fields.empty())
+                m_problems.push_back(lineProblem(i, "path takes no fields (kept)"));
+            if (findPath(parts.name))
+            {
+                m_problems.push_back(lineProblem(i, "path " + parts.name + " is defined twice; "
+                                                    "the first one is used"));
+                continue;
+            }
+            ViewPath p;
+            p.name = parts.name;
+            p.note = parts.note;
+            p.header = i;
+            m_paths.push_back(p);
+            block = InPath;
+        }
+        else if (w[0] == "key")
+        {
+            if (block != InPath)
+            {
+                m_problems.push_back(lineProblem(i, "key line outside a path"));
+                continue;
+            }
+            float time = 0.0f;
+            if (w.size() < 2 || !parseFloat(w[1], time) || time < 0.0f)
+            {
+                m_problems.push_back(lineProblem(i, "key needs a time in seconds"));
+                continue;
+            }
+            std::vector<std::pair<std::string, std::string> > fields;
+            splitFields(w, 2, fields);
+            CameraFields c;
+            if (!parseCameraFields(fields, i, c, m_problems))
+            {
+                m_problems.push_back(lineProblem(i, "key has no pos"));
+                continue;
+            }
+            ViewPath& p = m_paths.back();
+            if (!p.keys.empty() && time <= p.keys.back().time)
+            {
+                m_problems.push_back(lineProblem(i, "key time " + w[1] + " is not after the "
+                                                    "previous key's; skipped"));
+                continue;
+            }
+            PathKey k;
+            k.time = time;
+            k.x = c.x;
+            k.y = c.y;
+            k.z = c.z;
+            k.yaw = c.yaw;
+            k.pitch = c.pitch;
+            k.fov = c.fov;
+            k.hasFov = c.hasFov;
+            k.line = i;
+            p.keys.push_back(k);
         }
         else if (w[0] == "set")
         {
@@ -273,6 +377,14 @@ const ViewDef* ViewFile::find(const std::string& name) const
     for (size_t i = 0; i < m_views.size(); ++i)
         if (m_views[i].name == name)
             return &m_views[i];
+    return 0;
+}
+
+const ViewPath* ViewFile::findPath(const std::string& name) const
+{
+    for (size_t i = 0; i < m_paths.size(); ++i)
+        if (m_paths[i].name == name)
+            return &m_paths[i];
     return 0;
 }
 
@@ -445,6 +557,56 @@ void ViewFile::setSet(const std::string& name, const std::vector<std::string>& v
         return;
     const int at = m_sets.empty() ? static_cast<int>(m_lines.size()) : m_sets.back().line + 1;
     m_lines.insert(m_lines.begin() + at, line);
+    parse();
+}
+
+void ViewFile::saveKey(const std::string& path, float time, float x, float y, float z, float yaw,
+                       float pitch, float fov)
+{
+    const std::string line = "  key " + formatNumber(time, 2) + " pos=" + formatNumber(x, 2) + ","
+        + formatNumber(y, 2) + "," + formatNumber(z, 2) + " yaw=" + formatNumber(yaw, 2)
+        + " pitch=" + formatNumber(pitch, 2) + " fov=" + formatNumber(fov, 1);
+    const ViewPath* existing = findPath(path);
+    if (existing)
+    {
+        int at = existing->keys.empty() ? existing->header + 1 : existing->keys.back().line + 1;
+        for (size_t k = 0; k < existing->keys.size(); ++k)
+        {
+            const PathKey& key = existing->keys[k];
+            if (formatNumber(key.time, 2) == formatNumber(time, 2))
+            {
+                m_lines[key.line] = line;
+                parse();
+                return;
+            }
+            if (key.time > time)
+            {
+                at = key.line;
+                break;
+            }
+        }
+        m_lines.insert(m_lines.begin() + at, line);
+        parse();
+        return;
+    }
+    // A new path goes after the last path, else after the last view, else above the sets.
+    int at = static_cast<int>(m_lines.size());
+    if (!m_paths.empty())
+    {
+        const ViewPath& last = m_paths.back();
+        at = (last.keys.empty() ? last.header : last.keys.back().line) + 1;
+    }
+    else if (!m_views.empty())
+    {
+        const ViewDef& last = m_views.back();
+        at = (last.runLines.empty() ? last.header : last.runLines.back()) + 1;
+    }
+    else if (!m_sets.empty())
+    {
+        at = m_sets.front().line;
+    }
+    m_lines.insert(m_lines.begin() + at, line);
+    m_lines.insert(m_lines.begin() + at, "path " + path);
     parse();
 }
 
