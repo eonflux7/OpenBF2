@@ -763,8 +763,9 @@ struct ShadowCaster
 {
     RenderQueueEntry* entry;
     float             sphere[4];   // world centre, radius; radius < 0 = unbounded
-    const void*       shader;      // the entry's shader and material, copied at capture: the
-    const void*       material;    // draw order's keys, compared without visiting the entry
+    const void*       shader;      // the entry's shader, object block and material, copied at
+    const void*       object;      // capture: the draw order's keys, compared without visiting
+    const void*       material;    // the entry
 };
 void rendererBeginCasterCapture(const Frustum* volume);
 void rendererEndCasterCapture();

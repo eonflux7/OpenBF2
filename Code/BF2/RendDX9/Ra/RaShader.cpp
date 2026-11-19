@@ -1361,6 +1361,42 @@ void RaShader::draw(RenderQueueEntry* entry)
     rendererCountIndexedDraw(static_cast<unsigned int>(primitiveCount));
 }
 
+void RaShader::drawRun(RenderQueueEntry* const* entries, unsigned int count)
+{
+    typedef int (__thiscall* IntSlotFn)(void*);
+    int primitiveCount = 0;
+    int minIndex = 0x7FFFFFFF;
+    int endIndex = 0;
+    for (unsigned int i = 0; i < count; ++i)
+    {
+        void* const material = entries[i]->material;
+        void** const slots = *static_cast<void***>(material);
+        primitiveCount += reinterpret_cast<IntSlotFn>(slots[0x10 / 4])(material);
+        const int first = reinterpret_cast<IntSlotFn>(slots[0x1C / 4])(material);
+        const int end = first + reinterpret_cast<IntSlotFn>(slots[0x08 / 4])(material);
+        minIndex = first < minIndex ? first : minIndex;
+        endIndex = end > endIndex ? end : endIndex;
+    }
+    if (!primitiveCount)
+        return;
+
+    stateManagerPreDrawApply();
+
+    void* const material = entries[0]->material;
+    void** const slots = *static_cast<void***>(material);
+    const int startIndex = reinterpret_cast<IntSlotFn>(slots[0x20 / 4])(material)
+                         + static_cast<int>(entries[0]->lighting.tail10C);
+    const int baseVertex = reinterpret_cast<IntSlotFn>(slots[0x18 / 4])(material);
+    const int type       = reinterpret_cast<IntSlotFn>(slots[0x14 / 4])(material);
+    m_device->DrawIndexedPrimitive(static_cast<D3DPRIMITIVETYPE>(type), baseVertex,
+                                   static_cast<UINT>(minIndex),
+                                   static_cast<UINT>(endIndex - minIndex),
+                                   static_cast<UINT>(startIndex),
+                                   static_cast<UINT>(primitiveCount));
+    drawStatsDraw(static_cast<unsigned int>(primitiveCount));   // [DEV] BF2_DRAW_STATS
+    rendererCountIndexedDraw(static_cast<unsigned int>(primitiveCount));   // [TOOLS]
+}
+
 // sub_1004AFD0, read in full. GetParameterByName(0, "ShaderVersion") is D3DX slot +0x24 and GetInt
 // slot +0x6C.
 int* RaShader::shaderVersion()

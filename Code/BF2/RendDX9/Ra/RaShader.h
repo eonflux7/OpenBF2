@@ -137,6 +137,10 @@ public:
     // +0x18, sub_1004AF30: the state manager's pre-draw apply, then the device's
     // DrawIndexedPrimitive from the material's getters; nothing for a material with no primitives.
     void draw(RenderQueueEntry* entry);
+    // [RENDER] milestone 9: `count` entries whose materials continue each other
+    // (geom::staticMeshMaterialContinues) as one draw: the first's index start, the primitives of
+    // all, the vertices from the lowest to the highest any of them uses.
+    void drawRun(RenderQueueEntry* const* entries, unsigned int count);
     // sub_1004AEE0 / sub_1004AF10 - BeginPass / EndPass, effect-gated.
     void beginPass(unsigned int pass);
     void endPass();

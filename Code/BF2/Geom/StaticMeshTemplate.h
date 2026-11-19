@@ -188,6 +188,13 @@ inline RaMaterialParameters& staticMeshMaterialParameters(StaticMeshMaterial* ma
 namespace dx9rend { namespace Ra { class RaShader; } }
 namespace geom {
 
+// [RENDER] milestone 9: whether `next` (a queue entry's material) draws in one indexed range after
+// `material` with the shader of build serial `buildSerial`: both StaticMeshMaterials, `next` the
+// following material of the same LOD, its indices right after, a triangle list, the same alpha
+// mode, and the same declaration and vertex buffers for that shader. One draw per mesh in the
+// depth passes (RenderQueues.cpp).
+bool staticMeshMaterialContinues(const void* material, const void* next, unsigned int buildSerial);
+
 // Looks up a shader by feature bits, logging misses and retrying the default mask 0x1000000.
 // Returns null if both lookups fail.
 ::dice::hfe::dx9rend::Ra::RaShader* staticMeshFindShaderBits(unsigned int bits);

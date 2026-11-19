@@ -28,6 +28,7 @@
 #include <new>
 #include <set>
 #include <string.h>
+#include <vector>
 #include "../GeomMisc/FSQuadDrawer.h"   // textureReciprocalSize, PE 0x10084660
 
 namespace dice {
@@ -60,6 +61,12 @@ void indexBufferBind(void* wrapper);
 // BufferManager.cpp - the wrapper fields (+0x08 D3D declaration, +0x20 desc.Size).
 unsigned int vertexBufferByteSize(void* wrapper);
 IDirect3DVertexDeclaration9* vertexDeclarationD3D(void* wrapper);
+// BufferManager.cpp - the template index buffer, created here with whole-template indices
+// ([RENDER] milestone 9, StaticMeshTemplate::buildIndexBuffer).
+void* bufferManagerCreateIndexBuffer(unsigned int count, unsigned int usage, unsigned int format);
+void* indexBufferLock(void* wrapper, unsigned int offsetIndices, unsigned int countIndices,
+                      unsigned int flags);
+bool  indexBufferUnlock(void* wrapper);
 } // namespace dx9rend
 
 namespace geom {
@@ -514,9 +521,17 @@ namespace geom {
 
 
 // PE 0x1011F570. The declaration map is constructed last, after the scalar stores.
+namespace {
+// [RENDER] milestone 9: the class's vtable, recorded by its constructors, so a queue entry's
+// material (an untyped pointer) can be recognised as a StaticMeshMaterial
+// (staticMeshMaterialContinues).
+const void* g_staticMeshMaterialVptr = 0;
+}
+
 StaticMeshMaterial::StaticMeshMaterial()
     : m_vector04(), m_vector14()
 {
+    g_staticMeshMaterialVptr = *reinterpret_cast<const void* const*>(this);   // [RENDER]
     m_flags24        = 0;
     m_shaderMaterial = 0;
 
@@ -583,6 +598,7 @@ StaticMeshMaterial::StaticMeshMaterial(const StaticMeshMaterial& other)
     : m_vector04(other.m_vector04)
     , m_vector14(other.m_vector14)
 {
+    g_staticMeshMaterialVptr = *reinterpret_cast<const void* const*>(this);   // [RENDER]
     m_flags24        = other.m_flags24;
     m_shaderMaterial = other.m_shaderMaterial;
 
@@ -736,8 +752,38 @@ int StaticMeshMaterial::getVertexCount() const    { return static_cast<int>(m_ve
 int StaticMeshMaterial::slot_0x0C() const         { return -1; }
 int StaticMeshMaterial::getPrimitiveCount() const { return static_cast<int>(m_primitiveCount); }
 int StaticMeshMaterial::getDword1F0() const       { return static_cast<int>(m_dword1F0); }
-int StaticMeshMaterial::getVertexStart() const    { return static_cast<int>(m_vertexStart); }
-int StaticMeshMaterial::slot_0x1C() const         { return 0; }
+// [RENDER] milestone 9: the template's index buffer holds whole-template vertex indices
+// (StaticMeshTemplate::buildIndexBuffer), so the base vertex is 0 and the material's vertices
+// start at its vertex start (retail: base vertex m_vertexStart, minimum index 0).
+int StaticMeshMaterial::getVertexStart() const    { return 0; }
+int StaticMeshMaterial::slot_0x1C() const         { return static_cast<int>(m_vertexStart); }
+
+// [RENDER] milestone 9: one draw per mesh in the depth passes.
+bool staticMeshMaterialContinues(const void* material, const void* next, unsigned int buildSerial)
+{
+    if (!g_staticMeshMaterialVptr
+        || *static_cast<const void* const*>(material) != g_staticMeshMaterialVptr
+        || *static_cast<const void* const*>(next) != g_staticMeshMaterialVptr)
+        return false;
+    const StaticMeshMaterial* const a = static_cast<const StaticMeshMaterial*>(material);
+    const StaticMeshMaterial* const b = static_cast<const StaticMeshMaterial*>(next);
+    // The next material of the same LOD, its indices right after these, as a triangle list.
+    if (b != a + 1 || a->m_template != b->m_template || a->m_template->m_primitiveType != 4u
+        || b->m_indexStart != a->m_indexStart + 3u * a->m_primitiveCount
+        || a->m_alphaMode != b->m_alphaMode)
+        return false;
+    // The same declaration and vertex buffers for this shader (both bound it before).
+    const StaticMeshMaterial::StreamDeclarationMap::const_iterator ra = a->m_map1F8.find(buildSerial);
+    const StaticMeshMaterial::StreamDeclarationMap::const_iterator rb = b->m_map1F8.find(buildSerial);
+    if (ra == a->m_map1F8.end() || rb == b->m_map1F8.end()
+        || ra->second.declaration != rb->second.declaration
+        || ra->second.streams.size() != rb->second.streams.size())
+        return false;
+    for (size_t i = 0; i < ra->second.streams.size(); ++i)
+        if (a->m_vector14[ra->second.streams[i]] != b->m_vector14[rb->second.streams[i]])
+            return false;
+    return true;
+}
 int StaticMeshMaterial::getIndexStart() const     { return static_cast<int>(m_indexStart); }
 
 
@@ -1545,7 +1591,46 @@ void StaticMeshTemplate::buildIndexBuffer()
         }
     }
 
-    MeshTemplate::buildIndexBuffer();     // sub_10191A80, the unconditional tail call
+    // [RENDER] milestone 9: the GPU copy holds whole-template vertex indices, each material's
+    // indices plus its vertex start, so a mesh's adjacent materials draw as one range in the depth
+    // passes (staticMeshMaterialContinues); every material draws with base vertex 0. 32-bit when
+    // the template has more vertices than 16 bits address. Retail uploaded m_indexData as read
+    // (MeshTemplate::buildIndexBuffer); the vegetation copies above stay material-relative.
+    const bool wide = m_vertexCount > 0x10000u;
+    m_indexBuffer = ::dice::hfe::dx9rend::bufferManagerCreateIndexBuffer(m_indexCount, 8,
+                                                                         wide ? 102u : 101u);
+    std::vector<unsigned int> rebased(m_indexData, m_indexData + m_indexCount);
+    for (size_t geom = 0; geom < m_materials.size(); ++geom)
+    {
+        const StaticMeshLodMaterialLists& lods = m_materials.data()[geom];
+        for (size_t lod = 0; lod < lods.size(); ++lod)
+        {
+            const StaticMeshMaterialList& materials = lods.data()[lod];
+            for (unsigned int i = 0; i < materialCount(materials); ++i)
+            {
+                const StaticMeshMaterial* const material = materialAt(materials, i);
+                const unsigned int count = m_primitiveType == 4 ? 3u * material->m_primitiveCount
+                    : m_primitiveType == 5 ? material->m_primitiveCount + 2u : 0u;
+                const unsigned int end = material->m_indexStart + count;
+                for (unsigned int k = material->m_indexStart; k < end && k < m_indexCount; ++k)
+                    rebased[k] = m_indexData[k] + material->m_vertexStart;
+            }
+        }
+    }
+    void* const locked = ::dice::hfe::dx9rend::indexBufferLock(m_indexBuffer, 0, m_indexCount, 0);
+    if (locked)
+    {
+        if (wide)
+            ::memcpy(locked, rebased.data(), 4u * m_indexCount);
+        else
+        {
+            unsigned short* const out = static_cast<unsigned short*>(locked);
+            for (unsigned int k = 0; k < m_indexCount; ++k)
+                out[k] = static_cast<unsigned short>(rebased[k]);
+        }
+        ::dice::hfe::dx9rend::indexBufferUnlock(m_indexBuffer);
+    }
+    ::renddx9abi::engineFree(m_indexData);
 }
 
 

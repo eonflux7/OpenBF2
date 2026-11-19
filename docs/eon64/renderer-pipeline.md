@@ -130,7 +130,7 @@ In draw order, for the main world view:
 3. **Depth prepass** (`rendererDepthPrepass`), just before the world queues flush, after
    overgrowth has queued. Every opaque world-queue entry whose effect has the technique
    `RaDepthPrepass`, and whose prepass draw writes depth, draws into the scene depth near to far
-   by distance band (powers of two in metres; within a band by effect and material)
+   by distance band (powers of two in metres; within a band by effect, mesh instance and material)
    (the MSAA scene depth when the scene is multisampled), with its linear view depth (`R32F`, 0
    where nothing was drawn) into a target of the same sample count. Terrain's depth is already
    there from its first pass (`Terrain::drawMain`, before the prepass), so its prepass draws only
@@ -354,6 +354,14 @@ draw). The holders apply into a sink with the `ID3DXEffect` shape that turns eac
 register writes in the state manager's mirror, so every holder kind works unchanged and D3DX is not
 called while drawing. Constants in the engine's pixel registers (c200 on) keep the engine's values,
 as through D3DX.
+
+One draw per mesh: a static mesh's index buffer holds whole-template vertex indices (each
+material's indices plus its vertex start, 32-bit past 65536 vertices), and every static material
+draws with base vertex 0, so a LOD's materials lie in one index range. The depth walks order the
+entries by effect, then mesh instance, then material, and draw a run of the same instance's
+consecutive materials as one range when none is alpha tested and they share the LOD dither, the
+declaration and the vertex buffers (`depthRunLength`). The run's later materials upload none of
+their parameters: the depth techniques read the material only for alpha.
 
 ## Effect cache
 

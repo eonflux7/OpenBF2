@@ -37,6 +37,10 @@
 
 namespace dice {
 namespace hfe {
+namespace geom {
+// Geom/StaticMeshMaterial.cpp ([RENDER] milestone 9, declared in Geom/StaticMeshTemplate.h).
+bool staticMeshMaterialContinues(const void* material, const void* next, unsigned int buildSerial);
+}
 namespace dx9rend {
 
 // dword_1023E408 / dword_1023DE08 / dword_1023DDBC / dword_1023F3D8.
@@ -2475,8 +2479,9 @@ std::vector<const RenderQueueEntry*> g_prepassed;
 
 namespace {
 // [RENDER] milestone 9: the depth passes' order. Near to far by distance band (powers of two in
-// metres), and within a band by effect and material, so a run of draws shares one program and its
-// streams instead of switching at almost every draw; early depth rejection still works band by
+// metres), and within a band by effect, mesh instance and material, so a run of draws shares one
+// program instead of switching at almost every draw, and a mesh's materials follow each other in
+// index order, to draw as one (depthRunLength); early depth rejection still works band by
 // band. The depth the pass writes does not depend on the order. The key is read from each entry
 // once, so the sort compares flat records instead of following every entry to its object block's
 // distance at each comparison.
@@ -2485,6 +2490,7 @@ struct DepthEntryKey
     int band;
     float distance;
     const void* shader;
+    const void* object;
     const void* material;
     RenderQueueEntry* entry;
 
@@ -2494,6 +2500,8 @@ struct DepthEntryKey
             return band < o.band;
         if (shader != o.shader)
             return shader < o.shader;
+        if (object != o.object)
+            return object < o.object;
         if (material != o.material)
             return material < o.material;
         return distance < o.distance;
@@ -2514,6 +2522,7 @@ void sortDepthEntries(std::vector<RenderQueueEntry*>& list)
         if (k.distance > 1.0f)
             std::frexp(k.distance, &k.band);
         k.shader = e->shader;
+        k.object = e->objectParameters;
         k.material = e->material;
         k.entry = e;
     }
@@ -2542,6 +2551,33 @@ void depthMeshStatsFlush()
     drawStatsCount("depth opaque draws", static_cast<unsigned int>(g_depthMeshStats.size()));
     drawStatsCount("depth opaque meshes", groups);
     g_depthMeshStats.clear();
+}
+
+// [RENDER] milestone 9: one draw per mesh. How many entries from `at(0)` on draw as one range with
+// the program bound for `shader` (at(0)'s already applied): each the next material of the same mesh
+// instance and LOD (geom::staticMeshMaterialContinues), with the same LOD dither, no clip planes and
+// no index offset; and none alpha tested (the first's state stands for all, since the materials
+// share their alpha mode). The depth techniques read nothing else from the material.
+template <class At>
+size_t depthRunLength(At at, size_t available, Ra::RaShader* shader)
+{
+    const RenderQueueEntry* const first = at(0);
+    if (stateManagerWantedRenderState(15u)   // ALPHATESTENABLE
+        || first->lighting.tail10C || !first->lighting.tail0FC.empty())
+        return 1;
+    size_t n = 1;
+    for (; n < available; ++n)
+    {
+        const RenderQueueEntry* const a = at(n - 1);
+        const RenderQueueEntry* const b = at(n);
+        if (b->shader != shader || b->objectParameters != first->objectParameters
+            || b->lodDither[0] != first->lodDither[0] || b->lodDither[1] != first->lodDither[1]
+            || b->lighting.tail10C || !b->lighting.tail0FC.empty()
+            || !geom::staticMeshMaterialContinues(a->material, b->material,
+                                                  static_cast<unsigned int>(shader->m_buildSerial)))
+            break;
+    }
+    return n;
 }
 
 // [RENDER] milestone 9: drawDepthEntries through the submission layer (Submit.h), one program per
@@ -2589,12 +2625,21 @@ void drawDepthEntriesSubmit(std::vector<RenderQueueEntry*>& list, unsigned int k
         const bool writesDepth = submitEntry(active, e);
         if (prepass && !writesDepth)
             continue;
-        if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
-            depthMeshStatsAdd(e);
+        RenderQueueEntry* const* const run = &list[i];
+        const size_t length = depthRunLength([run](size_t k) { return run[k]; }, count - i, shader);
+        for (size_t k = 0; k < length; ++k)
+        {
+            if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+                depthMeshStatsAdd(run[k]);
+            if (prepass)
+                g_prepassed.push_back(run[k]);
+        }
         renderEntryBindLodDither(e);
-        shader->draw(e);
-        if (prepass)
-            g_prepassed.push_back(e);
+        if (length == 1)
+            shader->draw(e);
+        else
+            shader->drawRun(run, static_cast<unsigned int>(length));
+        i += length - 1;
     }
     if (active)
         submitEnd(active);
@@ -2799,7 +2844,7 @@ bool renderQueueCaptureCaster(RenderQueue* queue, RenderQueueEntry* entry)
     if (entry->shader && isWorldQueue(queue))
     {
         ShadowCaster caster = { entry, { 0.0f, 0.0f, 0.0f, -1.0f }, entry->shader,
-                                entry->material };
+                                entry->objectParameters, entry->material };
         g_casterCapture.casters.push_back(caster);
     }
     return true;
@@ -2813,7 +2858,8 @@ void rendererBeginCasterCapture(const Frustum* volume)
     g_casterCapture.active = true;
 }
 
-// Groups the casters by effect and material, so each cascade switches each once. The keys are
+// Groups the casters by effect, then mesh instance and material, so each cascade switches effect
+// once and a mesh's materials follow each other, to draw as one ([RENDER] milestone 9). The keys are
 // the caster's copies: following each entry pointer in every comparison cost about 5 % of the
 // main thread on Muttrah (perf-frame.md).
 struct CasterDrawOrder
@@ -2822,6 +2868,8 @@ struct CasterDrawOrder
     {
         if (a.shader != b.shader)
             return a.shader < b.shader;
+        if (a.object != b.object)
+            return a.object < b.object;
         return a.material < b.material;
     }
 };
@@ -2862,6 +2910,8 @@ void rendererSetCasterBounds(size_t first, const float sphere[4])
 // view-projection on each effect, the entry's own template and instance parameters.
 // [RENDER] milestone 9: the caster walk through the submission layer (Submit.h).
 namespace {
+std::vector<RenderQueueEntry*> g_casterRun;   // a run's entries, for RaShader::drawRun
+
 void drawShadowCastersSubmit(unsigned int key, const float* viewProjection,
                              const ShadowCascadeCull& cull)
 {
@@ -2908,10 +2958,24 @@ void drawShadowCastersSubmit(unsigned int key, const float* viewProjection,
         if (!streamsBound)
             continue;
         submitEntry(active, e);
-        if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
-            depthMeshStatsAdd(e);
+        // A mesh's casters share its sphere, so the run is in this cascade too.
+        const ShadowCaster* const run = &casters[i];
+        const size_t length = depthRunLength([run](size_t k) { return run[k].entry; },
+                                             count - i, shader);
         renderEntryBindLodDither(e);
-        shader->draw(e);
+        if (length == 1)
+            shader->draw(e);
+        else
+        {
+            g_casterRun.clear();
+            for (size_t k = 0; k < length; ++k)
+                g_casterRun.push_back(run[k].entry);
+            shader->drawRun(&g_casterRun[0], static_cast<unsigned int>(length));
+        }
+        if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+            for (size_t k = 0; k < length; ++k)
+                depthMeshStatsAdd(run[k].entry);
+        i += length - 1;
     }
     if (active)
         submitEnd(active);
