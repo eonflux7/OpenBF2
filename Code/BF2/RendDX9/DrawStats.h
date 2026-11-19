@@ -21,7 +21,8 @@ void drawStatsFrame();   // after a successful Present
 // Until reset with 0, passes that begin are recorded with "@scope" appended to the technique (the
 // sun cascade being drawn, for example).
 void drawStatsSetScope(const char* scope);
-// Adds `n` to the counter row ("(count)", name): an event count per frame rather than draws.
+// Adds `n` to the counter row ("(count)", name, "@scope" appended while a scope is set): an event
+// count per frame rather than draws.
 void drawStatsCount(const char* name, unsigned int n);
 
 // Milestone 8 LOD measurement: a mesh picks its LOD by `lodDistance` (camera distance over zoom, less

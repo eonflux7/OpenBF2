@@ -141,7 +141,7 @@ void drawStatsCount(const char* name, unsigned int n)
 {
     if (!g_drawStatsOn || !n)
         return;
-    add(lookup("(count)", name, 0), n, 0);
+    add(lookup("(count)", g_scope ? std::string(name) + "@" + g_scope : std::string(name), 0), n, 0);
 }
 
 void drawStatsEndPass()

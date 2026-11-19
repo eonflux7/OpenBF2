@@ -1576,6 +1576,43 @@ void RenderQueue::flushWithArg(unsigned char runDraws)
 // [RENDER] milestone 9: a run of one effect and technique draws through its program (Submit.h)
 // when renderer.submit is on and the technique has one; otherwise, and for techniques of more than
 // one pass, through D3DX as before.
+namespace {
+// [DEV] BF2_DRAW_STATS: a lit walk's draws through programs and how many (effect, technique,
+// material) groups they form (counter rows "lit draws", "lit instance groups"). An upper bound for
+// instancing: instance lightmaps and point lights are not compared.
+struct LitDrawStat
+{
+    const void* shader;
+    unsigned int key;
+    const void* material;
+    bool operator<(const LitDrawStat& o) const
+    {
+        if (shader != o.shader)
+            return shader < o.shader;
+        if (key != o.key)
+            return key < o.key;
+        return material < o.material;
+    }
+    bool operator==(const LitDrawStat& o) const
+    {
+        return shader == o.shader && key == o.key && material == o.material;
+    }
+};
+std::vector<LitDrawStat> g_litDrawStats;
+
+void litDrawStatsFlush()
+{
+    if (g_litDrawStats.empty())
+        return;
+    const unsigned int draws = static_cast<unsigned int>(g_litDrawStats.size());
+    std::sort(g_litDrawStats.begin(), g_litDrawStats.end());
+    drawStatsCount("lit draws", draws);
+    drawStatsCount("lit instance groups", static_cast<unsigned int>(
+        std::unique(g_litDrawStats.begin(), g_litDrawStats.end()) - g_litDrawStats.begin()));
+    g_litDrawStats.clear();
+}
+}
+
 void RenderQueue::drawWalkDefault()
 {
     Ra::RaShader* shader     = 0;
@@ -1648,6 +1685,11 @@ void RenderQueue::drawWalkDefault()
             submitEntry(program, e);
             drawEntryStates(e);
             shader->draw(e);
+            if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+            {
+                const LitDrawStat d = { shader, lastKey, e->material };
+                g_litDrawStats.push_back(d);
+            }
             continue;
         }
 
@@ -1688,6 +1730,8 @@ void RenderQueue::drawWalkDefault()
     }
 
     stateManagerSetPrepassedDraw(false);                           // [RENDER] milestone 8
+    if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+        litDrawStatsFlush();
     if (program)
         submitEnd(program);
     else if (shader)
@@ -2605,8 +2649,52 @@ void depthMeshStatsAdd(const RenderQueueEntry* e)
                                                   static_cast<const void*>(e->shader)));
 }
 
+// [DEV] BF2_DRAW_STATS: the draws a depth pass issues (after one draw per mesh) and the instanced
+// draws they would leave, grouped by effect, material and run length: counter rows "depth runs"
+// and "depth instance groups". A run with clip planes stays its own draw.
+struct DepthRunStat
+{
+    const void* shader;
+    const void* material;
+    size_t length;
+    bool operator<(const DepthRunStat& o) const
+    {
+        if (shader != o.shader)
+            return shader < o.shader;
+        if (material != o.material)
+            return material < o.material;
+        return length < o.length;
+    }
+    bool operator==(const DepthRunStat& o) const
+    {
+        return shader == o.shader && material == o.material && length == o.length;
+    }
+};
+std::vector<DepthRunStat> g_depthRunStats;
+unsigned int g_depthRunsClipped = 0;
+
+void depthRunStatsAdd(const RenderQueueEntry* e, size_t length)
+{
+    if (e->lighting.tail10C || !e->lighting.tail0FC.empty())
+    {
+        ++g_depthRunsClipped;
+        return;
+    }
+    const DepthRunStat r = { e->shader, e->material, length };
+    g_depthRunStats.push_back(r);
+}
+
 void depthMeshStatsFlush()
 {
+    const unsigned int runs = static_cast<unsigned int>(g_depthRunStats.size()) + g_depthRunsClipped;
+    std::sort(g_depthRunStats.begin(), g_depthRunStats.end());
+    const unsigned int instanceGroups = g_depthRunsClipped + static_cast<unsigned int>(
+        std::unique(g_depthRunStats.begin(), g_depthRunStats.end()) - g_depthRunStats.begin());
+    drawStatsCount("depth runs", runs);
+    drawStatsCount("depth instance groups", instanceGroups);
+    g_depthRunStats.clear();
+    g_depthRunsClipped = 0;
+
     std::sort(g_depthMeshStats.begin(), g_depthMeshStats.end());
     const unsigned int groups = static_cast<unsigned int>(
         std::unique(g_depthMeshStats.begin(), g_depthMeshStats.end()) - g_depthMeshStats.begin());
@@ -2689,6 +2777,8 @@ void drawDepthEntriesSubmit(std::vector<RenderQueueEntry*>& list, unsigned int k
             continue;
         RenderQueueEntry* const* const run = &list[i];
         const size_t length = depthRunLength([run](size_t k) { return run[k]; }, count - i, shader);
+        if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+            depthRunStatsAdd(e, length);
         for (size_t k = 0; k < length; ++k)
         {
             if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
@@ -3035,8 +3125,11 @@ void drawShadowCastersSubmit(unsigned int key, const float* viewProjection,
             shader->drawRun(&g_casterRun[0], static_cast<unsigned int>(length));
         }
         if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+        {
+            depthRunStatsAdd(e, length);
             for (size_t k = 0; k < length; ++k)
                 depthMeshStatsAdd(run[k].entry);
+        }
         i += length - 1;
     }
     if (active)
