@@ -16,8 +16,9 @@ saved views, view sets, camera paths and unattended runs that write a report. Ru
   tree, like `eon64-commands.txt`. Debug shading modes live with the shaders, outside this tree; the
   engine only provides the variable that selects them. Run output (`tools.outputDir`) also lies
   outside this tree: it holds screenshots of the mod's content and the shader set's commit.
-- It comes before render milestone 9 (owner, 2026-11-19): milestones 1–3 first, so render
-  milestone 9 is measured against reference views and a benchmark path.
+- It comes before render milestone 9 (owner, 2026-11-19): views and shots (milestone 1, tasks
+  1–5), then the benchmark path (milestone 3, cut as in [status.md](status.md)); the rest of
+  milestones 1–3 waits until after render milestone 9.
 
 **Names.** Commands are grouped by what they act on: `view.*` (views, sets, shots, runs),
 `path.*` (camera paths), `bench.*` (benchmarks and the perf map). The tool's own settings are
@@ -31,9 +32,9 @@ off by default and inert when unset, and is listed in [flags.md](flags.md) when 
 
 | Milestone | Commit scope | Status |
 |---|---|---|
-| 1. Views | `tools(view)` | Planned |
-| 2. Unattended runs and regression | `tools(run)` | Planned |
-| 3. Benchmark path | `tools(bench)` | Planned |
+| 1. Views | `tools(view)` | Tasks 1–5 built; 6–8 after render milestone 9 |
+| 2. Unattended runs and regression | `tools(run)` | After render milestone 9 |
+| 3. Benchmark path | `tools(bench)` | Current, cut (no history file or acceptance check yet) |
 | 4. Renderer inspection (alongside render milestone 9) | `tools(inspect)` | Planned |
 | 5. Repeatability and map coverage (after render milestone 9) | `tools(bench)` | Planned |
 | 6. Soldier mode and capture | `tools(soldier)` | Planned |
