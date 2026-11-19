@@ -1618,27 +1618,92 @@ void litDrawStatsAdd(const void* shader, const void* material)
     g_litDrawStats.push_back(d);
 }
 
+// [RENDER] milestone 9: grouping without sorting. `groupOf[i]` receives the group of item i,
+// groups numbered in the order first met; `hashOf(i)` must agree for items `same(a, b)` calls
+// equal. Open addressing over a table at least twice the item count. Returns the group count.
+std::uint64_t hashWord(std::uint64_t x)
+{
+    x ^= x >> 33;
+    x *= 0xFF51AFD7ED558CCDull;
+    x ^= x >> 33;
+    x *= 0xC4CEB9FE1A85EC53ull;
+    x ^= x >> 33;
+    return x;
+}
+
+std::vector<unsigned int> g_groupSlots;   // item index + 1 of each group's first item; 0 empty
+
+template<class HashOf, class Same>
+unsigned int groupFirstSeen(unsigned int count, unsigned int* groupOf, HashOf hashOf, Same same)
+{
+    unsigned int size = 16;
+    while (size < 2 * count)
+        size <<= 1;
+    g_groupSlots.assign(size, 0u);
+    const unsigned int mask = size - 1;
+    unsigned int groups = 0;
+    for (unsigned int i = 0; i < count; ++i)
+    {
+        unsigned int slot = static_cast<unsigned int>(hashOf(i)) & mask;
+        for (;;)
+        {
+            const unsigned int held = g_groupSlots[slot];
+            if (!held)
+            {
+                g_groupSlots[slot] = i + 1;
+                groupOf[i] = groups++;
+                break;
+            }
+            if (same(held - 1, i))
+            {
+                groupOf[i] = groupOf[held - 1];
+                break;
+            }
+            slot = (slot + 1) & mask;
+        }
+    }
+    return groups;
+}
+
 // [RENDER] milestone 9, instancing: one material's entries in a lit walk, drawn in groups of
-// entries that share the prepass state and every instance parameter (Submit.h). Sorted by the
-// prepass state and the parameters' hash so the entries of a group meet; with renderer.instancing
-// 0 every entry is a group of its own.
+// entries that share the prepass state and every instance parameter (Submit.h). Grouped on the
+// prepass state and the parameters' hash (groupFirstSeen) so the entries of a group meet, groups
+// in the order first met and a group's entries in the walk's order; with renderer.instancing 0
+// every entry is a group of its own.
 struct InstanceCandidate
 {
     RenderQueueEntry* entry;
     std::uint64_t hash;
     bool prepassed;
-    unsigned int order;   // in the walk, which a group keeps
-
-    bool operator<(const InstanceCandidate& o) const
-    {
-        if (prepassed != o.prepassed)
-            return prepassed < o.prepassed;
-        if (hash != o.hash)
-            return hash < o.hash;
-        return order < o.order;
-    }
 };
 std::vector<InstanceCandidate> g_instanceCandidates;
+std::vector<InstanceCandidate> g_instanceGrouped;
+std::vector<unsigned int> g_instanceGroup;
+std::vector<unsigned int> g_instanceSlot;
+
+void groupInstanceCandidates()
+{
+    std::vector<InstanceCandidate>& list = g_instanceCandidates;
+    const unsigned int count = static_cast<unsigned int>(list.size());
+    g_instanceGroup.resize(count);
+    const unsigned int groups = groupFirstSeen(
+        count, &g_instanceGroup[0],
+        [&](unsigned int i) { return hashWord(list[i].hash + list[i].prepassed); },
+        [&](unsigned int a, unsigned int b) {
+            return list[a].hash == list[b].hash && list[a].prepassed == list[b].prepassed;
+        });
+    if (groups == count)
+        return;
+    g_instanceSlot.assign(groups + 1, 0u);
+    for (unsigned int i = 0; i < count; ++i)
+        ++g_instanceSlot[g_instanceGroup[i] + 1];
+    for (unsigned int g = 0; g < groups; ++g)
+        g_instanceSlot[g + 1] += g_instanceSlot[g];
+    g_instanceGrouped.resize(count);
+    for (unsigned int i = 0; i < count; ++i)
+        g_instanceGrouped[g_instanceSlot[g_instanceGroup[i]]++] = list[i];
+    list.swap(g_instanceGrouped);
+}
 
 void drawInstanceCandidates(SubmitProgram* program, Ra::RaShader* shader)
 {
@@ -1650,7 +1715,7 @@ void drawInstanceCandidates(SubmitProgram* program, Ra::RaShader* shader)
     {
         for (size_t k = 0; k < list.size(); ++k)
             list[k].hash = submitInstanceKeyHash(program, list[k].entry);
-        std::sort(list.begin(), list.end());
+        groupInstanceCandidates();
     }
     for (size_t k = 0; k < list.size(); )
     {
@@ -1886,8 +1951,7 @@ void RenderQueue::drawWalkNear()
                 }
                 else if (instanced)
                 {
-                    InstanceCandidate c = { e, 0, renderQueuesIsPrepassed(e),
-                                            static_cast<unsigned int>(g_instanceCandidates.size()) };
+                    InstanceCandidate c = { e, 0, renderQueuesIsPrepassed(e) };
                     g_instanceCandidates.push_back(c);
                 }
                 else
@@ -2818,8 +2882,9 @@ size_t depthRunShape(RenderQueueEntry* const* list, size_t available, Ra::RaShad
 
 // [RENDER] milestone 9: a depth pass through the submission layer (Submit.h). The pass's entries
 // form runs (depthRunShape); an instanced program's runs that share effect, material, length and
-// instance parameters draw as one instanced draw (renderer.instancing), ordered so they meet, the
-// rest in the pass's own order.
+// instance parameters draw as one instanced draw (renderer.instancing). Runs are grouped, not
+// sorted (groupFirstSeen): a program's groups follow each other, programs and groups in the order
+// first met, so near bands still come first; a group's runs keep the pass's order.
 struct DepthRun
 {
     SubmitProgram* program;
@@ -2828,7 +2893,6 @@ struct DepthRun
     std::uint64_t hash;
     unsigned int first;    // in the pass's list
     unsigned int length;
-    unsigned int order;
     bool instanced;
 
     bool sameGroup(const DepthRun& o) const
@@ -2836,25 +2900,76 @@ struct DepthRun
         return instanced && o.instanced && shader == o.shader && material == o.material
             && length == o.length && hash == o.hash;
     }
-    bool operator<(const DepthRun& o) const
-    {
-        if (instanced != o.instanced)
-            return instanced;
-        if (instanced)
-        {
-            if (shader != o.shader)
-                return shader < o.shader;
-            if (material != o.material)
-                return material < o.material;
-            if (length != o.length)
-                return length < o.length;
-            if (hash != o.hash)
-                return hash < o.hash;
-        }
-        return order < o.order;
-    }
 };
 std::vector<DepthRun> g_depthRuns;
+std::vector<DepthRun> g_depthRunsGrouped;
+std::vector<unsigned int> g_depthRunGroup;    // per run: its group
+std::vector<unsigned int> g_depthRunShader;   // per run: its program's rank
+std::vector<unsigned int> g_depthGroupFirst;  // per group: its first run
+std::vector<unsigned int> g_depthCounts;
+std::vector<unsigned int> g_depthGroupSlot;   // per group: where its runs start
+
+// Each run's program rank and group, both numbered in the order first met; then the runs
+// reordered by (program rank, group), a group's runs in the pass's order. Linear: two hash
+// lookups per run and two counting passes, in place of a sort over the runs.
+void groupDepthRuns()
+{
+    const std::vector<DepthRun>& runs = g_depthRuns;
+    const unsigned int count = static_cast<unsigned int>(runs.size());
+    if (count < 2)
+        return;
+    g_depthRunShader.resize(count);
+    g_depthRunGroup.resize(count);
+    const unsigned int shaders = groupFirstSeen(
+        count, &g_depthRunShader[0],
+        [&](unsigned int i) { return hashWord(reinterpret_cast<std::uintptr_t>(runs[i].shader)); },
+        [&](unsigned int a, unsigned int b) { return runs[a].shader == runs[b].shader; });
+    const unsigned int groups = groupFirstSeen(
+        count, &g_depthRunGroup[0],
+        [&](unsigned int i) {
+            const DepthRun& r = runs[i];
+            if (!r.instanced)
+                return hashWord(i);   // a group of its own
+            return hashWord(r.hash ^ hashWord(reinterpret_cast<std::uintptr_t>(r.material))
+                            ^ (static_cast<std::uint64_t>(r.length) << 40)
+                            ^ reinterpret_cast<std::uintptr_t>(r.shader));
+        },
+        [&](unsigned int a, unsigned int b) {
+            return a == b || runs[a].sameGroup(runs[b]);
+        });
+    if (groups == count)
+        return;   // nothing groups; the pass's order stands
+
+    // Groups by program rank (stable, so first met within a program), then each group's slot.
+    g_depthGroupFirst.assign(groups, 0u);
+    for (unsigned int i = count; i-- > 0; )
+        g_depthGroupFirst[g_depthRunGroup[i]] = i;
+    g_depthCounts.assign(shaders + 1, 0u);
+    for (unsigned int g = 0; g < groups; ++g)
+        ++g_depthCounts[g_depthRunShader[g_depthGroupFirst[g]] + 1];
+    for (unsigned int s = 0; s < shaders; ++s)
+        g_depthCounts[s + 1] += g_depthCounts[s];
+    std::vector<unsigned int>& groupOrder = g_depthGroupSlot;   // groups in draw order, first
+    groupOrder.resize(groups);
+    for (unsigned int g = 0; g < groups; ++g)
+        groupOrder[g_depthCounts[g_depthRunShader[g_depthGroupFirst[g]]]++] = g;
+    // Runs per group, then each group's first slot in draw order.
+    g_depthCounts.assign(groups, 0u);
+    for (unsigned int i = 0; i < count; ++i)
+        ++g_depthCounts[g_depthRunGroup[i]];
+    g_depthGroupFirst.resize(groups);   // reused: per group, its next slot
+    unsigned int at = 0;
+    for (unsigned int k = 0; k < groups; ++k)
+    {
+        const unsigned int g = groupOrder[k];
+        g_depthGroupFirst[g] = at;
+        at += g_depthCounts[g];
+    }
+    g_depthRunsGrouped.resize(count);
+    for (unsigned int i = 0; i < count; ++i)
+        g_depthRunsGrouped[g_depthGroupFirst[g_depthRunGroup[i]]++] = runs[i];
+    g_depthRuns.swap(g_depthRunsGrouped);
+}
 std::vector<RenderQueueEntry* const*> g_depthOthers;     // a group's runs after its first
 std::vector<RenderQueueEntry* const*> g_depthLeftover;   // those that could not join
 
@@ -2953,11 +3068,11 @@ void drawDepthPassSubmit(std::vector<RenderQueueEntry*>& list, unsigned int key,
         r.hash = r.instanced && grouping ? submitInstanceKeyHash(lastProgram, e) : 0;
         r.first = static_cast<unsigned int>(i);
         r.length = static_cast<unsigned int>(length);
-        r.order = static_cast<unsigned int>(g_depthRuns.size());
         g_depthRuns.push_back(r);
         i += length;
     }
-    std::sort(g_depthRuns.begin(), g_depthRuns.end());
+    if (grouping)
+        groupDepthRuns();
 
     SubmitProgram* active = 0;
     void* lastMaterial = 0;

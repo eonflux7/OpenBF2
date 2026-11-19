@@ -224,6 +224,11 @@ void raLightingParametersDestroy(void* storage);
 void raObjectParametersConstruct(void* storage);
 void raObjectParametersDestroy(void* storage);
 
+// [RENDER] milestone 9: the lighting and object blocks' offset registries, which identify a
+// block's layout (the instance key reads their holders in place, Submit.cpp).
+const std::vector<int>* raLightingRegistry();
+const std::vector<int>* raObjectRegistry();
+
 // sub_10044F70 - 0x1C bytes.  The light-array block; its destructor is inlined at every call site
 // (one store, republishing the +0x08 holder vptr), so there is no separate destroy entry point.
 void raLightArrayParametersConstruct(void* storage);

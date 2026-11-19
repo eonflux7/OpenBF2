@@ -209,6 +209,9 @@ const RaParameterName kRaLightArrayNames[2] =
 
 } // anonymous namespace
 
+const std::vector<int>* raLightingRegistry() { return &g_raLightingOffsets; }
+const std::vector<int>* raObjectRegistry() { return &g_raObjectOffsets; }
+
 
 // Parameter-holder slot 0 applies a value and returns its HRESULT. Holders with
 // virtual destruction put their scalar deleting destructor at slot 1.

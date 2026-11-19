@@ -14,6 +14,7 @@
 #include "../Game/Objects/Visual/LightSource.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -310,9 +311,18 @@ struct SubmitProgram
         std::unique_ptr<Binding> value;
     };
     RecordSource recordSources[2];   // World, LightMapOffset; used.binding null when absent
+    // The instance key (submitInstanceKeyHash), split once from used[0] at the first hash: the
+    // plain holders of the object and lighting blocks, whose value bytes are read in place, and
+    // the rest, captured through the sink. The global block is left out: it holds one value for
+    // every entry of a pass.
+    struct KeyRead { unsigned int block; unsigned int offset; unsigned int bytes; };
+    std::vector<KeyRead> keyReads;
+    std::vector<std::pair<unsigned int, UsedParameter> > keyCaptured;
+    bool keyBuilt;
+    bool keyReadsObject;   // a key read is in the object block (its layout checked per entry)
 
     SubmitProgram() : shader(0), effect(0), buildSerial(-1), key(0), valid(false), pass(0), vs(0),
-                      ps(0), instanced(false)
+                      ps(0), instanced(false), keyBuilt(false), keyReadsObject(false)
     {
         for (unsigned int n = 0; n < 2; ++n)
         {
@@ -1589,6 +1599,98 @@ bool submitGroupJoin(RenderQueueEntry* entry)
     return true;
 }
 
+namespace {
+
+// The value bytes of a plain holder at `offset` in a block of layout `Block`, or 0 for a holder
+// of another kind (bone pairs and vectors, which the sink captures). Holder values follow their
+// binder-table pointer (RaParameterBlocks.h); a texture holder's value is its texture pointer.
+template<class Block>
+unsigned int plainHolderBytes(unsigned int offset);
+
+#define SUBMIT_PLAIN(block, field, holder) \
+    if (offset == offsetof(block, field)) \
+        return sizeof(reinterpret_cast<holder*>(0)->value);
+
+template<>
+unsigned int plainHolderBytes<Ra::RaObjectParameters>(unsigned int offset)
+{
+    SUBMIT_PLAIN(Ra::RaObjectParameters, world, Ra::RaParamMat4)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, viewProjection, Ra::RaParamMat4)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, worldViewProjection, Ra::RaParamMat4)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, shadowProjMat, Ra::RaParamMat4)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, shadowOccProjMat, Ra::RaParamMat4)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, shadowTrapMat, Ra::RaParamMat4)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, transparency, Ra::RaParamFloat)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, objectSpaceCamPos, Ra::RaParamVec4)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, windSpeed, Ra::RaParamFloat)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, windDir, Ra::RaParamVec3)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, heightOverTerrain, Ra::RaParamFloat)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, hemiMapSkyColor, Ra::RaParamVec4)
+    SUBMIT_PLAIN(Ra::RaObjectParameters, objectSpaceWorldUp, Ra::RaParamVec3)
+    return 0;
+}
+
+template<>
+unsigned int plainHolderBytes<Ra::RaLightingParameters>(unsigned int offset)
+{
+    SUBMIT_PLAIN(Ra::RaLightingParameters, unnamed008, Ra::RaParamVec4)
+    SUBMIT_PLAIN(Ra::RaLightingParameters, terrainLightMap, Ra::RaParamRef)
+    SUBMIT_PLAIN(Ra::RaLightingParameters, lightMap, Ra::RaParamRef)
+    SUBMIT_PLAIN(Ra::RaLightingParameters, lightMapOffset, Ra::RaParamVec4)
+    SUBMIT_PLAIN(Ra::RaLightingParameters, overGrowthAmbient, Ra::RaParamVec4)
+    SUBMIT_PLAIN(Ra::RaLightingParameters, shadowViewProj, Ra::RaParamMat4)
+    SUBMIT_PLAIN(Ra::RaLightingParameters, shadowCount, Ra::RaParamInt)
+    return 0;
+}
+
+#undef SUBMIT_PLAIN
+
+const std::vector<int>* blockRegistry(const void* block)
+{
+    struct BlockHeader { void* vptr; const std::vector<int>* registry; };
+    return static_cast<const BlockHeader*>(block)->registry;
+}
+
+void buildInstanceKey(SubmitProgram* program)
+{
+    program->keyBuilt = true;
+    for (unsigned int block = 0; block < 5; ++block)
+    {
+        if (block == 2)
+            continue;   // g_raShaderConstants: one value for the whole pass
+        const std::vector<int>* const registry =
+            block == 1 ? Ra::raObjectRegistry() : block == 3 ? Ra::raLightingRegistry() : 0;
+        const std::vector<UsedParameter>& used = program->used[0][block];
+        for (size_t i = 0; i < used.size(); ++i)
+        {
+            unsigned int bytes = 0, offset = 0;
+            if (registry && used[i].registryOffset >= 0
+                && static_cast<size_t>(used[i].registryOffset) < registry->size())
+            {
+                offset = static_cast<unsigned int>((*registry)[used[i].registryOffset]);
+                bytes = block == 1 ? plainHolderBytes<Ra::RaObjectParameters>(offset)
+                                   : plainHolderBytes<Ra::RaLightingParameters>(offset);
+            }
+            if (bytes)
+            {
+                const SubmitProgram::KeyRead r = {
+                    block, offset + static_cast<unsigned int>(sizeof(void*)), bytes };
+                program->keyReads.push_back(r);
+                program->keyReadsObject = program->keyReadsObject || block == 1;
+            }
+            else
+                program->keyCaptured.push_back(std::make_pair(block, used[i]));
+        }
+    }
+    if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+        ::renddx9abi::logf("Submit: %s %s pass %u: instance key %u read in place, %u captured",
+                           program->effectName.c_str(), program->techniqueName.c_str(),
+                           program->pass, static_cast<unsigned int>(program->keyReads.size()),
+                           static_cast<unsigned int>(program->keyCaptured.size()));
+}
+
+} // namespace
+
 std::uint64_t submitInstanceKeyHash(SubmitProgram* program, RenderQueueEntry* entry)
 {
     // A 64-bit multiply-xorshift over the instance parameters' values and the LOD dither, a word
@@ -1605,9 +1707,41 @@ std::uint64_t submitInstanceKeyHash(SubmitProgram* program, RenderQueueEntry* en
         mix(static_cast<std::uint32_t>(bits >> 32));
         return h;
     }
-    captureInstanceKey(program, entry, g_candidateKey);
-    for (size_t i = 0; i < g_candidateKey.size(); ++i)
-        mix(g_candidateKey[i]);
+    if (!program->keyBuilt)
+        buildInstanceKey(program);
+    if (program->keyReadsObject && blockRegistry(entry->objectParameters) != Ra::raObjectRegistry())
+    {
+        // An object block of another layout: every instance parameter through the sink.
+        captureInstanceKey(program, entry, g_candidateKey);
+        for (size_t i = 0; i < g_candidateKey.size(); ++i)
+            mix(g_candidateKey[i]);
+    }
+    else
+    {
+        const std::vector<SubmitProgram::KeyRead>& reads = program->keyReads;
+        for (size_t i = 0; i < reads.size(); ++i)
+        {
+            const unsigned char* const bytes =
+                static_cast<const unsigned char*>(entryBlock(entry, reads[i].block)) + reads[i].offset;
+            for (unsigned int b = 0; b < reads[i].bytes; b += 4)
+            {
+                std::uint32_t w;
+                std::memcpy(&w, bytes + b, 4);
+                mix(w);
+            }
+        }
+        const std::vector<std::pair<unsigned int, UsedParameter> >& captured = program->keyCaptured;
+        if (!captured.empty())
+        {
+            g_candidateKey.clear();
+            g_sink.capture = &g_candidateKey;
+            for (size_t i = 0; i < captured.size(); ++i)
+                applyOne(program, entryBlock(entry, captured[i].first), captured[i].second, false);
+            g_sink.capture = 0;
+            for (size_t i = 0; i < g_candidateKey.size(); ++i)
+                mix(g_candidateKey[i]);
+        }
+    }
     mix(floatWord(entry->lodDither[0]));
     mix(floatWord(entry->lodDither[1]));
     return h;
