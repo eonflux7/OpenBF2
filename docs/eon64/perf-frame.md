@@ -337,6 +337,21 @@ Open:
   Rebuild that commit's `RendDX9.map` to name the function; with `/O2` it may have moved or gone. If
   it returns, `WINEDEBUG=+seh` with the module base pins it.
 
+## Render milestone 9, task 9
+
+Contribution culling ([renderer-pipeline.md](renderer-pipeline.md#contribution-culling)), engine
+`2002788d` plus the default of 8, 1920x1080, an agent, 2026-11-19. `BF2_DRAW_STATS` at Muttrah
+`high` (threshold 3 and 8 mixed in one session): about 100 static meshes culled and 20 fading a
+frame. Benchmarks, `renderer.contributionCull` changed in one session, 2 runs each:
+
+| Map, path | 0 | 3 | 8 |
+|---|---|---|---|
+| Muttrah City `bench1` | 8.08, 8.08 ms | 7.95, 8.08 ms | 7.51, 7.20 ms |
+| Fallujah West `bench` | 14.52, 14.67 ms | — | 13.21 ms |
+| Saaremaa `bench1` | 5.11, 5.13 ms | — | 5.06, 5.11 ms |
+
+Saaremaa gains little: its small objects are overgrowth, which keeps its own fade.
+
 ## State
 
 Seen in game on Muttrah:

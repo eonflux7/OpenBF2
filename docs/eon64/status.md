@@ -205,7 +205,15 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks
    14.79 ms, Muttrah City `bench1` 8.81 to 7.85, Saaremaa `bench1` 5.96 to 5.22. Not yet seen by
    the owner.
 9. Contribution culling: below a projected size (`renderer.*` variable) an object is not drawn,
-   faded out over the LOD dither band.
+   faded out over the LOD dither band. Done for static meshes (`2002788d`,
+   [Contribution culling](renderer-pipeline.md#contribution-culling)): `renderer.contributionCull`,
+   default 8 pixels across; vehicles, soldiers and overgrowth left alone. Loaded by an agent,
+   2026-11-19: view shots 8 against 0 differ only in wind and smoke (Muttrah `high` 68 pixels,
+   Fallujah `city1` 4849, `city3` 9634, Saaremaa `forest1` 430, `runway` 1565 of 2.07 M); same
+   session, 2 runs each, 0 against 8: Muttrah City `bench1` 8.08 / 7.51 and 8.08 / 7.20 ms
+   (3 pixels: 7.95, 8.08), Fallujah West `bench` 14.67 / 13.21, Saaremaa `bench1` 5.11 / 5.06 and
+   5.13 / 5.11 ([perf-frame.md](perf-frame.md#render-milestone-9-task-9)). Not yet seen by the
+   owner: the fade and the cull distance show only in motion.
 10. Acceptance: the benchmark paths against the baselines above (re-taken at 1920x1080 on a quiet
     host first; the baselines above are 1600x900), view shots matching the D3DX
     path, then the D3DX path and the A/B variable deleted.

@@ -3406,7 +3406,8 @@ bool rendererCasterCaptureActive()
 }
 
 namespace {
-float g_contributionCullPixels = 3.0f;
+// 8: about 10 % of the frame on Fallujah West and Muttrah City for view shots within the noise.
+float g_contributionCullPixels = 8.0f;
 }
 
 float rendererContributionCullPixels()

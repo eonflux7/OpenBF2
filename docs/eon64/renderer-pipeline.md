@@ -424,6 +424,18 @@ and caster walks leave its entries to the submission walk.
   (`RaSunDirection`, `RaSunColor`). `ViewProjection` is an instance parameter that static meshes
   fill with their view's, so it joins the group key.
 
+### Contribution culling
+
+`renderer.contributionCull` (pixels, default 8, 0 off) in place of the distance cull milestone 8
+removed: a static mesh whose bounding sphere (its geom's LOD radius) projects to fewer pixels across
+than the threshold, at the view's own projection and viewport height, returns from its draw before
+any work (`StaticMesh.cpp`, both draw paths). Zoom narrows the projection, so a scope brings small
+objects back. Over the 20 % above the threshold the mesh dissolves through `RaLodDither`
+(1, -fade), drawing its selected LOD alone; where that band meets a LOD crossfade band the LOD
+switch pops. Shadow casters drop with the mesh, without a fade. Left alone: roads, water,
+overgrowth (its own fade), and bundled and skinned meshes, so vehicles and soldiers stay visible
+at any size. `BF2_DRAW_STATS` counts `contribution culled` and `contribution fading`.
+
 ## Effect cache
 
 Ra effects are cached as `.cfx` files per mod (`Documents/Battlefield 2/mods/<mod>/cache`;
