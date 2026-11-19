@@ -88,6 +88,8 @@
 #include "GpuTimers.h"                    // [DEV] BF2_GPU_TIMERS
 #include "UiLayer.h"                      // [UI] docs/eon64/ui.md
 #include "../RendMisc/IRendererUi.h"     // [UI]
+#include "ToolsCapture.h"                 // [TOOLS] docs/eon64/tools.md
+#include "../RendMisc/IRendererTools.h"  // [TOOLS]
 
 #include <cstdlib>
 #include <cstdio>
@@ -1466,6 +1468,9 @@ void* Renderer::queryInterface(unsigned int iid) const
     // [UI] The fork's UI (docs/eon64/ui.md): a separate object, so Renderer's retail layout stays.
     if (iid == dx9rend::IID_IRendererUi)
         return dx9rend::uiLayerInterface();
+    // [TOOLS] The view tool's shots (docs/eon64/tools.md), likewise a separate object.
+    if (iid == dx9rend::IID_IRendererTools)
+        return dx9rend::toolsInterface();
     return 0;
 }
 
@@ -2879,6 +2884,7 @@ bool Renderer::renderFrame(double time, float deltaTime)
                     geom::g_SkyDome, 2);
             }
 
+            dx9rend::toolsCaptureBeforeHud();   // [TOOLS] view.shot: the scene without the HUD
             if (sw(1713) && m_hudManager)
                 hostCalls::hudPaint(m_hudManager);                                     // +0x1C
 

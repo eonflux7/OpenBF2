@@ -13,6 +13,7 @@
 #include "DrawStats.h"   // [DEV] BF2_DRAW_STATS
 #include "GpuTimers.h"   // [DEV] BF2_GPU_TIMERS
 #include "UiLayer.h"     // [UI] docs/eon64/ui.md
+#include "ToolsCapture.h" // [TOOLS] docs/eon64/tools.md
 #include "../RendMisc/IRenderer.h"
 #include "../GeomMisc/Debug.h"
 #if defined(_WIN32)
@@ -468,6 +469,7 @@ bool rendererEndScene()
         rendererCaptureScreen(b);
         b->screenDumpRequest = 0;
     }
+    toolsCaptureAfterHud();     // [TOOLS] view.shot with tools.shotHud: the HUD, not the UI
     return true;
 }
 

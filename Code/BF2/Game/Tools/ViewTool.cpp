@@ -35,15 +35,20 @@
 #include "../../Core/ConsoleObject.h"
 #include "../../Core/ConsoleObjectMacro.h"
 #include "../../Core/ConsoleObjects.h"
+#include "../../Core/ClassManager.h"
+#include "../../Core/SmartItf.h"
+#include "../../IO/File/FileManager.h"
 #include "../../Core/SettingsRepostitory.h"
 #include "../../IO/Console/Console.h"
 #include "../../IO/Input/Input.h"
 #include "../../IO/Input/PlayerInput.h"
 #include "../../Math/Mat4.h"
 #include "../../RendMisc/IRenderView.h"
+#include "../../RendMisc/IRendererTools.h"
 #include "../../RendMisc/IRendererUi.h"
 
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <sstream>
 #include <string>
@@ -60,6 +65,7 @@ bool uiWantsMouse();    // BF2Engine.cpp: the debug menu or the console window i
 
 bool g_viewToolActive = false;
 bool g_viewToolFlying = false;
+bool g_viewToolShooting = false;
 
 namespace {
 
@@ -497,6 +503,186 @@ std::string viewSet(const std::string& name, const std::string& list = std::stri
     return (views.empty() ? "removed set " : existed ? "updated set " : "added set ") + name;
 }
 
+// view.shot (task 5): the request waits for the next frame's hook, which asks the renderer for a
+// shot of that frame (IRendererTools.h); a later hook collects the result. tools.shotHud shows
+// the HUD for the shot, also while a view hides it, and hides it again afterwards.
+struct Shot
+{
+    bool        queued;     // waiting for the hook to request it
+    bool        requested;  // the renderer has the request
+    bool        hud;
+    bool        hudShown;   // the HUD was shown for this shot and is hidden again afterwards
+    int         frames;     // hooks since queued or requested
+    std::string png;
+    std::string jpg;
+    std::string last;       // the last shot's result, for view.lastShot
+};
+
+Shot g_shot = { false, false, false, false, 0, std::string(), std::string(), std::string() };
+
+std::string g_outputDir("@HOME@/eon64-tools");
+int g_shotHud = 0;
+int g_shotWidth = 960;      // the JPEG's width
+
+const int kShotHudFrames = 2;       // frames the HUD draws before its shot
+const int kShotTimeoutFrames = 60;  // frames a request may wait for the capture point
+
+dx9rend::IRendererTools* rendererTools()
+{
+    static dx9rend::IRendererTools* tools = 0;
+    if (!tools && classManager)
+    {
+        IBase* renderer = classManager->getSingleton("Renderer");
+        if (renderer)
+            tools = static_cast<dx9rend::IRendererTools*>(
+                renderer->queryInterface(dx9rend::IID_IRendererTools));
+    }
+    return tools;
+}
+
+// tools.outputDir with @HOME@ replaced, made absolute, with backslashes and no trailing separator.
+std::string outputDirectory()
+{
+    std::string dir = g_outputDir;
+    static const std::string home("@HOME@");
+    if (dir.compare(0, home.size(), home) == 0 && io::fileManager)
+        dir = io::fileManager->getHomeSubstitution() + dir.substr(home.size());
+    for (size_t i = 0; i < dir.size(); ++i)
+        if (dir[i] == '/')
+            dir[i] = '\\';
+    char full[MAX_PATH];
+    const DWORD n = GetFullPathNameA(dir.c_str(), MAX_PATH, full, 0);
+    if (n > 0 && n < MAX_PATH)
+        dir = full;
+    while (dir.size() > 3 && dir[dir.size() - 1] == '\\')
+        dir.erase(dir.size() - 1);
+    return dir;
+}
+
+// Creates the directory and its parents; false when it does not exist afterwards.
+bool makeDirectories(const std::string& dir)
+{
+    for (size_t i = 0; i <= dir.size(); ++i)
+        if (i == dir.size() || dir[i] == '\\')
+        {
+            const std::string part = dir.substr(0, i);
+            if (part.size() > 2)    // past "C:"
+                CreateDirectoryA(part.c_str(), 0);
+        }
+    const DWORD attributes = GetFileAttributesA(dir.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+bool validShotName(const std::string& name)
+{
+    if (name.empty() || name[0] == '.')
+        return false;
+    for (size_t i = 0; i < name.size(); ++i)
+        if (!isalnum(static_cast<unsigned char>(name[i])) && name[i] != '_' && name[i] != '-'
+            && name[i] != '.')
+            return false;
+    return true;
+}
+
+void shotFinished(const std::string& result)
+{
+    g_shot.queued = false;
+    g_shot.requested = false;
+    g_shot.last = result;
+    if (g_shot.hudShown && g_viewToolActive)
+        runConsole("renderer.drawHud 0");
+    g_shot.hudShown = false;
+    if (io::mainConsole)
+        io::mainConsole->output(result + "\n");
+}
+
+// view.shot [NAME]: <outputDir>\shots\<map>\<NAME>.png and .jpg. NAME defaults to the held view's
+// name (or "camera") and the local time; an existing NAME is overwritten.
+std::string viewShot(const std::string& requested)
+{
+    if (g_shot.queued || g_shot.requested)
+        return "view.shot: a shot is still pending (" + g_shot.png + ")";
+    if (!rendererTools())
+        return "view.shot: the renderer does not take shots";
+    std::string map = game ? game->getCurrentMapName() : std::string();
+    if (map.empty())
+        return "view.shot: no map loaded";
+    for (size_t i = 0; i < map.size(); ++i)
+        map[i] = static_cast<char>(tolower(static_cast<unsigned char>(map[i])));
+    std::string name = requested;
+    if (name.empty())
+    {
+        SYSTEMTIME t;
+        GetLocalTime(&t);
+        char stamp[32];
+        std::snprintf(stamp, sizeof(stamp), "-%04u%02u%02u-%02u%02u%02u", t.wYear, t.wMonth, t.wDay,
+                      t.wHour, t.wMinute, t.wSecond);
+        name = (g_state.view.empty() ? std::string("camera") : g_state.view) + stamp;
+    }
+    if (!validShotName(name))
+        return "view.shot: a name has only letters, digits, '_', '-' and '.'";
+    const std::string dir = outputDirectory() + "\\shots\\" + map;
+    if (!makeDirectories(dir))
+        return "view.shot: cannot create " + dir;
+    g_shot.png = dir + "\\" + name + ".png";
+    g_shot.jpg = dir + "\\" + name + ".jpg";
+    g_shot.hud = g_shotHud != 0;
+    g_shot.hudShown = false;
+    if (g_shot.hud && g_viewToolActive)
+    {
+        const std::string value = trimEnd(g_state.savedDrawHud);
+        runConsole("renderer.drawHud " + (value.empty() ? std::string("1") : value));
+        g_shot.hudShown = true;
+    }
+    g_shot.frames = 0;
+    g_shot.queued = true;
+    g_viewToolShooting = true;
+    return "view.shot: queued " + g_shot.png;
+}
+
+std::string viewLastShot()
+{
+    if (g_shot.queued || g_shot.requested)
+        return "pending " + g_shot.png;
+    return g_shot.last.empty() ? std::string("none") : g_shot.last;
+}
+
+// Once per frame while a shot is queued or requested, before the frame draws.
+void shotStep()
+{
+    dx9rend::IRendererTools* const tools = rendererTools();
+    if (!tools)
+    {
+        shotFinished("view.shot: failed: the renderer does not take shots");
+        g_viewToolShooting = false;
+        return;
+    }
+    if (g_shot.queued)
+    {
+        if (++g_shot.frames < (g_shot.hud ? kShotHudFrames : 1))
+            return;
+        tools->toolsRequestShot(g_shot.png.c_str(), g_shot.jpg.c_str(), g_shotWidth, g_shot.hud);
+        g_shot.queued = false;
+        g_shot.requested = true;
+        g_shot.frames = 0;
+        return;
+    }
+    const char* message = "";
+    const int state = tools->toolsShotState(message);
+    if (state == 0)
+    {
+        if (++g_shot.frames < kShotTimeoutFrames)
+            return;
+        tools->toolsRequestShot(0, 0, 0, false);    // cancels it
+        shotFinished("view.shot: failed: no frame reached the capture point");
+    }
+    else if (state > 0)
+        shotFinished("view.shot: wrote " + g_shot.png + " (" + message + ")");
+    else
+        shotFinished("view.shot: failed: " + std::string(message ? message : ""));
+    g_viewToolShooting = false;
+}
+
 // The Views tab's read-only window on the tool (IRendererUi.h).
 class UiViewTool : public dx9rend::IUiViewTool
 {
@@ -658,9 +844,11 @@ void flyStep()
 
 } // namespace
 
-void viewToolApplyCamera(dx9rend::IRenderView* view)
+void viewToolFrame(dx9rend::IRenderView* view)
 {
-    if (!view)
+    if (g_viewToolShooting)
+        shotStep();
+    if (!view || !g_viewToolActive)
         return;
     if (g_state.seedFromGame)
     {
@@ -719,12 +907,18 @@ BF2_CONSOLE_METHOD_1_2_RET_ACTIVE(set, viewSet, std::string, true, std::string, 
                                   kViewToolConsoleTag)
 BF2_CONSOLE_METHOD_0_RET_ACTIVE(list, viewList, std::string, true, kViewToolConsoleTag)
 BF2_CONSOLE_METHOD_0_RET_ACTIVE(reload, viewReload, std::string, true, kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_0_1_RET_ACTIVE(shot, viewShot, std::string, true, std::string, std::string(),
+                                 kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_0_RET_ACTIVE(lastShot, viewLastShot, std::string, true, kViewToolConsoleTag)
 
 // tools.* variables
 BF2_CONSOLE_OBJECT("tools", 1, 0)
 BF2_CONSOLE_PROPERTY_FN(flySpeed, float, true, g_flySpeed, g_flySpeed =, kViewToolConsoleTag)
 BF2_CONSOLE_PROPERTY_FN(flyMouse, float, true, g_flyMouse, g_flyMouse =, kViewToolConsoleTag)
 BF2_CONSOLE_PROPERTY_FN(flyKey, int, true, g_flyKey, g_flyKey =, kViewToolConsoleTag)
+BF2_CONSOLE_PROPERTY_FN(outputDir, std::string, true, g_outputDir, g_outputDir =, kViewToolConsoleTag)
+BF2_CONSOLE_PROPERTY_FN(shotHud, int, true, g_shotHud, g_shotHud =, kViewToolConsoleTag)
+BF2_CONSOLE_PROPERTY_FN(shotWidth, int, true, g_shotWidth, g_shotWidth =, kViewToolConsoleTag)
 
 dx9rend::IUiViewTool* viewToolUi()
 {

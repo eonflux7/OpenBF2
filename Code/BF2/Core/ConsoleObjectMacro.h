@@ -881,6 +881,32 @@ static BF2_CC_NAME BF2_CC_INSTANCE;                                             
 }
 
 // Registers a returning command accepting one or two arguments. The target supplies the status text.
+// A method with zero or one value argument; with none, the target gets argZeroExpr.
+#define BF2_CONSOLE_METHOD_0_1_RET_ACTIVE(fnName, target, RET, activeExpr, A0, argZeroExpr, listTag) \
+namespace {                                                                                        \
+class BF2_CC_NAME : public ::dice::hfe::ConsoleObjectBaseImpl                                      \
+{                                                                                                  \
+    BF2_CC_HEAD(fnName, 0, 0, 1, #RET, true)                                                       \
+            m_argTypes[0] = #A0;                                                                   \
+    BF2_CC_TAIL(1, listTag)                                                                        \
+    virtual bool isObjectActive() const { return (activeExpr); }                                   \
+    virtual void executeObjectMethod()                                                             \
+    {                                                                                              \
+        m_hasReturnValue = true;                                                                   \
+        m_returnValue = m_argCount == 1 ? target(BF2_CC_ARG(A0, 0)) : target(argZeroExpr);         \
+    }                                                                                              \
+    virtual void setArgFromString(int index, const std::string& value)                             \
+    {                                                                                              \
+        BF2_CC_CONVERT(A0, 1)                                                                      \
+    }                                                                                              \
+    BF2_CC_RETURN_AS_STRING                                                                        \
+    BF2_CC_COMMON_HOOKS                                                                            \
+private:                                                                                           \
+    RET m_returnValue;                                                                             \
+};                                                                                                 \
+static BF2_CC_NAME BF2_CC_INSTANCE;                                                                \
+}
+
 #define BF2_CONSOLE_METHOD_1_2_RET_ACTIVE(fnName, target, RET, activeExpr, A0, A1, listTag)         \
 namespace {                                                                                        \
 class BF2_CC_NAME : public ::dice::hfe::ConsoleObjectBaseImpl                                      \

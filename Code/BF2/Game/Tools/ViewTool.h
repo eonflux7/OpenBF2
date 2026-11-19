@@ -1,5 +1,5 @@
 // [TOOLS] The view tool (docs/eon64/tools.md): a client-side camera override and free fly. Not part
-// of retail BF2. While no view is active, the game pays one test of g_viewToolActive per hook.
+// of retail BF2. While no view or shot is active, the game pays two tests per hook.
 #pragma once
 
 #include "../../Core/BuildConfig.h"
@@ -19,10 +19,13 @@ namespace dx9rend { class IRenderView; class IUiViewTool; }
 extern bool g_viewToolActive;
 // True during free fly: the message pump leaves the DirectInput mouse released.
 extern bool g_viewToolFlying;
+// True while view.shot waits for its frame or its result.
+extern bool g_viewToolShooting;
 
-// BF2Render::render, after the game has set the view and the far plane, before the frame is drawn:
-// replaces the view's camera and FOV with the tool's.
-void viewToolApplyCamera(dx9rend::IRenderView* view);
+// BF2Render::render, after the game has set the view and the far plane, before the frame is drawn,
+// while g_viewToolActive or g_viewToolShooting: replaces the view's camera and FOV with the
+// tool's, and moves a pending shot along.
+void viewToolFrame(dx9rend::IRenderView* view);
 
 // BF2Engine::filterPlayerInput, first in the filter chain: during free fly the sample is cleared
 // (the tool reads the keyboard and mouse itself). Returns false when the sample was taken.
