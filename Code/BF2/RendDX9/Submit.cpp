@@ -557,8 +557,9 @@ public:
     IDirect3DVertexShader9* vs;
     IDirect3DPixelShader9* ps;
     std::string unsupported;
+    unsigned int passes;
 
-    PassRecorder() : vs(0), ps(0) {}
+    PassRecorder() : vs(0), ps(0), passes(0) {}
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** out) override { *out = 0; return E_NOINTERFACE; }
     ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
@@ -623,6 +624,7 @@ void recordPass(ID3DXEffect* effect, D3DXHANDLE technique, PassRecorder& recorde
     UINT passes = 0;
     if (effect->Begin(&passes, 7u) >= 0)
     {
+        recorder.passes = passes;
         if (passes)
         {
             effect->BeginPass(0);
@@ -859,6 +861,12 @@ void buildProgram(SubmitProgram& program)
         }
     }
 
+    if (recorder.passes != 1u)
+    {
+        ::renddx9abi::logf("Submit: %s %s: not drawable here (%u passes)", shader->name().c_str(),
+                           program.techniqueName.c_str(), recorder.passes);
+        return;
+    }
     if (!recorder.unsupported.empty() || !recorder.vs)
     {
         ::renddx9abi::logf("Submit: %s %s: not drawable here (%s)", shader->name().c_str(),
@@ -984,7 +992,7 @@ void applySet(SubmitProgram* program, unsigned int set, RenderQueueEntry* entry)
 bool submitEnabled() { return g_enabled; }
 void submitSetEnabled(bool on) { g_enabled = on; }
 
-SubmitProgram* submitProgram(Ra::RaShader* shader, unsigned int key)
+SubmitProgram* submitProgram(Ra::RaShader* shader, unsigned int key, bool orDefault)
 {
     if ((!shader->m_built && !shader->slot04()) || !shader->m_effect)
         return 0;
@@ -996,8 +1004,13 @@ SubmitProgram* submitProgram(Ra::RaShader* shader, unsigned int key)
     slot->effect = shader->m_effect;
     slot->buildSerial = shader->m_buildSerial;
     slot->key = key;
-    if (shader->selectTechnique(key))
+    if (key && shader->selectTechnique(key))
         buildProgram(*slot);
+    else if ((!key || orDefault) && shader->m_technique)
+    {
+        shader->m_activeTechnique = shader->m_technique;   // as RaShader::begin
+        buildProgram(*slot);
+    }
     return slot->valid ? slot.get() : 0;
 }
 

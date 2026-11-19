@@ -1476,6 +1476,7 @@ struct RenderQueue
     void setSharedString(const std::string* value);   // +0x10
     void drawWalkNear();                        // +0x14
     void drawWalkDefault();                     // +0x18
+    void drawEntryStates(RenderQueueEntry* e);  // [RENDER] milestone 9
     void add(RenderQueueEntry* entry);          // +0x04
 };
 
@@ -1572,13 +1573,18 @@ void RenderQueue::flushWithArg(unsigned char runDraws)
 // A failed stream bind skips the entry; transparent draws reapply alpha states.
 // Ends only passes and effects successfully begun.
 // PE 0x1003ADC0 (table 0x101E1848 slot +0x18).
+// [RENDER] milestone 9: a run of one effect and technique draws through its program (Submit.h)
+// when renderer.submit is on and the technique has one; otherwise, and for techniques of more than
+// one pass, through D3DX as before.
 void RenderQueue::drawWalkDefault()
 {
     Ra::RaShader* shader     = 0;
+    SubmitProgram* program   = 0;
     int           begunPass  = -1;
     int           activePass = -1;
     unsigned int  passCount  = 0;
     void*         lastMaterial = 0;
+    bool          streamsBound = false;
     unsigned int  lastKey    = 0;
 
     for (unsigned int i = 0; ; ++i)
@@ -1594,7 +1600,12 @@ void RenderQueue::drawWalkDefault()
 
         if (!(shader == e->shader && lastKey == e->techniqueKey))
         {
-            if (shader)
+            if (program)
+            {
+                submitEnd(program);
+                program = 0;
+            }
+            else if (shader)
             {
                 if (activePass != -1)
                 {
@@ -1611,9 +1622,33 @@ void RenderQueue::drawWalkDefault()
             lastKey = e->techniqueKey;
             shader->m_queueProfiler = &profiler;
             shaderChanged = true;
-            passCount = shader->begin(e);                          // +0x08
-            if (passCount)
-                begunPass = 0;
+            program = submitEnabled() ? submitProgram(shader, lastKey, true) : 0;
+            if (program)
+            {
+                submitBegin(program, e);
+                passCount = 0;
+            }
+            else
+            {
+                passCount = shader->begin(e);                      // +0x08
+                if (passCount)
+                    begunPass = 0;
+            }
+        }
+
+        if (program)
+        {
+            if (shaderChanged || lastMaterial != e->material)
+            {
+                lastMaterial = e->material;
+                streamsBound = materialApplyStreams(e->material, shader);   // material +0x04
+            }
+            if (!streamsBound)
+                continue;
+            submitEntry(program, e);
+            drawEntryStates(e);
+            shader->draw(e);
+            continue;
         }
 
         if (passCount)
@@ -1644,17 +1679,7 @@ void RenderQueue::drawWalkDefault()
                 {
                     shader->applyTemplateParameters(e);            // +0x14
                     shader->applyInstanceParameters(e);            // +0x10
-                    if (transparentPass)
-                    {
-                        stateManagerSetRenderState(15, 1);         // D3DRS_ALPHATESTENABLE
-                        stateManagerSetRenderState(24, 0);         // D3DRS_ALPHAREF
-                        stateManagerSetRenderState(25, 5);         // D3DRS_ALPHAFUNC = greaterequal
-                        stateManagerSetRenderState(27, 1);         // D3DRS_ALPHABLENDENABLE
-                        stateManagerSetRenderState(19, 5);         // D3DRS_SRCBLEND = srcalpha
-                        stateManagerSetRenderState(20, 6);         // D3DRS_DESTBLEND = invsrcalpha
-                    }
-                    stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] milestone 8
-                    renderEntryBindLodDither(e);                   // [RENDER] milestone 8
+                    drawEntryStates(e);
                     shader->draw(e);                               // +0x18
                 }
             }
@@ -1663,7 +1688,9 @@ void RenderQueue::drawWalkDefault()
     }
 
     stateManagerSetPrepassedDraw(false);                           // [RENDER] milestone 8
-    if (shader)
+    if (program)
+        submitEnd(program);
+    else if (shader)
     {
         if (activePass != -1)
             shader->endPass();
@@ -1672,9 +1699,28 @@ void RenderQueue::drawWalkDefault()
     }
 }
 
+// The per-draw states after the entry's parameters: a transparent queue's alpha states, and
+// (milestone 8) whether the entry was prepassed and its LOD dither.
+void RenderQueue::drawEntryStates(RenderQueueEntry* e)
+{
+    if (transparentPass)
+    {
+        stateManagerSetRenderState(15, 1);         // D3DRS_ALPHATESTENABLE
+        stateManagerSetRenderState(24, 0);         // D3DRS_ALPHAREF
+        stateManagerSetRenderState(25, 5);         // D3DRS_ALPHAFUNC = greaterequal
+        stateManagerSetRenderState(27, 1);         // D3DRS_ALPHABLENDENABLE
+        stateManagerSetRenderState(19, 5);         // D3DRS_SRCBLEND = srcalpha
+        stateManagerSetRenderState(20, 6);         // D3DRS_DESTBLEND = invsrcalpha
+    }
+    stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] milestone 8
+    renderEntryBindLodDither(e);                               // [RENDER] milestone 8
+}
+
 // Draws first-person entries with the first entry's shader and pass 0, grouped by material.
 // Consumes drawn entries; failed stream bindings requeue entries on the default shader.
 // PE 0x1003AFC0
+// [RENDER] milestone 9: through the first entry's program when renderer.submit is on and its
+// technique has one.
 void RenderQueue::drawWalkNear()
 {
     if (!enabled)
@@ -1687,9 +1733,16 @@ void RenderQueue::drawWalkNear()
     RenderQueueEntry** items = &entries[0];
     Ra::RaShader* const shader = items[0]->shader;
     shader->m_queueProfiler = &profiler;
-    if (!shader->begin(items[0]))                                  // +0x08
-        return;
-    shader->beginPass(0);
+    SubmitProgram* const program =
+        submitEnabled() ? submitProgram(shader, items[0]->techniqueKey, true) : 0;
+    if (program)
+        submitBegin(program, items[0]);
+    else
+    {
+        if (!shader->begin(items[0]))                              // +0x08
+            return;
+        shader->beginPass(0);
+    }
     const unsigned int count = static_cast<unsigned int>(entries.size());
 
     for (unsigned int i = 0; i < count; )
@@ -1698,7 +1751,8 @@ void RenderQueue::drawWalkNear()
         void* const material = items[i]->material;
         const bool applied = materialApplyStreams(material, shader);   // material +0x04
         items = &entries[0];
-        shader->applyTemplateParameters(items[i]);                 // +0x14
+        if (!program)
+            shader->applyTemplateParameters(items[i]);             // +0x14
 
         for (unsigned int j = i; j < count; ++j)
         {
@@ -1716,7 +1770,10 @@ void RenderQueue::drawWalkNear()
                 }
                 else
                 {
-                    shader->applyInstanceParameters(e);            // +0x10
+                    if (program)
+                        submitEntry(program, e);
+                    else
+                        shader->applyInstanceParameters(e);        // +0x10
                     stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] milestone 8
                     renderEntryBindLodDither(e);                   // [RENDER] milestone 8
                     shader->draw(e);                               // +0x18
@@ -1733,6 +1790,11 @@ void RenderQueue::drawWalkNear()
     }
 done:
     stateManagerSetPrepassedDraw(false);                           // [RENDER] milestone 8
+    if (program)
+    {
+        submitEnd(program);
+        return;
+    }
     shader->endPass();
     shader->end();                                                 // +0x0C
 }

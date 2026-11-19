@@ -25,14 +25,16 @@ namespace Ra { class RaShader; }
 struct RenderQueueEntry;
 struct SubmitProgram;
 
-// renderer.submit: 1 draws the depth prepass and the sun casters through programs, 0 through
-// D3DX (the A/B switch while milestone 9 is developed).
+// renderer.submit: 1 draws the depth prepass, the sun casters and the queue walks (the lit mesh
+// passes) through programs, 0 through D3DX (the A/B switch while milestone 9 is developed).
 bool submitEnabled();
 void submitSetEnabled(bool on);
 
-// The program for `shader`'s technique `key`, pass 0, built on first use; null when the effect
-// has no such technique or the pass cannot be drawn here (logged once).
-SubmitProgram* submitProgram(Ra::RaShader* shader, unsigned int key);
+// The program for `shader`'s technique `key`, built on first use; null when the effect has no
+// such technique or it cannot be drawn here: more than one pass, or fixed-function state (logged
+// once). Key 0, or with `orDefault` a key the effect lacks, takes the effect's default technique,
+// as RaShader::begin does for the queue walks.
+SubmitProgram* submitProgram(Ra::RaShader* shader, unsigned int key, bool orDefault = false);
 
 // Binds `program`'s shaders and fixed states inside a state-manager bracket and uploads the
 // effect-wide parameters for `entry` (the global set). submitEnd closes the bracket.
