@@ -2556,10 +2556,6 @@ void drawDepthEntriesSubmit(std::vector<RenderQueueEntry*>& list, unsigned int k
     const size_t count = list.size();
     for (size_t i = 0; i < count; ++i)
     {
-        if (i + 8 < count)
-            submitPrefetchEntry(list[i + 8]);
-        if (i + 4 < count)
-            submitPrefetchBlocks(list[i + 4]);
         RenderQueueEntry* const e = list[i];
         Ra::RaShader* const shader = e->shader;
         if (!shader || shader == rejected)
@@ -2878,10 +2874,6 @@ void drawShadowCastersSubmit(unsigned int key, const float* viewProjection,
     const size_t count = casters.size();
     for (size_t i = 0; i < count; ++i)
     {
-        if (i + 8 < count)
-            submitPrefetchEntry(casters[i + 8].entry);
-        if (i + 4 < count)
-            submitPrefetchBlocks(casters[i + 4].entry);
         if (!casterInCascade(casters[i], cull))
             continue;
         RenderQueueEntry* const e = casters[i].entry;
