@@ -139,7 +139,8 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 next, before 4):
    and Fallujah West, 2026-11-19: draws at Muttrah `high` 10541 to 8834; views `high` and `market`
    against the earlier shots differ in 21 and 407 pixels (wind-blown palms); same-session pairs,
    programs against D3DX, Muttrah City `bench1` 10.94 / 11.90 ms, Fallujah West `bench` 18.70 /
-   20.52 ms ([perf-frame.md](perf-frame.md#render-milestone-9-task-5)). Not yet seen by the owner.
+   20.52 ms ([perf-frame.md](perf-frame.md#render-milestone-9-task-5)). Seen in game by the
+   owner during these runs, 2026-11-19.
 6. Static meshes in the lit passes on packets, then bundled and skinned meshes (bone constants).
 7. Terrain, overgrowth and undergrowth on packets.
 8. Instancing (stream frequency) for overgrowth and repeated static meshes.
