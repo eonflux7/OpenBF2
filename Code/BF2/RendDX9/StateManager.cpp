@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <intrin.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -226,19 +227,17 @@ struct StateManager
                                                      // pop AND pre-draw loop stages 0..this value
 
     // the shader-constant register files
-    // Batched flush: scan dirty bytes min..max, issue each contiguous dirty run as ONE
-    // Set*ShaderConstantF, clear as you go. min only ever moves down (start -1 = 0xFFFFFFFF, so the
-    // unsigned compare adopts the first register written), max only up.
+    // Batched flush: each contiguous dirty run is issued as ONE Set*ShaderConstantF, clearing as it
+    // goes. [RENDER] The dirty registers are a bit mask walked a 64-bit word at a time. Retail kept
+    // a dirty byte per register and scanned the bytes between the lowest and highest register
+    // written; with material constants from c0 and the LOD dither at c222, every draw scanned
+    // about 210 clean bytes (two thirds of the pre-draw apply).
     /* 0x1EA8 */ float            vsConst[256][4];
-    /* 0x2EA8 */ unsigned char    vsConstDirty[256];
-    /* 0x2FA8 */ unsigned int     vsConstMin;      // ctor: -1
-    /* 0x2FAC */ unsigned int     vsConstMax;      // ctor: 0
-    /* 0x2FB0 */ ConstantIssueFn  vsConstIssueFn;  // sub_100272C0 - device SetVertexShaderConstantF
-    /* 0x2FB4 */ float            psConst[224][4];
-    /* 0x3DB4 */ unsigned char    psConstDirty[224];
-    /* 0x3E94 */ unsigned int     psConstMin;      // ctor: -1
-    /* 0x3E98 */ unsigned int     psConstMax;      // ctor: 0
-    /* 0x3E9C */ ConstantIssueFn  psConstIssueFn;  // sub_100272B0 - device SetPixelShaderConstantF
+    /*        */ uint64_t         vsConstDirty[4];
+    /*        */ ConstantIssueFn  vsConstIssueFn;  // sub_100272C0 - device SetVertexShaderConstantF
+    /*        */ float            psConst[224][4];
+    /*        */ uint64_t         psConstDirty[4];
+    /*        */ ConstantIssueFn  psConstIssueFn;  // sub_100272B0 - device SetPixelShaderConstantF
 
     // [RENDER] Render targets 1..3 (MRT). The shipped object mirrors only RT0 and
     // every shipped caller passes index 0; these sit past the retail fields so its layout holds.
@@ -265,9 +264,6 @@ static_assert(offsetof(StateManager, indices)           == 0x1E70, "indices mirr
 static_assert(offsetof(StateManager, renderTarget)      == 0x1E90, "RT mirror at +0x1E90");
 static_assert(offsetof(StateManager, maxStageTouched)   == 0x1EA4, "stage watermark at +0x1EA4");
 static_assert(offsetof(StateManager, vsConst)           == 0x1EA8, "VS constants at +0x1EA8");
-static_assert(offsetof(StateManager, vsConstMin)        == 0x2FA8, "VS min at +0x2FA8");
-static_assert(offsetof(StateManager, psConst)           == 0x2FB4, "PS constants at +0x2FB4");
-static_assert(offsetof(StateManager, psConstIssueFn)    == 0x3E9C, "the object ends at +0x3EA0");
 static_assert(offsetof(StateManager, listenerVptr)      == 0x0004, "listener subobject at +0x04");
 static_assert(offsetof(StateManager, renderTargetDirty) == 0x1E94, "RT dirty byte at +0x1E94");
 #endif
@@ -682,15 +678,18 @@ void resetToDefaults(StateManager* self)
 // sub_10027540 flushes). One body each, parameterized by the file the caller names.
 
 // PE 0x10027370, 0x100274C0
-void constFileWrite(float (*data)[4], unsigned char* dirty, unsigned int* minReg,
-                    unsigned int* maxReg, unsigned int reg, const void* src, unsigned int count)
+void constFileWrite(float (*data)[4], uint64_t* dirty, unsigned int reg, const void* src,
+                    unsigned int count)
 {
     ::memcpy(data[reg], src, 16u * count);
-    ::memset(dirty + reg, 0xFF, count);
-    if (*minReg >= reg)          // unsigned: the initial -1 adopts the first register written
-        *minReg = reg;
-    if (*maxReg < reg + count)
-        *maxReg = reg + count;
+    for (unsigned int r = reg, end = reg + count; r < end; )
+    {
+        const unsigned int bit = r & 63u;
+        const unsigned int n = (end - r < 64u - bit) ? end - r : 64u - bit;
+        const uint64_t ones = n == 64u ? ~0ull : ((1ull << n) - 1u);
+        dirty[r >> 6] |= ones << bit;
+        r += n;
+    }
 }
 
 // PE 0x100272C0
@@ -707,30 +706,51 @@ HRESULT __stdcall issuePixelConstants(IDirect3DDevice9* device, unsigned int reg
     return device->SetPixelShaderConstantF(reg, data, count);
 }
 
-// PE 0x100273F0, 0x10027540
-void constFileFlush(StateManager* self, float (*data)[4], unsigned char* dirty,
-                    unsigned int* minReg, unsigned int* maxReg, bool pixel,
-                    int* outRegs, int* outCalls)
+inline unsigned int lowestSetBit(uint64_t m)
 {
-    unsigned int cursor = *minReg;
-    if (cursor < *maxReg)
+    unsigned long index;
+    _BitScanForward64(&index, m);
+    return static_cast<unsigned int>(index);
+}
+
+// PE 0x100273F0, 0x10027540 (the run batching; the walk is the bit mask's, see StateManager).
+void constFileFlush(float (*data)[4], uint64_t* dirty, unsigned int words, ConstantIssueFn issue)
+{
+    const unsigned int kNone = 0xFFFFFFFFu;
+    unsigned int runStart = kNone;
+    for (unsigned int w = 0; w < words; ++w)
     {
-        while (cursor < *maxReg)
+        const uint64_t m = dirty[w];
+        const unsigned int base = w << 6;
+        if (!m)
         {
-            while (cursor < *maxReg && !dirty[cursor])
-                ++cursor;
-            const unsigned int runStart = cursor;
-            while (cursor < *maxReg && dirty[cursor])
-                dirty[cursor++] = 0;
-            (pixel ? self->psConstIssueFn : self->vsConstIssueFn)(
-                rendererDevice(), runStart, data[runStart], cursor - runStart);
-            ++*outCalls;
-            *outRegs += static_cast<int>(cursor - runStart);
-            ++cursor;
+            if (runStart != kNone)
+            {
+                issue(rendererDevice(), runStart, data[runStart], base - runStart);
+                runStart = kNone;
+            }
+            continue;
+        }
+        dirty[w] = 0;
+        unsigned int bit = 0;
+        while (bit < 64u)
+        {
+            // Looking for a run's start among the set bits, or its end among the clear ones.
+            const uint64_t rest = (runStart == kNone ? m : ~m) >> bit;
+            if (!rest)
+                break;
+            bit += lowestSetBit(rest);
+            if (runStart == kNone)
+                runStart = base + bit;
+            else
+            {
+                issue(rendererDevice(), runStart, data[runStart], base + bit - runStart);
+                runStart = kNone;
+            }
         }
     }
-    *minReg = 0xFFFFFFFFu;
-    *maxReg = 0;
+    if (runStart != kNone)
+        issue(rendererDevice(), runStart, data[runStart], (words << 6) - runStart);
 }
 
 
@@ -866,8 +886,7 @@ int __stdcall smSetPixelShader(StateManager* self, void* shader)
 int __stdcall smSetVertexShaderConstantF(StateManager* self, unsigned int reg, const float* data,
                                          unsigned int count)
 {
-    constFileWrite(self->vsConst, self->vsConstDirty, &self->vsConstMin, &self->vsConstMax,
-                   reg, data, count);
+    constFileWrite(self->vsConst, self->vsConstDirty, reg, data, count);
     return 0;
 }
 // PE 0x10026A80.
@@ -884,15 +903,13 @@ int __stdcall smSetPixelShaderConstantF(StateManager* self, unsigned int reg, co
     if (reg < end && reg + count > first)
     {
         if (reg < first)
-            constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin,
-                           &self->psConstMax, reg, data, first - reg);
+            constFileWrite(self->psConst, self->psConstDirty, reg, data, first - reg);
         if (reg + count > end)
-            constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin,
-                           &self->psConstMax, end, data + 4u * (end - reg), reg + count - end);
+            constFileWrite(self->psConst, self->psConstDirty, end, data + 4u * (end - reg),
+                           reg + count - end);
         return 0;
     }
-    constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin, &self->psConstMax,
-                   reg, data, count);
+    constFileWrite(self->psConst, self->psConstDirty, reg, data, count);
     return 0;
 }
 
@@ -1151,14 +1168,9 @@ void preDrawApply(StateManager* self)
         self->pixelShaderDirty = 0;
     }
 
-    // The constant-run flushes. The shipped body collects registers-set/call counters into locals
-    // it then discards; the out-parameters exist to keep that shape visible.
-    int regs = 0, calls = 0;
-    constFileFlush(self, self->vsConst, self->vsConstDirty, &self->vsConstMin, &self->vsConstMax,
-                   false, &regs, &calls);
-    regs = 0; calls = 0;
-    constFileFlush(self, self->psConst, self->psConstDirty, &self->psConstMin, &self->psConstMax,
-                   true, &regs, &calls);
+    // The constant-run flushes.
+    constFileFlush(self->vsConst, self->vsConstDirty, 4u, self->vsConstIssueFn);
+    constFileFlush(self->psConst, self->psConstDirty, 4u, self->psConstIssueFn);
 }
 
 
@@ -1347,12 +1359,8 @@ bool createStateManager(void* device)
     self->maxStreamTouched = 0;
     self->maxStageTouched = 0;
 
-    self->vsConstMin = 0xFFFFFFFFu;
-    self->vsConstMax = 0;
     self->vsConstIssueFn = &issueVertexConstants;
     ::memset(self->vsConstDirty, 0, sizeof(self->vsConstDirty));
-    self->psConstMin = 0xFFFFFFFFu;
-    self->psConstMax = 0;
     self->psConstIssueFn = &issuePixelConstants;
     ::memset(self->psConstDirty, 0, sizeof(self->psConstDirty));
 
@@ -1600,8 +1608,8 @@ void stateManagerSetPixelShader(IDirect3DPixelShader9* shader)
 void stateManagerSetSunCascadeConstants(const float* constants)
 {
     StateManager* const self = sm();
-    constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin, &self->psConstMax,
-                   kSunCascadeRegister, constants, kSunCascadeVec4s);
+    constFileWrite(self->psConst, self->psConstDirty, kSunCascadeRegister, constants,
+                   kSunCascadeVec4s);
 }
 
 // [RENDER] RaLodDither into its reserved pixel register, past the filter above.
@@ -1609,8 +1617,7 @@ void stateManagerSetLodDither(float a, float b)
 {
     StateManager* const self = sm();
     const float value[4] = { a, b, 0.0f, 0.0f };
-    constFileWrite(self->psConst, self->psConstDirty, &self->psConstMin, &self->psConstMax,
-                   kLodDitherRegister, value, 1u);
+    constFileWrite(self->psConst, self->psConstDirty, kLodDitherRegister, value, 1u);
 }
 
 // FXParameter.cpp's sparse-matrix fast path uploads bone rows through vslot +0x38.
