@@ -24,7 +24,7 @@ and milestone 3's history file and acceptance check (the spread between runs is 
 
 Tasks (1–2 built; tried on Muttrah City by an agent, 2026-11-19: keys recorded from views, a
 hand-edited three-key path played through its middle key, camera handed back at the end; not yet
-seen by the owner):
+seen by the owner). Paths also in the Views tab (built; for the owner to check):
 1. Paths in the view file: `path NAME` with indented `key TIME pos=… yaw=… pitch=… fov=…` lines,
    parsed and written like views; `path.key NAME TIME` appends a keyframe at the current camera.
 2. Playback: `path.play NAME`, `path.stop`; real time, Catmull-Rom position, smoothed angles and FOV.
