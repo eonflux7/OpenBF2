@@ -1495,6 +1495,19 @@ IDirect3DVertexDeclaration9* mergedDeclaration(IDirect3DDevice9* device,
         }
         const D3DVERTEXELEMENT9 end = D3DDECL_END();
         elements[n] = end;
+        if (drawStatsOn())   // [DEV] BF2_DRAW_STATS: the merged declarations
+        {
+            std::string text;
+            for (unsigned int k = 0; k < n; ++k)
+            {
+                char item[48];
+                std::snprintf(item, sizeof(item), " s%u+%u t%u u%u.%u", elements[k].Stream,
+                              elements[k].Offset, elements[k].Type, elements[k].Usage,
+                              elements[k].UsageIndex);
+                text += item;
+            }
+            ::renddx9abi::logf("Submit: instanced declaration%s", text.c_str());
+        }
         if (device->CreateVertexDeclaration(elements, &merged) < 0)
             merged = 0;
     }
