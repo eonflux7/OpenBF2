@@ -1656,6 +1656,12 @@ void rendererDrawIndexedPrimitive(unsigned int primCount, unsigned int type, int
     rendererDevice()->DrawIndexedPrimitive(static_cast<D3DPRIMITIVETYPE>(type), baseVertex,
                                            minIndex, numVertices, startIndex, primCount);
     drawStatsDraw(primCount);   // [DEV] BF2_DRAW_STATS
+    rendererCountIndexedDraw(primCount);
+}
+
+// PE 0x1000D5B0, the indexed wrapper's statistics helper (inlined there in the shipped image).
+void rendererCountIndexedDraw(unsigned int primCount)
+{
     unsigned char* stats = static_cast<RendDX9Base*>(g_rendererBase)->renderStats;
     if (stats[644])
     {

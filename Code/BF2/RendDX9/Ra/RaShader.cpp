@@ -1331,6 +1331,7 @@ void RaShader::applyParameterVector(void* block, const std::vector<RaBoundParame
 // entry's lighting.tail10C added to the index start - no renderer wrapper, no statistics.  The
 // getters are the StaticMeshMaterial table's, by slot: +0x10 primitives, +0x08 vertices, +0x20
 // index start, +0x1C the zero slot, +0x18 vertex start, +0x14 the primitive type word.
+// [TOOLS] The draw is now counted in the renderer's statistics (see the end).
 void RaShader::draw(RenderQueueEntry* entry)
 {
     typedef int (__thiscall* IntSlotFn)(void*);
@@ -1355,6 +1356,9 @@ void RaShader::draw(RenderQueueEntry* entry)
                                    static_cast<UINT>(startIndex),
                                    static_cast<UINT>(primitiveCount));   // device +0x148
     drawStatsDraw(static_cast<unsigned int>(primitiveCount));   // [DEV] BF2_DRAW_STATS
+    // [TOOLS] Counted like the renderer's own indexed draws: retail left the queued meshes, most
+    // of a frame's draws, out of the statistics, so the benchmark and debug menu undercounted.
+    rendererCountIndexedDraw(static_cast<unsigned int>(primitiveCount));
 }
 
 // sub_1004AFD0, read in full. GetParameterByName(0, "ShaderVersion") is D3DX slot +0x24 and GetInt

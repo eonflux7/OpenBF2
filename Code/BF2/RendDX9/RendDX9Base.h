@@ -622,6 +622,9 @@ void stateManagerSetRenderStatePersistent(unsigned int state, unsigned int value
 // sub_10026880 - the pre-draw apply, published for the Ra shader's draw (RaShader::draw calls it
 // on the state manager before the device draw).  StateManager.cpp.
 void stateManagerPreDrawApply();
+// The indexed-draw statistics bump of the DrawIndexedPrimitive wrapper (StateManager.cpp), shared
+// with RaShader::draw, whose retail draw counted nothing.
+void rendererCountIndexedDraw(unsigned int primCount);
 // sub_10022420 - ShaderManager +0xA0, the active Ra effect the pre-draw apply commits first.
 // RaShader::begin installs it, RaShader::end clears it.  ShaderManager.cpp.
 void shaderManagerSetActiveRaEffect(void* effect);
