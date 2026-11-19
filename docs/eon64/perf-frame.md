@@ -146,6 +146,12 @@ vectors) uploaded in place, without the per-component conversion and gather. Sam
 Fallujah West has the most draws (16085 a frame), so the per-draw work shows most there; Muttrah
 City's runs spread less (about 2 % against 3 %), so it separates small changes better.
 
+Then the pre-draw apply: two thirds of its samples were the pixel constant flush scanning one dirty
+byte per register from the material constants (c0 up) to the LOD dither (c222), about 210 clean
+bytes a draw. With the dirty registers as a bit mask (`f3515fb4`) the pre-draw apply and the flush
+take 2.5 % of the main thread, from 8.2 % (Muttrah `high`, programs, 10 s samples). Not yet
+benchmarked: the runs taken then had another program using a core (spread 19 %).
+
 ## Plan
 
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here

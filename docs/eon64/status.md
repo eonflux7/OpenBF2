@@ -129,9 +129,11 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 next, before 4):
    [perf-frame.md](perf-frame.md#render-milestone-9-task-5). Then float values copied whole and
    register-shaped targets uploaded in place: same-session pairs, 3 runs each, programs against
    D3DX, Muttrah City `bench1` 12.03 / 13.07 ms, Fallujah West `bench` 21.52 / 23.43 ms (8 % on
-   both); view `high` with `submit` 1 and 0 differs in 19 pixels. Not yet seen by the owner.
-   Left: the holder calls into the sink, the pre-draw apply (10 %), one draw per mesh in the
-   depth passes.
+   both); view `high` with `submit` 1 and 0 differs in 19 pixels. Then the shader constants'
+   dirty registers as a bit mask (`f3515fb4`): the pre-draw apply from 8.2 % to 2.5 % of the main
+   thread; view `high` differs from the build before in 17 pixels; benchmark still to take on a
+   quiet machine. Not yet seen by the owner. Left: the holder calls into the sink, one draw per
+   mesh in the depth passes.
 6. Static meshes in the lit passes on packets, then bundled and skinned meshes (bone constants).
 7. Terrain, overgrowth and undergrowth on packets.
 8. Instancing (stream frequency) for overgrowth and repeated static meshes.
