@@ -520,7 +520,7 @@ struct Shot
 
 Shot g_shot = { false, false, false, false, 0, std::string(), std::string(), std::string() };
 
-std::string g_outputDir("@HOME@/eon64-tools");
+std::string g_outputDir("eon64-runs");   // under the game's working directory
 int g_shotHud = 0;
 int g_shotWidth = 960;      // the JPEG's width
 
@@ -540,7 +540,7 @@ dx9rend::IRendererTools* rendererTools()
     return tools;
 }
 
-// tools.outputDir with @HOME@ replaced, made absolute, with backslashes and no trailing separator.
+// tools.outputDir (@HOME@ allowed) made absolute, with backslashes and no trailing separator.
 std::string outputDirectory()
 {
     std::string dir = g_outputDir;
@@ -596,7 +596,7 @@ void shotFinished(const std::string& result)
         io::mainConsole->output(result + "\n");
 }
 
-// view.shot [NAME]: <outputDir>\shots\<map>\<NAME>.png and .jpg. NAME defaults to the held view's
+// view.shot [NAME]: <outputDir>\<map>\shots\<NAME>.png and .jpg. NAME defaults to the held view's
 // name (or "camera") and the local time; an existing NAME is overwritten.
 std::string viewShot(const std::string& requested)
 {
@@ -621,7 +621,7 @@ std::string viewShot(const std::string& requested)
     }
     if (!validShotName(name))
         return "view.shot: a name has only letters, digits, '_', '-' and '.'";
-    const std::string dir = outputDirectory() + "\\shots\\" + map;
+    const std::string dir = outputDirectory() + "\\" + map + "\\shots";
     if (!makeDirectories(dir))
         return "view.shot: cannot create " + dir;
     g_shot.png = dir + "\\" + name + ".png";

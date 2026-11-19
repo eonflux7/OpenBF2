@@ -106,7 +106,7 @@ keeping comments, order and blank lines. `view.reload` (Reload in the tab) rerea
 
 **Commands:** `view.go NAME`, `view.save NAME [note]` (the current camera), `view.delete NAME`,
 `view.move NAME up|down`, `view.note NAME [note]`, `view.set NAME ["VIEW..."]`, `view.leave`,
-`view.list`, `view.reload`, `view.fly 0|1`, `view.shot [NAME]`.
+`view.list`, `view.reload`, `view.fly 0|1`, `view.shot [NAME]`, `view.lastShot`.
 
 As built (`Game/Tools/ViewFile.cpp`, `ViewTool.cpp`): the file is reread whenever it differs on
 disk from the last read, so the next view command after a hand edit sees it; `view.reload` forces
@@ -135,6 +135,21 @@ edited: they are added by hand.
 
 **Screenshot in the engine.** The scene is read back before the HUD (or with it, by option) and
 written as PNG, plus a 960-wide JPEG for quick review. It works when the window is covered.
+
+As built (`ViewTool.cpp`; renderer side `RendDX9/ToolsCapture.cpp`, reached through
+`IRendererTools` in `RendMisc/IRendererTools.h`, queried from the renderer like `IRendererUi`):
+`view.shot [NAME]` writes `<tools.outputDir>/<map>/shots/NAME.png` and `NAME.jpg`; without NAME
+the name is the held view's (or `camera`) and the local time, and an existing NAME is overwritten.
+`tools.outputDir` defaults to `eon64-runs` under the game's working directory (`@HOME@` may start
+it); the directory is created. The next frame's hook passes the request to the renderer, which
+copies the back buffer with StretchRect into a single-sample target (resolving MSAA), reads it
+back and writes the PNG (RGB, no alpha) and a box-filtered JPEG `tools.shotWidth` wide (960). It
+reads back after the composite and the sky's second pass, just before the HudManager paints; with
+`tools.shotHud 1` it reads at end of scene instead, with the HUD and without the debug menu and
+console, and while a view hides the HUD it is shown for two frames and hidden again. The command
+returns once queued; the result goes to the console and `view.lastShot` (`wrote PATH (WxH, ...)`,
+`failed: ...`, `pending PATH` or `none`). A request no frame serves within 60 frames fails. The
+encode is synchronous, so the frame of the shot is longer. Works with no view held.
 
 **Settle and freeze.** Before a shot the tool waits until streaming has no pending loads and LOD
 crossfades have finished, then `tools.settleFrames` frames, which also covers any shadow cascade
@@ -174,7 +189,7 @@ is recorded in the report as an error for that view; the run continues with the 
 fails if any view has an error.
 
 **Report.** In `<output>/<map>/<label>/` (`tools.outputDir`, default `eon64-runs` under the
-game's working directory): the PNGs and JPEGs, `report.json` (the stamp, per view: pass timings,
+game's working directory; single shots go to `<output>/<map>/shots/`): the PNGs and JPEGs, `report.json` (the stamp, per view: pass timings,
 frame time, draw counts, settle results, the load gate, errors) and `report.md` (the same, short).
 
 **Load gate.** During the load the tool counts shader compile errors, missing techniques and effects

@@ -7,7 +7,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 | Lane | Done | Next | Detail |
 |---|---|---|---|
 | `render` | Milestones 1–8 accepted | Milestone 9, draw submission, after `tools` milestones 1–3 | [renderer.md](renderer.md#roadmap) |
-| `tools` | Milestone 1: tasks 1–3 | Milestone 1, task 4 (Views tab) built; seen by the owner | [tools.md](tools.md#milestones) |
+| `tools` | Milestone 1: tasks 1–3 | Milestone 1: tasks 4–5 built, task 5 tried by an agent; task 6 next | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
 | `perf` (frame) | `/O2` plugins, `tailField` table | Parked until render milestone 9 | [perf-frame.md](perf-frame.md#plan) |
@@ -34,7 +34,8 @@ Found (2026-11-19):
 - Screenshot: `renderer.dumpScreen` reads the back buffer at end of scene, after the HUD and before
   ImGui.
 
-Tasks (1–3 done: seen in game by the owner, 2026-11-19; 4 built, not yet seen in game):
+Tasks (1–3 done: seen in game by the owner, 2026-11-19; 4–5 built, not yet seen by the owner; 5
+tried on Muttrah City by an agent: a view shot before the HUD and one with `tools.shotHud 1`):
 1. Camera override: `view.*` state in a `[TOOLS]` module, applied at the hook; HUD hidden through
    `renderer.drawHud` and restored on leaving; idle is one test.
 2. Free fly: `view.fly`, F8, keyboard and mouse read directly, wheel FOV, no collision.
