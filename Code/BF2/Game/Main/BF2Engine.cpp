@@ -2294,7 +2294,14 @@ bool BF2Engine::mainLoop()
 
     // Dedicated mode busy-waits only when sleep overhead exceeds one; the default
     // 0.005 uses the sleeping limiter instead.
-    if (demo->allowLockFps() && (!isDedicated() || *s_sleepOverheadTime > 1.0f))
+    // [TOOLS] bench.run draws uncapped: game.lockFps refuses 0 (setLockFPS below), so the
+    // benchmark skips the limiter instead of changing lockFPS.
+#if DEDICATED
+    const bool toolsUncapped = false;
+#else
+    const bool toolsUncapped = g_viewToolUncapped;
+#endif
+    if (demo->allowLockFps() && (!isDedicated() || *s_sleepOverheadTime > 1.0f) && !toolsUncapped)
                                                                     //   BF2.exe 0x40CA80 adds the client short-circuit
     {
         double target = frameStartWallClock + preferredFrameTime - lastWallDelta;

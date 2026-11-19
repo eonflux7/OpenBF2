@@ -11,6 +11,17 @@ namespace dx9rend {
 // Fork-owned interface id; outside the ranges retail's Ids.h uses.
 const unsigned int IID_IRendererTools = 0xE6400002u;
 
+// One presented frame of a benchmark (toolsBenchFrame).
+struct ToolsBenchFrame
+{
+    int          tag;            // the run (toolsBenchTag) the frame was drawn for
+    float        frameMs;        // from the previous Present's return to this one's
+    float        presentWaitMs;  // the time Present blocked
+    float        gpuMs;          // the GPU's frame, the sum of its pass spans; -1 when dropped
+    unsigned int draws;          // indexed, plain and user-pointer draws
+    unsigned int primitives;
+};
+
 class IRendererTools
 {
 public:
@@ -25,6 +36,22 @@ public:
     // 0 while the request waits for its frame, 1 written, -1 failed; the message says what was
     // written (size) or what failed. Valid until the next request.
     virtual int toolsShotState(const char*& message) const = 0;
+
+    // Benchmark recording (docs/eon64/tools.md#3-benchmark-path). Start clears the last
+    // recording and turns the GPU pass timers on; from then on each presented frame whose tag is
+    // positive is recorded. Tag sets the tag for the frames presented from now on (0: not
+    // recorded). Stop ends the recording and turns the timers off unless something else uses
+    // them; the records stay readable until the next start. GPU times arrive a few frames after
+    // their frame is presented, so read them some frames after the last recorded one.
+    virtual void toolsBenchStart() = 0;
+    virtual void toolsBenchTag(int tag) = 0;
+    virtual void toolsBenchStop() = 0;
+    virtual unsigned int toolsBenchFrameCount() const = 0;
+    virtual bool toolsBenchFrame(unsigned int index, ToolsBenchFrame& out) const = 0;
+    // GPU spans, in first-seen order; a span's time in a frame is -1 when it did not run there.
+    virtual unsigned int toolsBenchSpanCount() const = 0;
+    virtual const char* toolsBenchSpanName(unsigned int span) const = 0;
+    virtual float toolsBenchSpanMs(unsigned int frame, unsigned int span) const = 0;
 
 protected:
     ~IRendererTools() {}

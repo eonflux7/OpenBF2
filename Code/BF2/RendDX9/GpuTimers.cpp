@@ -15,6 +15,7 @@
 #include "../../RendDX9Abi/D3dx9Sdk.h"
 #include "RendDX9Base.h"
 #include "GpuTimers.h"
+#include "ToolsBench.h"   // [TOOLS] the benchmark's per-frame GPU times
 
 #include <cstdio>
 #include <cstdlib>
@@ -31,7 +32,10 @@ extern void* g_rendererBase;
 
 namespace {
 
-const unsigned int kFrames = 4;
+// Slots in flight. A frame is read when its slot comes round again, kFrames - 1 frames later; with
+// no frame cap and the GPU the bottleneck, the driver queues up to three frames, so fewer slots
+// would drop most results then.
+const unsigned int kFrames = 8;
 
 struct Mark
 {
@@ -46,6 +50,7 @@ struct Frame
     std::vector<Mark> marks;   // queries are kept across frames; `used` of them are live
     unsigned int used;
     bool pending;              // issued and not yet collected
+    int benchFrame;            // [TOOLS] the benchmark record this frame belongs to, or -1
 };
 
 struct Span
@@ -62,6 +67,7 @@ struct Span
 
 const char* g_path = 0;        // BF2_GPU_TIMERS, or 0
 bool g_live = false;           // the overlay is shown
+bool g_bench = false;          // [TOOLS] a benchmark records
 float g_lastFrameMs = 0.0f;
 Frame* g_frames = 0;
 unsigned int g_current = 0;
@@ -131,6 +137,14 @@ bool collect(Frame& f)
     }
     Span& total = span("(frame)");
     total.frameMs = totalMs;
+    if (f.benchFrame >= 0)    // [TOOLS] the benchmark's copy of this frame
+    {
+        for (size_t i = 0; i < g_spans->size(); ++i)
+            if ((*g_spans)[i].frameMs >= 0.0 && &(*g_spans)[i] != &total)
+                toolsBenchGpuSpan(f.benchFrame, (*g_spans)[i].name.c_str(),
+                                  static_cast<float>((*g_spans)[i].frameMs));
+        toolsBenchGpuFrame(f.benchFrame, static_cast<float>(totalMs));
+    }
     for (size_t i = 0; i < g_spans->size(); ++i)
     {
         Span& s = (*g_spans)[i];
@@ -189,6 +203,7 @@ void allocate()
         g_frames[i].frequency = 0;
         g_frames[i].used = 0;
         g_frames[i].pending = false;
+        g_frames[i].benchFrame = -1;
     }
     g_spans = new std::vector<Span>();
 }
@@ -249,12 +264,13 @@ void gpuTimerMark(const char* name)
     m.query->Issue(D3DISSUE_END);
 }
 
-void gpuTimersFrame()
+void gpuTimersFrame(int benchFrame)
 {
     if (!g_gpuTimersOn || !g_open)
         return;
     gpuTimerMark("(end)");   // the last span's end; never itself a span
     Frame& f = g_frames[g_current];
+    f.benchFrame = benchFrame;
     f.frequency->Issue(D3DISSUE_END);
     f.disjoint->Issue(D3DISSUE_END);
     f.pending = true;
@@ -287,21 +303,39 @@ void gpuTimersRelease()
     g_open = false;
 }
 
-void gpuTimersSetLive(bool live)
+namespace {
+
+// The timers run while anything uses them: the file, the overlay or a benchmark.
+void updateOn()
 {
-    if (live == g_live)
-        return;
-    g_live = live;
-    if (live)
+    if (g_live || g_bench)
         allocate();
-    g_gpuTimersOn = live || g_path != 0;
-    if (!g_gpuTimersOn)
+    const bool was = g_gpuTimersOn;
+    g_gpuTimersOn = g_live || g_bench || g_path != 0;
+    if (was && !g_gpuTimersOn)
     {
         gpuTimersRelease();   // no queries kept while nothing reads them
         g_lastFrameMs = 0.0f;
         for (size_t i = 0; i < g_spans->size(); ++i)
             (*g_spans)[i].smoothMs = -1.0f;
     }
+}
+
+} // namespace
+
+void gpuTimersSetLive(bool live)
+{
+    g_live = live;
+    updateOn();
+}
+
+void gpuTimersSetBench(bool on)
+{
+    g_bench = on;
+    updateOn();
+    // Frames still in flight belong to no record of a new recording.
+    for (unsigned int i = 0; g_frames && i < kFrames; ++i)
+        g_frames[i].benchFrame = -1;
 }
 
 unsigned int gpuTimersSnapshot(GpuSpanTime* out, unsigned int max)

@@ -14,6 +14,7 @@
 #include "GpuTimers.h"   // [DEV] BF2_GPU_TIMERS
 #include "UiLayer.h"     // [UI] docs/eon64/ui.md
 #include "ToolsCapture.h" // [TOOLS] docs/eon64/tools.md
+#include "ToolsBench.h"   // [TOOLS] docs/eon64/tools.md
 #include "../RendMisc/IRenderer.h"
 #include "../GeomMisc/Debug.h"
 #if defined(_WIN32)
@@ -253,6 +254,7 @@ bool rendererPresent(unsigned int mode)
     IDirect3DSwapChain9* chain = b->swapChains[b->currentSwapChain];   // +0xE4[+0xF0]
 
     uiLayerPresent(chain);   // [UI] the fork's UI, over the finished frame and after its screenshot
+    toolsBenchBeforePresent();   // [TOOLS] the benchmark's draw counts and Present wait
 
     HRESULT hr = chain->Present(0, 0, 0, 0, mode);
     while (hr)
@@ -290,7 +292,7 @@ bool rendererPresent(unsigned int mode)
     b->framePresented = 1;
     uiLayerPresented(); // [UI] the overlay's frame timing
     drawStatsFrame();   // [DEV] BF2_DRAW_STATS
-    gpuTimersFrame();   // [DEV] BF2_GPU_TIMERS
+    gpuTimersFrame(toolsBenchPresented());   // [DEV] BF2_GPU_TIMERS; [TOOLS] the benchmark's record
     return true;
 }
 

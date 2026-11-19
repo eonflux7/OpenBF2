@@ -17,6 +17,7 @@
 #include "../../RendDX9Abi/D3dx9Sdk.h"
 #include "RendDX9Base.h"
 #include "../RendMisc/IRendererTools.h"
+#include "ToolsBench.h"
 
 #include <cstdio>
 #include <string>
@@ -191,6 +192,25 @@ public:
     {
         message = g_request.message.c_str();
         return g_request.state;
+    }
+
+    // ToolsBench.cpp
+    virtual void toolsBenchStart() { dx9rend::toolsBenchStart(); }
+    virtual void toolsBenchTag(int tag) { dx9rend::toolsBenchTag(tag); }
+    virtual void toolsBenchStop() { dx9rend::toolsBenchStop(); }
+    virtual unsigned int toolsBenchFrameCount() const { return dx9rend::toolsBenchFrameCount(); }
+    virtual bool toolsBenchFrame(unsigned int index, ToolsBenchFrame& out) const
+    {
+        return dx9rend::toolsBenchFrame(index, out);
+    }
+    virtual unsigned int toolsBenchSpanCount() const { return dx9rend::toolsBenchSpanCount(); }
+    virtual const char* toolsBenchSpanName(unsigned int span) const
+    {
+        return dx9rend::toolsBenchSpanName(span);
+    }
+    virtual float toolsBenchSpanMs(unsigned int frame, unsigned int span) const
+    {
+        return dx9rend::toolsBenchSpanMs(frame, span);
     }
 };
 

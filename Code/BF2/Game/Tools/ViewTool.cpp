@@ -27,6 +27,11 @@
 // hands it back at the end; path.stop, view.go, view.leave and free fly end it early (free fly goes
 // on from where the path was).
 //
+// Benchmark (milestone 3): bench.run plays a path once to warm up and then the given number of
+// times back to back, uncapped and without vsync, while the renderer records every frame
+// (IRendererTools.h); a few frames after the last run, once the GPU times are in, it writes a CSV
+// and a summary. Anything that ends the path early stops the benchmark without files.
+//
 // Camera convention: BF2's camera-to-world matrix (rows right, up, forward, position; y up),
 // yaw and pitch in degrees as getRotationZXY reports them (pitch negative looking down), the FOV
 // vertical in degrees.
@@ -52,7 +57,9 @@
 #include "../../RendMisc/IRendererTools.h"
 #include "../../RendMisc/IRendererUi.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -72,6 +79,8 @@ bool uiWantsMouse();    // BF2Engine.cpp: the debug menu or the console window i
 bool g_viewToolActive = false;
 bool g_viewToolFlying = false;
 bool g_viewToolShooting = false;
+bool g_viewToolBenching = false;
+bool g_viewToolUncapped = false;
 
 namespace {
 
@@ -602,6 +611,8 @@ std::string pathList()
 
 std::string pathPlay(const std::string& name)
 {
+    if (g_viewToolBenching)
+        return "path.play: bench.run is running; bench.stop ends it";
     std::string error;
     if (!refreshViews(error))
         return "path.play: " + error;
@@ -703,6 +714,8 @@ void samplePath(float t, Camera& c)
         c.fov = out[5] < kMinFov ? kMinFov : out[5] > kMaxFov ? kMaxFov : out[5];
 }
 
+bool benchPathEnded();
+
 // One frame of a playing path; false when it has ended (the camera is handed back).
 bool pathStep(dx9rend::IRenderView* view)
 {
@@ -714,11 +727,16 @@ bool pathStep(dx9rend::IRenderView* view)
         if (g_play.fovFromGame)
             g_state.camera.fov = view->getFov() / kDegToRad;
     }
-    const float t = std::chrono::duration<float>(now - g_play.start).count();
+    float t = std::chrono::duration<float>(now - g_play.start).count();
     if (t >= g_play.keys.back().time)
     {
-        leave();
-        return false;
+        if (!benchPathEnded())
+        {
+            leave();
+            return false;
+        }
+        g_play.start = now;     // the benchmark's next pass starts with this frame
+        t = 0.0f;
     }
     samplePath(t, g_state.camera);
     return true;
@@ -902,6 +920,363 @@ void shotStep()
     else
         shotFinished("view.shot: failed: " + std::string(message ? message : ""));
     g_viewToolShooting = false;
+}
+
+// bench.run PATH [runs] [label] (milestone 3): one warm-up pass of the path, then `runs` passes
+// back to back, each frame tagged with its pass for the renderer's recorder (0 for the warm-up,
+// which is not recorded). Vsync is turned off and BF2Engine's frame limiter skipped for the
+// whole benchmark; both come back when it ends. After the last pass the camera goes back to the
+// game and the tool waits kBenchDrainFrames frames, still uncapped, for the last GPU times, then
+// writes <outputDir>\<map>\bench\<PATH>[-<label>]-<time>.csv and .txt.
+struct Bench
+{
+    enum Phase { Idle, Warmup, Running, Draining };
+    Phase       phase;
+    int         runs;
+    int         run;            // the pass being drawn, 1..runs
+    int         drainFrames;
+    std::string path;
+    std::string label;
+    std::string map;
+    std::string base;           // the output files without their extension
+    std::string savedVsync;
+    std::string last;           // the last benchmark's result, for bench.last
+};
+
+Bench g_bench = { Bench::Idle, 0, 0, 0, std::string(), std::string(), std::string(), std::string(),
+                  std::string(), std::string() };
+
+const int kBenchDrainFrames = 12;   // more than the GPU timers' slots in flight (GpuTimers.cpp)
+const int kBenchMaxRuns = 20;
+
+void benchRestore()
+{
+    if (dx9rend::IRendererTools* const tools = rendererTools())
+        tools->toolsBenchStop();
+    g_viewToolUncapped = false;
+    const std::string vsync = trimEnd(g_bench.savedVsync);
+    if (!vsync.empty())
+        runConsole("renderer.vsync " + vsync);
+    g_bench.phase = Bench::Idle;
+    g_viewToolBenching = false;
+}
+
+void benchFinished(const std::string& result)
+{
+    g_bench.last = result;
+    if (io::mainConsole)
+        io::mainConsole->output(result + "\n");
+}
+
+// Stops a benchmark before its files are written.
+void benchAbort(const std::string& why)
+{
+    if (g_bench.phase == Bench::Idle)
+        return;
+    benchRestore();
+    benchFinished("bench.run: stopped (" + why + "); no files written");
+}
+
+// pathStep at the end of a pass: true when the benchmark starts its next pass with this frame,
+// false when the path ends (the last pass, or no benchmark).
+bool benchPathEnded()
+{
+    dx9rend::IRendererTools* const tools = rendererTools();
+    if (!tools || (g_bench.phase != Bench::Warmup && g_bench.phase != Bench::Running))
+        return false;
+    if (g_bench.phase == Bench::Warmup || g_bench.run < g_bench.runs)
+    {
+        g_bench.run = g_bench.phase == Bench::Warmup ? 1 : g_bench.run + 1;
+        g_bench.phase = Bench::Running;
+        tools->toolsBenchTag(g_bench.run);
+        return true;
+    }
+    tools->toolsBenchTag(0);
+    g_bench.phase = Bench::Draining;
+    g_bench.drainFrames = 0;
+    return false;
+}
+
+// The frames of a selection, summarised.
+struct BenchStats
+{
+    unsigned int frames;
+    unsigned int gpuFrames;     // with GPU times
+    double avgMs, lowMs, worstMs;   // frame time: mean, mean of the slowest 1 %, worst
+    double cpuMs, waitMs, gpuMs;    // means: CPU busy (frame - Present wait), Present wait, GPU
+    double draws, primitives;
+    double gpuBound;            // share of the frames with GPU times that were GPU bound
+};
+
+BenchStats benchStats(const std::vector<dx9rend::ToolsBenchFrame>& frames, int tag)
+{
+    BenchStats st = {};
+    std::vector<float> times;
+    unsigned int bound = 0;
+    for (size_t i = 0; i < frames.size(); ++i)
+    {
+        const dx9rend::ToolsBenchFrame& f = frames[i];
+        if (tag != 0 && f.tag != tag)
+            continue;
+        const float cpu = (std::max)(0.0f, f.frameMs - f.presentWaitMs);
+        times.push_back(f.frameMs);
+        st.avgMs += f.frameMs;
+        st.cpuMs += cpu;
+        st.waitMs += f.presentWaitMs;
+        st.draws += f.draws;
+        st.primitives += f.primitives;
+        if (f.gpuMs >= 0.0f)
+        {
+            ++st.gpuFrames;
+            st.gpuMs += f.gpuMs;
+            if (f.gpuMs > cpu)
+                ++bound;
+        }
+    }
+    st.frames = static_cast<unsigned int>(times.size());
+    if (!st.frames)
+        return st;
+    st.avgMs /= st.frames;
+    st.cpuMs /= st.frames;
+    st.waitMs /= st.frames;
+    st.draws /= st.frames;
+    st.primitives /= st.frames;
+    if (st.gpuFrames)
+    {
+        st.gpuMs /= st.gpuFrames;
+        st.gpuBound = static_cast<double>(bound) / st.gpuFrames;
+    }
+    std::sort(times.begin(), times.end());
+    const size_t slow = (std::max<size_t>)(1, (times.size() + 99) / 100);
+    for (size_t i = times.size() - slow; i < times.size(); ++i)
+        st.lowMs += times[i];
+    st.lowMs /= slow;
+    st.worstMs = times.back();
+    return st;
+}
+
+std::string benchFormat(const char* format, ...)
+{
+    char text[512];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    return text;
+}
+
+std::string benchStatsRow(const char* name, const BenchStats& st)
+{
+    return benchFormat("%-6s %7u %8.2f %7.1f %8.2f %7.1f %8.2f %7.2f %7.2f %7.2f %7.0f %8.2f %5.0f %%\n",
+                       name, st.frames, st.avgMs, st.avgMs > 0.0 ? 1000.0 / st.avgMs : 0.0, st.lowMs,
+                       st.lowMs > 0.0 ? 1000.0 / st.lowMs : 0.0, st.worstMs, st.cpuMs, st.waitMs,
+                       st.gpuMs, st.draws, st.primitives / 1.0e6, st.gpuBound * 100.0);
+}
+
+// The spread of a value between the runs: (largest - smallest) / mean, in per cent.
+double benchSpread(const std::vector<double>& values)
+{
+    if (values.size() < 2)
+        return 0.0;
+    double sum = 0.0;
+    for (size_t i = 0; i < values.size(); ++i)
+        sum += values[i];
+    const double mean = sum / values.size();
+    const double range = *std::max_element(values.begin(), values.end())
+                       - *std::min_element(values.begin(), values.end());
+    return mean > 0.0 ? range / mean * 100.0 : 0.0;
+}
+
+// Writes the CSV and the summary; returns the console's one-line result.
+std::string benchWrite()
+{
+    dx9rend::IRendererTools* const tools = rendererTools();
+    std::vector<dx9rend::ToolsBenchFrame> frames(tools->toolsBenchFrameCount());
+    for (unsigned int i = 0; i < frames.size(); ++i)
+        tools->toolsBenchFrame(i, frames[i]);
+    if (frames.empty())
+        return "bench.run: failed: no frames were recorded";
+    const unsigned int spans = tools->toolsBenchSpanCount();
+
+    const std::string csvPath = g_bench.base + ".csv";
+    std::FILE* csv = std::fopen(csvPath.c_str(), "w");
+    if (!csv)
+        return "bench.run: failed: cannot write " + csvPath;
+    std::fprintf(csv, "run,frame,time_s,frame_ms,cpu_ms,present_wait_ms,gpu_ms,gpu_bound,draws,primitives");
+    for (unsigned int s = 0; s < spans; ++s)
+        std::fprintf(csv, ",gpu_%s", tools->toolsBenchSpanName(s));
+    std::fprintf(csv, "\n");
+    int run = 0;
+    unsigned int frame = 0;
+    double time = 0.0;
+    for (unsigned int i = 0; i < frames.size(); ++i)
+    {
+        const dx9rend::ToolsBenchFrame& f = frames[i];
+        if (f.tag != run)
+        {
+            run = f.tag;
+            frame = 0;
+            time = 0.0;
+        }
+        time += f.frameMs / 1000.0;
+        const float cpu = (std::max)(0.0f, f.frameMs - f.presentWaitMs);
+        std::fprintf(csv, "%d,%u,%.4f,%.3f,%.3f,%.3f,", f.tag, frame++, time, f.frameMs, cpu,
+                     f.presentWaitMs);
+        if (f.gpuMs >= 0.0f)
+            std::fprintf(csv, "%.3f,%d", f.gpuMs, f.gpuMs > cpu ? 1 : 0);
+        else
+            std::fprintf(csv, ",");
+        std::fprintf(csv, ",%u,%u", f.draws, f.primitives);
+        for (unsigned int s = 0; s < spans; ++s)
+        {
+            const float ms = tools->toolsBenchSpanMs(i, s);
+            if (ms >= 0.0f)
+                std::fprintf(csv, ",%.3f", ms);
+            else
+                std::fprintf(csv, ",");
+        }
+        std::fprintf(csv, "\n");
+    }
+    std::fclose(csv);
+
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    std::string text = benchFormat("bench %s%s%s on %s, %04u-%02u-%02u %02u:%02u:%02u\n",
+                                   g_bench.path.c_str(), g_bench.label.empty() ? "" : ", label ",
+                                   g_bench.label.c_str(), g_bench.map.c_str(), t.wYear, t.wMonth,
+                                   t.wDay, t.wHour, t.wMinute, t.wSecond);
+    text += benchFormat("path %.2f s, %d runs after a warm-up, no vsync or frame cap\n\n",
+                        g_play.keys.empty() ? 0.0f : g_play.keys.back().time, g_bench.runs);
+    text += "           frames  avg ms     fps 1%low ms     fps worst ms  cpu ms wait ms  gpu ms   draws  Mprims  gpu bound\n";
+    std::vector<double> averages, lows;
+    for (int r = 1; r <= g_bench.runs; ++r)
+    {
+        const BenchStats st = benchStats(frames, r);
+        averages.push_back(st.avgMs);
+        lows.push_back(st.lowMs);
+        text += benchStatsRow(benchFormat("run %d", r).c_str(), st);
+    }
+    const BenchStats all = benchStats(frames, 0);
+    text += benchStatsRow("all", all);
+    const double spreadAvg = benchSpread(averages);
+    const double spreadLow = benchSpread(lows);
+    text += benchFormat("\nspread between runs: %.2f %% average frame time, %.2f %% 1%% low\n",
+                        spreadAvg, spreadLow);
+    text += benchFormat("GPU times: %u of %u frames (the rest dropped)\n", all.gpuFrames, all.frames);
+    text += "\nGPU per pass, all runs (ms, mean over the frames it ran in):\n";
+    for (unsigned int s = 0; s < spans; ++s)
+    {
+        double sum = 0.0;
+        unsigned int count = 0;
+        for (unsigned int i = 0; i < frames.size(); ++i)
+        {
+            const float ms = tools->toolsBenchSpanMs(i, s);
+            if (ms >= 0.0f)
+            {
+                sum += ms;
+                ++count;
+            }
+        }
+        text += benchFormat("  %-24s %8.3f  (%u frames)\n", tools->toolsBenchSpanName(s),
+                            count ? sum / count : 0.0, count);
+    }
+    text += "\ncpu ms is the frame time less the time Present blocked; a frame is GPU bound when its\n"
+            "GPU time (the sum of its pass spans) is longer than its cpu ms.\n";
+
+    const std::string txtPath = g_bench.base + ".txt";
+    std::FILE* txt = std::fopen(txtPath.c_str(), "w");
+    if (!txt)
+        return "bench.run: failed: cannot write " + txtPath;
+    std::fputs(text.c_str(), txt);
+    std::fclose(txt);
+
+    return benchFormat("bench.run: wrote %s.csv and .txt: avg %.2f ms (%.1f fps), 1%% low %.2f ms, "
+                       "spread %.2f %% / %.2f %%, GPU bound %.0f %%",
+                       g_bench.base.c_str(), all.avgMs, all.avgMs > 0.0 ? 1000.0 / all.avgMs : 0.0,
+                       all.lowMs, spreadAvg, spreadLow, all.gpuBound * 100.0);
+}
+
+// Once per frame while bench.run runs, before the path's camera is set.
+void benchStep()
+{
+    if (g_bench.phase == Bench::Warmup || g_bench.phase == Bench::Running)
+    {
+        if (!g_play.playing)
+            benchAbort("the path was stopped");
+        return;
+    }
+    if (g_bench.phase != Bench::Draining || ++g_bench.drainFrames < kBenchDrainFrames)
+        return;
+    const std::string result = benchWrite();
+    benchRestore();
+    benchFinished(result);
+}
+
+std::string benchRun(const std::string& name, const std::string& runsText, const std::string& label)
+{
+    if (g_viewToolBenching)
+        return "bench.run: a benchmark is already running; bench.stop ends it";
+    if (!rendererTools())
+        return "bench.run: the renderer does not record benchmarks";
+    std::string map = game ? game->getCurrentMapName() : std::string();
+    if (map.empty())
+        return "bench.run: no map loaded";
+    for (size_t i = 0; i < map.size(); ++i)
+        map[i] = static_cast<char>(tolower(static_cast<unsigned char>(map[i])));
+    char* end = 0;
+    const long runs = runsText.empty() ? 3 : std::strtol(runsText.c_str(), &end, 10);
+    if ((!runsText.empty() && (!end || *end)) || runs < 1 || runs > kBenchMaxRuns)
+        return benchFormat("bench.run: runs is a whole number from 1 to %d", kBenchMaxRuns);
+    if (!label.empty() && !validShotName(label))
+        return "bench.run: a label has only letters, digits, '_', '-' and '.'";
+    if (!validShotName(name))
+        return "bench.run: no path " + name;
+    const std::string dir = outputDirectory() + "\\" + map + "\\bench";
+    if (!makeDirectories(dir))
+        return "bench.run: cannot create " + dir;
+
+    const std::string played = pathPlay(name);
+    if (!g_play.playing || g_play.name != name)
+        return "bench.run: " + played.substr(played.find(':') + 2);
+
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    g_bench.base = dir + "\\" + name + (label.empty() ? std::string() : "-" + label)
+                 + benchFormat("-%04u%02u%02u-%02u%02u%02u", t.wYear, t.wMonth, t.wDay, t.wHour,
+                               t.wMinute, t.wSecond);
+    g_bench.path = name;
+    g_bench.label = label;
+    g_bench.map = map;
+    g_bench.runs = static_cast<int>(runs);
+    g_bench.run = 0;
+    g_bench.savedVsync = runConsole("renderer.vsync");
+    runConsole("renderer.vsync 0");
+    g_viewToolUncapped = true;
+    rendererTools()->toolsBenchStart();
+    rendererTools()->toolsBenchTag(0);
+    g_bench.phase = Bench::Warmup;
+    g_viewToolBenching = true;
+    return benchFormat("bench.run: %s, a warm-up and %ld runs of %.2f s; results in %s.csv",
+                       name.c_str(), runs, g_play.keys.back().time, g_bench.base.c_str());
+}
+
+void benchStop()
+{
+    if (g_bench.phase == Bench::Idle)
+        return;
+    benchAbort("bench.stop");
+    pathStop();
+}
+
+std::string benchLast()
+{
+    if (g_viewToolBenching)
+        return g_bench.phase == Bench::Draining
+            ? std::string("running: writing")
+            : benchFormat("running: %s %d of %d", g_bench.phase == Bench::Warmup ? "warm-up, then run"
+                                                                                  : "run",
+                          g_bench.phase == Bench::Warmup ? 1 : g_bench.run, g_bench.runs);
+    return g_bench.last.empty() ? std::string("none") : g_bench.last;
 }
 
 // The Views tab's read-only window on the tool (IRendererUi.h).
@@ -1103,6 +1478,8 @@ void viewToolFrame(dx9rend::IRenderView* view)
 {
     if (g_viewToolShooting)
         shotStep();
+    if (g_viewToolBenching)
+        benchStep();
     if (!view || !g_viewToolActive)
         return;
     if (g_state.seedFromGame)
@@ -1175,6 +1552,13 @@ BF2_CONSOLE_METHOD_1_2_RET_ACTIVE(key, pathKey, std::string, true, std::string, 
 BF2_CONSOLE_METHOD_1_RET_ACTIVE(play, pathPlay, std::string, true, std::string, kViewToolConsoleTag)
 BF2_CONSOLE_METHOD_0_STATIC_ACTIVE(stop, pathStop, true, kViewToolConsoleTag)
 BF2_CONSOLE_METHOD_0_RET_ACTIVE(list, pathList, std::string, true, kViewToolConsoleTag)
+
+// bench.* commands
+BF2_CONSOLE_OBJECT("bench", 1, 0)
+BF2_CONSOLE_METHOD_1_3_RET_ACTIVE(run, benchRun, std::string, true, std::string, std::string,
+                                  std::string, std::string(), std::string(), kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_0_STATIC_ACTIVE(stop, benchStop, true, kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_0_RET_ACTIVE(last, benchLast, std::string, true, kViewToolConsoleTag)
 
 // tools.* variables
 BF2_CONSOLE_OBJECT("tools", 1, 0)

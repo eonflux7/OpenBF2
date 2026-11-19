@@ -14,11 +14,15 @@ inline bool gpuTimersOn() { return g_gpuTimersOn; }
 // Starts the span `name` (a string literal): the GPU time from here to the next mark, or to the
 // end of the frame, is booked to it. A name marked more than once in a frame adds up.
 void gpuTimerMark(const char* name);
-void gpuTimersFrame();     // after a successful Present: closes the frame, collects older ones
+// After a successful Present: closes the frame, collects older ones. benchFrame is the
+// benchmark record the frame belongs to (ToolsBench.h), or -1.
+void gpuTimersFrame(int benchFrame);
 void gpuTimersRelease();   // before the device is reset or released
 
 // [UI] The overlay's use: timers run while `live` is set, as well as under BF2_GPU_TIMERS.
 void gpuTimersSetLive(bool live);
+// [TOOLS] A benchmark's use (ToolsBench.cpp): timers run while it records.
+void gpuTimersSetBench(bool on);
 struct GpuSpanTime
 {
     const char* name;
