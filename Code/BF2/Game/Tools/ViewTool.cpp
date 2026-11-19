@@ -948,6 +948,15 @@ Bench g_bench = { Bench::Idle, 0, 0, 0, std::string(), std::string(), std::strin
 
 const int kBenchDrainFrames = 12;   // more than the GPU timers' slots in flight (GpuTimers.cpp)
 const int kBenchMaxRuns = 20;
+// A frame is GPU bound when Present blocked for at least this share of it: the driver holds
+// Present while the GPU is frames behind. GPU pass spans cannot decide it, since they include the
+// GPU's idle time while the CPU is the bottleneck (their sum is about the frame time either way).
+const float kBenchGpuBoundWait = 0.1f;
+
+bool benchGpuBound(const dx9rend::ToolsBenchFrame& f)
+{
+    return f.presentWaitMs >= kBenchGpuBoundWait * f.frameMs;
+}
 
 void benchRestore()
 {
@@ -1005,7 +1014,7 @@ struct BenchStats
     double avgMs, lowMs, worstMs;   // frame time: mean, mean of the slowest 1 %, worst
     double cpuMs, waitMs, gpuMs;    // means: CPU busy (frame - Present wait), Present wait, GPU
     double draws, primitives;
-    double gpuBound;            // share of the frames with GPU times that were GPU bound
+    double gpuBound;            // share of the frames that were GPU bound (benchGpuBound)
 };
 
 BenchStats benchStats(const std::vector<dx9rend::ToolsBenchFrame>& frames, int tag)
@@ -1025,12 +1034,12 @@ BenchStats benchStats(const std::vector<dx9rend::ToolsBenchFrame>& frames, int t
         st.waitMs += f.presentWaitMs;
         st.draws += f.draws;
         st.primitives += f.primitives;
+        if (benchGpuBound(f))
+            ++bound;
         if (f.gpuMs >= 0.0f)
         {
             ++st.gpuFrames;
             st.gpuMs += f.gpuMs;
-            if (f.gpuMs > cpu)
-                ++bound;
         }
     }
     st.frames = static_cast<unsigned int>(times.size());
@@ -1042,10 +1051,8 @@ BenchStats benchStats(const std::vector<dx9rend::ToolsBenchFrame>& frames, int t
     st.draws /= st.frames;
     st.primitives /= st.frames;
     if (st.gpuFrames)
-    {
         st.gpuMs /= st.gpuFrames;
-        st.gpuBound = static_cast<double>(bound) / st.gpuFrames;
-    }
+    st.gpuBound = static_cast<double>(bound) / st.frames;
     std::sort(times.begin(), times.end());
     const size_t slow = (std::max<size_t>)(1, (times.size() + 99) / 100);
     for (size_t i = times.size() - slow; i < times.size(); ++i)
@@ -1123,10 +1130,8 @@ std::string benchWrite()
         std::fprintf(csv, "%d,%u,%.4f,%.3f,%.3f,%.3f,", f.tag, frame++, time, f.frameMs, cpu,
                      f.presentWaitMs);
         if (f.gpuMs >= 0.0f)
-            std::fprintf(csv, "%.3f,%d", f.gpuMs, f.gpuMs > cpu ? 1 : 0);
-        else
-            std::fprintf(csv, ",");
-        std::fprintf(csv, ",%u,%u", f.draws, f.primitives);
+            std::fprintf(csv, "%.3f", f.gpuMs);
+        std::fprintf(csv, ",%d,%u,%u", benchGpuBound(f) ? 1 : 0, f.draws, f.primitives);
         for (unsigned int s = 0; s < spans; ++s)
         {
             const float ms = tools->toolsBenchSpanMs(i, s);
@@ -1180,8 +1185,9 @@ std::string benchWrite()
         text += benchFormat("  %-24s %8.3f  (%u frames)\n", tools->toolsBenchSpanName(s),
                             count ? sum / count : 0.0, count);
     }
-    text += "\ncpu ms is the frame time less the time Present blocked; a frame is GPU bound when its\n"
-            "GPU time (the sum of its pass spans) is longer than its cpu ms.\n";
+    text += "\ncpu ms is the frame time less the time Present blocked (wait ms). A frame is GPU bound\n"
+            "when Present blocked for 10 % of it or more. GPU times are spans between timestamps and\n"
+            "include the GPU's idle time when the CPU is the bottleneck.\n";
 
     const std::string txtPath = g_bench.base + ".txt";
     std::FILE* txt = std::fopen(txtPath.c_str(), "w");
