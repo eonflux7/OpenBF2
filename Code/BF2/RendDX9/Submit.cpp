@@ -314,15 +314,17 @@ struct SubmitProgram
     // The instance key (submitInstanceKeyHash), split once from used[0] at the first hash: the
     // plain holders of the object and lighting blocks, whose value bytes are read in place, and
     // the rest, captured through the sink. The global block is left out: it holds one value for
-    // every entry of a pass.
+    // every entry of a pass. The material block counts by its address (`keyMaterial`): a
+    // material's entries share its block, so equal addresses hold equal values.
     struct KeyRead { unsigned int block; unsigned int offset; unsigned int bytes; };
     std::vector<KeyRead> keyReads;
     std::vector<std::pair<unsigned int, UsedParameter> > keyCaptured;
     bool keyBuilt;
+    bool keyMaterial;
     bool keyReadsObject;   // a key read is in the object block (its layout checked per entry)
 
     SubmitProgram() : shader(0), effect(0), buildSerial(-1), key(0), valid(false), pass(0), vs(0),
-                      ps(0), instanced(false), keyBuilt(false), keyReadsObject(false)
+                      ps(0), instanced(false), keyBuilt(false), keyMaterial(false), keyReadsObject(false)
     {
         for (unsigned int n = 0; n < 2; ++n)
         {
@@ -1658,6 +1660,11 @@ void buildInstanceKey(SubmitProgram* program)
     {
         if (block == 2)
             continue;   // g_raShaderConstants: one value for the whole pass
+        if (block == 0)
+        {
+            program->keyMaterial = !program->used[0][0].empty();
+            continue;
+        }
         const std::vector<int>* const registry =
             block == 1 ? Ra::raObjectRegistry() : block == 3 ? Ra::raLightingRegistry() : 0;
         const std::vector<UsedParameter>& used = program->used[0][block];
@@ -1683,10 +1690,11 @@ void buildInstanceKey(SubmitProgram* program)
         }
     }
     if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
-        ::renddx9abi::logf("Submit: %s %s pass %u: instance key %u read in place, %u captured",
+        ::renddx9abi::logf("Submit: %s %s pass %u: instance key %u read in place, %u captured%s",
                            program->effectName.c_str(), program->techniqueName.c_str(),
                            program->pass, static_cast<unsigned int>(program->keyReads.size()),
-                           static_cast<unsigned int>(program->keyCaptured.size()));
+                           static_cast<unsigned int>(program->keyCaptured.size()),
+                           program->keyMaterial ? ", material block" : "");
 }
 
 } // namespace
@@ -1718,6 +1726,12 @@ std::uint64_t submitInstanceKeyHash(SubmitProgram* program, RenderQueueEntry* en
     }
     else
     {
+        if (program->keyMaterial)
+        {
+            const std::uint64_t bits = reinterpret_cast<std::uintptr_t>(entry->materialParameters);
+            mix(static_cast<std::uint32_t>(bits));
+            mix(static_cast<std::uint32_t>(bits >> 32));
+        }
         const std::vector<SubmitProgram::KeyRead>& reads = program->keyReads;
         for (size_t i = 0; i < reads.size(); ++i)
         {
