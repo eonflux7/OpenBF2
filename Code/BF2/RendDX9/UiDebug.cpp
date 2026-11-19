@@ -911,9 +911,17 @@ void drawViewsTab()
         - ImGui::GetStyle().ItemSpacing.x));
     ImGui::InputTextWithHint("##savenote", "note (optional)", g_viewSaveNote, sizeof(g_viewSaveNote));
     ImGui::SameLine();
+    // The name is one console argument: a space would make the rest the note and overwrite
+    // another view, so such a name is refused here with the reason.
     const std::string saveName = trim(g_viewSaveName);
-    ImGui::BeginDisabled(!active || saveName.empty());
-    if (ImGui::Button("Save current view"))
+    const bool badName = saveName.find_first_of(" \t|#=\"") != std::string::npos;
+    bool exists = false;
+    dx9rend::UiView existing;
+    for (int i = 0; i < t->uiViewCount() && !exists; ++i)
+        exists = t->uiViewAt(i, existing) && saveName == existing.name;
+    const std::string saveLabel = exists ? "Update " + saveName + "##save" : "Save current view##save";
+    ImGui::BeginDisabled(!active || saveName.empty() || badName);
+    if (ImGui::Button(saveLabel.c_str()))
     {
         runViewLine("view.save " + saveName
                     + (trim(g_viewSaveNote).empty() ? std::string() : " " + quoted(g_viewSaveNote)));
@@ -924,6 +932,9 @@ void drawViewsTab()
     ImGui::EndDisabled();
     ImGui::SetItemTooltip(active ? "view.save NAME [note]: the camera the tool holds"
                                  : "Needs a camera held by the tool: free fly (F8) or a view");
+    if (badName)
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+                           "A view name has no spaces, '|', '#', '=' or quotes (high_2, not high 2).");
     if (!g_viewResult.empty())
         ImGui::TextWrapped("%s", g_viewResult.c_str());
 
