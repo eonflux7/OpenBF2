@@ -253,6 +253,24 @@ most of each gain is task 5 and 6's; this task moves the remaining per-draw D3DX
 effects out of the frame.
 
 
+## Render milestone 9, task 8
+
+What instancing could leave, before it was built: `BF2_DRAW_STATS` at fixed views, engine
+`dev(stats)` commits of 2026-11-19, 1920x1080. "Depth runs" are the depth passes' draws after one
+draw per mesh; "groups" the draws left were every run of one effect, material and run length one
+instanced draw (clip-planed runs stay single). "Lit" is the static and overgrowth queue walks
+through programs, grouped by effect, technique and material: an upper bound, as instance
+lightmaps and point lights are not compared.
+
+| View | Prepass runs / groups | Cascades c0–c3 runs / groups | Lit draws / groups | Frame draws |
+|---|---|---|---|---|
+| Muttrah `high` | 1954 / 539 | 3865 / 994 | 2646 / 745 | 8831 |
+| Muttrah `market` | 2387 / 598 | 2202 / 841 | 3124 / 846 | 8068 |
+| Fallujah `city1` | 4059 / 688 | 8630 / 1377 | 4482 / 852 | 17515 |
+| Fallujah `city3` | 4782 / 667 | 7491 / 1243 | 5257 / 828 | 17886 |
+| Saaremaa `forest1` | 1512 / 266 | 1680 / 258 | 1654 / 321 | 4984 |
+| Saaremaa `runway` | 1268 / 277 | 1379 / 295 | 1385 / 324 | 4174 |
+
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
 after render milestone 9, which takes items 1 and 3.
 

@@ -172,7 +172,19 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks
    9.53 / 10.69 ms, Fallujah West `bench` 18.34 / 21.42 ms, Saaremaa `bench1` 6.71 / 7.09 ms
    (Saaremaa with package builds running on the host: 1 % low spread 105 % at 0)
    ([perf-frame.md](perf-frame.md#render-milestone-9-task-7)). Not yet seen by the owner.
-8. Instancing (stream frequency) for overgrowth and repeated static meshes.
+8. Instancing (stream frequency) for overgrowth and repeated static meshes. Measured first
+   (`BF2_DRAW_STATS` rows `depth runs`, `depth instance groups`, `lit draws`, `lit instance
+   groups`, an agent, 2026-11-19): Muttrah `high` depth passes 5819 draws to 1533 groups, lit
+   static walks 2646 to at most 745; Fallujah `city1` depth 12689 to 2065, lit 4482 to 852;
+   Saaremaa `forest1` depth 3192 to 524, lit 1654 to 321
+   ([perf-frame.md](perf-frame.md#render-milestone-9-task-8)). Design (an agent; shader contract
+   3): static meshes always draw through an instance stream (stream 1, one record per instance:
+   the world transform's three columns, the lightmap offset, the LOD dither), a group of one
+   included, so the prepass and the lit pass compute positions alike; the camera's
+   view-projection and the sun (world direction, colour) come from the engine as effect-wide
+   parameters in place of the per-instance `WorldViewProjection` and object-space `Lights`; every
+   other instance parameter a program reads must be equal across a group (the lightmap texture,
+   point lights, transparency). `renderer.instancing` (A/B) 0 draws each instance on its own.
 9. Contribution culling: below a projected size (`renderer.*` variable) an object is not drawn,
    faded out over the LOD dither band.
 10. Acceptance: the benchmark paths against the baselines above (re-taken at 1920x1080 on a quiet
