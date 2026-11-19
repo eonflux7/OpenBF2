@@ -11,6 +11,8 @@
 #include "Ra/RaShader.h"
 #include "Submit.h"
 
+#include <xmmintrin.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -1072,6 +1074,35 @@ bool submitEntry(SubmitProgram* program, RenderQueueEntry* entry)
             stateManagerSetRenderState(kStateRenderState[s],
                 s == kAlphaRef ? program->stateValues[s] : (program->stateValues[s] ? 1u : 0u));
     return stateManagerWantedRenderState(kZEnable) && stateManagerWantedRenderState(kZWriteEnable);
+}
+
+namespace {
+void prefetchLines(const void* p, unsigned int lines)
+{
+    const char* const bytes = static_cast<const char*>(p);
+    for (unsigned int i = 0; i < lines; ++i)
+        _mm_prefetch(bytes + 64 * i, _MM_HINT_T0);
+}
+} // namespace
+
+void submitPrefetchEntry(const RenderQueueEntry* entry)
+{
+    // The block pointers and the material at the start; objectParameters, shader and the LOD
+    // dither at the end.
+    prefetchLines(entry, 1);
+    prefetchLines(&entry->objectParameters, 1);
+    prefetchLines(&entry->lodDither[1], 1);
+}
+
+void submitPrefetchBlocks(const RenderQueueEntry* entry)
+{
+    // The object block's header and its first matrices (world, view-projection,
+    // world-view-projection: what the depth techniques read); the material block's header and
+    // first holders.
+    if (entry->objectParameters)
+        prefetchLines(entry->objectParameters, 4);
+    if (entry->materialParameters)
+        prefetchLines(entry->materialParameters, 2);
 }
 
 void submitReset()

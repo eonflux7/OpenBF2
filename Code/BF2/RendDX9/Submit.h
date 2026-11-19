@@ -48,6 +48,12 @@ bool submitHasParameter(SubmitProgram* program, const char* semantic);
 // whether the draw writes depth (with the depth test on), for the prepass's filter.
 bool submitEntry(SubmitProgram* program, RenderQueueEntry* entry);
 
+// Prefetches what a draw soon after reads, so the holders' reads do not stall: the entry's own
+// fields (`submitPrefetchEntry`, some entries ahead), then the parameter blocks it points to
+// (`submitPrefetchBlocks`, fewer ahead, once the entry is in cache).
+void submitPrefetchEntry(const RenderQueueEntry* entry);
+void submitPrefetchBlocks(const RenderQueueEntry* entry);
+
 // Drops every program (effects reset or reloaded).
 void submitReset();
 

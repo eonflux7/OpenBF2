@@ -2475,32 +2475,50 @@ namespace {
 // [RENDER] milestone 9: the depth passes' order. Near to far by distance band (powers of two in
 // metres), and within a band by effect and material, so a run of draws shares one program and its
 // streams instead of switching at almost every draw; early depth rejection still works band by
-// band. The depth the pass writes does not depend on the order.
-inline int depthBand(const RenderQueueEntry* e)
+// band. The depth the pass writes does not depend on the order. The key is read from each entry
+// once, so the sort compares flat records instead of following every entry to its object block's
+// distance at each comparison.
+struct DepthEntryKey
 {
-    const float d = entryCameraDistance(e);
-    if (!(d > 1.0f))
-        return 0;
-    int exponent = 0;
-    std::frexp(d, &exponent);
-    return exponent;
-}
+    int band;
+    float distance;
+    const void* shader;
+    const void* material;
+    RenderQueueEntry* entry;
 
-struct DepthEntryOrder
-{
-    bool operator()(RenderQueueEntry* a, RenderQueueEntry* b) const
+    bool operator<(const DepthEntryKey& o) const
     {
-        const int ba = depthBand(a);
-        const int bb = depthBand(b);
-        if (ba != bb)
-            return ba < bb;
-        if (a->shader != b->shader)
-            return a->shader < b->shader;
-        if (a->material != b->material)
-            return a->material < b->material;
-        return entryCameraDistance(a) < entryCameraDistance(b);
+        if (band != o.band)
+            return band < o.band;
+        if (shader != o.shader)
+            return shader < o.shader;
+        if (material != o.material)
+            return material < o.material;
+        return distance < o.distance;
     }
 };
+
+std::vector<DepthEntryKey> g_depthKeys;
+
+void sortDepthEntries(std::vector<RenderQueueEntry*>& list)
+{
+    g_depthKeys.resize(list.size());
+    for (size_t i = 0; i < list.size(); ++i)
+    {
+        RenderQueueEntry* const e = list[i];
+        DepthEntryKey& k = g_depthKeys[i];
+        k.distance = entryCameraDistance(e);
+        k.band = 0;
+        if (k.distance > 1.0f)
+            std::frexp(k.distance, &k.band);
+        k.shader = e->shader;
+        k.material = e->material;
+        k.entry = e;
+    }
+    std::sort(g_depthKeys.begin(), g_depthKeys.end());
+    for (size_t i = 0; i < list.size(); ++i)
+        list[i] = g_depthKeys[i].entry;
+}
 
 // [RENDER] milestone 9: drawDepthEntries through the submission layer (Submit.h), one program per
 // effect; renderer.submit 0 keeps the D3DX walk below.
@@ -2511,9 +2529,14 @@ void drawDepthEntriesSubmit(std::vector<RenderQueueEntry*>& list, unsigned int k
     Ra::RaShader* rejected = 0;
     void* lastMaterial = 0;
     bool streamsBound = false;
-    for (std::vector<RenderQueueEntry*>::iterator it = list.begin(); it != list.end(); ++it)
+    const size_t count = list.size();
+    for (size_t i = 0; i < count; ++i)
     {
-        RenderQueueEntry* const e = *it;
+        if (i + 8 < count)
+            submitPrefetchEntry(list[i + 8]);
+        if (i + 4 < count)
+            submitPrefetchBlocks(list[i + 4]);
+        RenderQueueEntry* const e = list[i];
         Ra::RaShader* const shader = e->shader;
         if (!shader || shader == rejected)
             continue;
@@ -2555,7 +2578,7 @@ void drawDepthEntriesSubmit(std::vector<RenderQueueEntry*>& list, unsigned int k
         submitEnd(active);
 }
 
-// Draws `list` with technique `key`, near bands first (DepthEntryOrder), without consuming the
+// Draws `list` with technique `key`, near bands first (DepthEntryKey), without consuming the
 // queues. A prepass (`prepass`) draws only entries that write the scene depth and records them, so
 // their lit pass tests EQUAL; otherwise each entry keeps its technique's own depth states (water:
 // test, no write).
@@ -2563,7 +2586,7 @@ void drawDepthEntries(std::vector<RenderQueueEntry*>& list, unsigned int key, bo
 {
     if (list.empty())
         return;
-    std::sort(list.begin(), list.end(), DepthEntryOrder());
+    sortDepthEntries(list);
     if (submitEnabled())
     {
         drawDepthEntriesSubmit(list, key, prepass);
@@ -2824,8 +2847,13 @@ void drawShadowCastersSubmit(unsigned int key, const float* viewProjection,
     Ra::RaShader* rejected = 0;
     void* lastMaterial = 0;
     bool streamsBound = false;
-    for (size_t i = 0; i < casters.size(); ++i)
+    const size_t count = casters.size();
+    for (size_t i = 0; i < count; ++i)
     {
+        if (i + 8 < count)
+            submitPrefetchEntry(casters[i + 8].entry);
+        if (i + 4 < count)
+            submitPrefetchBlocks(casters[i + 4].entry);
         if (!casterInCascade(casters[i], cull))
             continue;
         RenderQueueEntry* const e = casters[i].entry;
