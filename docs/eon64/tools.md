@@ -59,6 +59,13 @@ dynamic objects wait for soldier mode (milestone 6).
 **Free fly.** A key toggles a free camera: no collision, mouse look, adjustable speed, mouse wheel
 for FOV. This is how views are placed.
 
+As built (`Game/Tools/ViewTool.cpp`): `tools.flyKey` (Win32 virtual-key code, default 119, F8) or
+`view.fly 1` starts from the game's current camera. Free fly reads the player's own bindings:
+forward/back and strafe as on foot, lie up, crouch down, sprint 5x, alt-sprint 0.2x, next and
+previous item (mouse wheel) narrow and widen the FOV by 2 degrees. `tools.flySpeed` is metres per
+second (default 20). `view.fly 0` or `view.leave` hands the camera back and restores
+`renderer.drawHud`.
+
 **A view** is a name, position, yaw, pitch, FOV, and options:
 - `run` lines, executed on entering the view (debug mode, a forced cascade, a time of day). Before
   a line sets a console variable, the tool records the variable's value and restores it on leaving

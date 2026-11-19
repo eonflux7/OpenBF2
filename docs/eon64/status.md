@@ -7,7 +7,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 | Lane | Done | Next | Detail |
 |---|---|---|---|
 | `render` | Milestones 1–8 accepted | Milestone 9, draw submission, after `tools` milestones 1–3 | [renderer.md](renderer.md#roadmap) |
-| `tools` | Milestone 1 broken into tasks | Milestone 1, task 1: camera override | [tools.md](tools.md#milestones) |
+| `tools` | Milestone 1: tasks 1–2 built | Milestone 1: tasks 1–2 in game, then task 3 | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
 | `perf` (frame) | `/O2` plugins, `tailField` table | Parked until render milestone 9 | [perf-frame.md](perf-frame.md#plan) |
@@ -34,7 +34,7 @@ Found (2026-11-19):
 - Screenshot: `renderer.dumpScreen` reads the back buffer at end of scene, after the HUD and before
   ImGui.
 
-Tasks:
+Tasks (state: 1–2 built `0179ea64`, not yet seen in game):
 1. Camera override: `view.*` state in a `[TOOLS]` module, applied at the hook; HUD hidden through
    `renderer.drawHud` and restored on leaving; idle is one test.
 2. Free fly: `view.fly`, mouse look, speed, wheel FOV, no collision.
