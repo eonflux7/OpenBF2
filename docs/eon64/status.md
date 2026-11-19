@@ -193,9 +193,13 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks
    4984 to 4179. Same-session pairs, 1 against 0: Muttrah City `bench1` 8.94 / 10.45 ms,
    Fallujah West `bench` 15.99 / 19.08 ms, Saaremaa `bench1` 6.05 / 6.45 ms (task 7: 9.53,
    18.34, 6.71 ms) ([perf-frame.md](perf-frame.md#render-milestone-9-task-8)). Not yet seen by
-   the owner. Left: overgrowth's near trunks and leaves (`trunkog`, `leafog`: per-instance wind
-   and object-space sun) on the contract; the depth runs' sort and the instance hash (3.5 and
-   3.3 % of the main thread at Fallujah `city1`).
+   the owner. Then near trees (`leaf`, `trunkstmdetail`/`base`; the overgrowth patches `leafog`,
+   `trunkog` are ~100 draws and stay): Saaremaa `forest1` 4157 to 2132 draws (cascades 1583 to
+   298); shots match task 8's; separate launches, old shaders against new, Saaremaa `bench1`
+   6.50 / 5.96 ms, Fallujah West 16.48 / 16.30, Muttrah City 8.82 / 8.81 (prshaders `d6db632`,
+   [perf-frame.md](perf-frame.md#render-milestone-9-task-8)). Not yet seen by the owner. Left:
+   the depth runs' sort and the instance hash (3.5 and 3.3 % of the main thread at Fallujah
+   `city1`).
 9. Contribution culling: below a projected size (`renderer.*` variable) an object is not drawn,
    faded out over the LOD dither band.
 10. Acceptance: the benchmark paths against the baselines above (re-taken at 1920x1080 on a quiet

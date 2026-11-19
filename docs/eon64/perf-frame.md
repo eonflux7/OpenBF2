@@ -288,6 +288,21 @@ path; against task 7, 6 to 13 %. The grouping first cost about 15 % of the main 
 hash and records read in place, the submission layer is 13.5 % of it, the instance hash 3.3 % and
 the depth runs' sort about 3.5 % (`runs/perf/t8b-city1-i1`).
 
+Near trees after it (`leaf`, `trunkstmdetail` and `base` instanced, prshaders `d6db632`): at
+Saaremaa `forest1` they were about 2700 of 4157 draws (`leaf` 530 prepass, 530 lit, 867 in the
+cascades; `trunkstmdetail` 228, 228, 477). After: 2132 draws (prepass 829, lit and other 1005,
+cascades 298); `leaf` keeps 301 groups in the prepass and the lit pass, one per tree template's
+LOD material. Shots against task 8's: Saaremaa `forest1` 224, Muttrah `high` 23, `market` 133
+pixels of 2.07 M (3 % fuzz); Fallujah `city1` 5057, `city3` 32517, all on smoke. Shader files
+swapped in a running game do not reload (no `.cfx` written), so the pairs are separate launches,
+3 runs each:
+
+| Path | Old shaders | New |
+|---|---|---|
+| Saaremaa `bench1` | 6.50 ms, 1 % low 9.82 | 5.96 ms, 9.35 |
+| Fallujah West `bench` | 16.48 ms, 21.09 | 16.30 ms, 20.86 |
+| Muttrah City `bench1` | 8.82 ms, 12.11 | 8.81 ms, 12.47 |
+
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
 after render milestone 9, which takes items 1 and 3.
 
