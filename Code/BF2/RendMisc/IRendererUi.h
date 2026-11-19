@@ -13,6 +13,45 @@ namespace dx9rend {
 // Fork-owned interface id; outside the ranges retail's Ids.h uses.
 const unsigned int IID_IRendererUi = 0xE6400001u;
 
+// [TOOLS] The view tool's views as the Views tab shows them (docs/eon64/tools.md#1-views). Read
+// only: the tab changes views through view.* console lines, as typed. Strings stay valid until the
+// next uiViewsRefresh.
+struct UiView
+{
+    const char* name;
+    const char* note;       // empty when none
+    float x, y, z;          // world metres, y up
+    float yaw, pitch;       // degrees
+    float fov;              // vertical degrees; valid when hasFov
+    bool  hasFov;
+    int   runCount;
+};
+
+class IUiViewTool
+{
+public:
+    // Rereads the loaded map's view file when it changed on disk (checked at most twice a second).
+    virtual void uiViewsRefresh() = 0;
+    virtual const char* uiViewsPath() const = 0;      // empty while no map is loaded
+    virtual bool uiViewsFileExists() const = 0;
+    virtual int uiViewCount() const = 0;
+    virtual bool uiViewAt(int index, UiView& view) const = 0;
+    // A run line of the view; undone is false for a command (not restored on leaving).
+    virtual const char* uiViewRun(int view, int run, bool& undone) const = 0;
+    virtual int uiSetCount() const = 0;
+    virtual const char* uiSetName(int set) const = 0;
+    virtual int uiSetViewCount(int set) const = 0;
+    virtual const char* uiSetView(int set, int index) const = 0;
+    virtual int uiViewProblemCount() const = 0;
+    virtual const char* uiViewProblem(int index) const = 0;
+    virtual bool uiViewActive() const = 0;            // the tool holds the camera
+    virtual bool uiViewFlying() const = 0;
+    virtual const char* uiHeldView() const = 0;       // the view held, empty when none
+
+protected:
+    ~IUiViewTool() {}
+};
+
 // What the game image tells the UI. Strings stay valid until the next call.
 class IUiHost
 {
@@ -20,6 +59,7 @@ public:
     virtual const char* uiModDirectory() const = 0;   // GSModDirectory, for example "mods/pr"
     virtual const char* uiMapName() const = 0;        // empty while no level is loaded
     virtual const char* uiGameMode() const = 0;
+    virtual IUiViewTool* uiViewTool() = 0;            // [TOOLS] the view tool
 
 protected:
     ~IUiHost() {}

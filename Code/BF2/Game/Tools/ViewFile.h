@@ -67,6 +67,15 @@ public:
     // Removes the view and its run lines, and the view from every set; a set left empty is
     // removed. Returns false when there is no such view.
     bool deleteView(const std::string& name);
+    // Swaps the view's lines (its view line through its last run line) with those of the view
+    // before it (delta < 0) or after it (delta > 0); lines between the two stay in place. Returns
+    // false when there is no such view or no neighbour on that side.
+    bool moveView(const std::string& name, int delta);
+    // Replaces the view's note; an empty note removes it. False when there is no such view.
+    bool setNote(const std::string& name, const std::string& note);
+    // Replaces the set's views, or adds the set after the last one (at the end when there is
+    // none); no views removes the set.
+    void setSet(const std::string& name, const std::vector<std::string>& views);
 
     // A valid name: no whitespace, '|' or '#', not empty.
     static bool validName(const std::string& name);

@@ -2,6 +2,7 @@
 //
 // Menu (the menu key), in tabs:
 //   Commands  the mod's command file as buttons, grouped by section, with fields for arguments.
+//   Views     [TOOLS] the map's views and sets (docs/eon64/tools.md#1-views), through view.* lines.
 //   Shadows   the sun shadow variables.   Renderer  every other renderer.* variable, filtered.
 //   Settings  the overlay, the console height, the menu key, the files.
 // Variable widgets are generated from the console registry (range from the registry, help from
@@ -672,6 +673,317 @@ void drawRendererTab()
     ImGui::EndChild();
 }
 
+// Views ---------------------------------------------------------------------------------------
+// [TOOLS] The view tool's views (docs/eon64/tools.md#1-views), read through IUiViewTool. Every
+// change is a view.* console line; its result shows under the buttons.
+
+std::string g_viewSelected;        // view name
+std::string g_viewResult;          // the last line's result
+std::string g_viewNoteFor;         // the view the note field was filled from
+std::string g_viewEditingSet;      // the set whose field is being typed in
+std::string g_viewDeleteArmed;     // the view whose Delete was pressed once
+char g_viewSaveName[64] = "";
+char g_viewSaveNote[128] = "";
+char g_viewNote[128] = "";
+char g_viewSetText[256] = "";
+char g_viewNewSet[64] = "";
+
+// A note as one console argument: quoted, without quotes of its own.
+std::string quoted(const char* text)
+{
+    std::string out;
+    for (const char* c = text; *c; ++c)
+        if (*c != '"')
+            out += *c;
+    return "\"" + trim(out) + "\"";
+}
+
+void runViewLine(const std::string& line)
+{
+    io::Console* const c = console();
+    if (!c)
+        return;
+    std::string out;
+    c->executeLine(line, out, false, true, false, false, false);
+    g_viewResult = trim(out);
+    if (g_viewResult.empty())
+        g_viewResult = line;
+}
+
+std::string setLine(dx9rend::IUiViewTool* t, int set, const std::string& add, const std::string& drop)
+{
+    std::string views;
+    for (int v = 0; v < t->uiSetViewCount(set); ++v)
+    {
+        const std::string name = t->uiSetView(set, v);
+        if (name != drop)
+            views += (views.empty() ? "" : " ") + name;
+    }
+    if (!add.empty())
+        views += (views.empty() ? "" : " ") + add;
+    return std::string("view.set ") + t->uiSetName(set) + " \"" + views + "\"";
+}
+
+void drawViewDetails(dx9rend::IUiViewTool* t, int index, const dx9rend::UiView& v, bool active)
+{
+    ImGui::SeparatorText(v.name);
+    const bool held = std::strcmp(t->uiHeldView(), v.name) == 0;
+    if (ImGui::Button("Go"))
+        runViewLine(std::string("view.go ") + v.name);
+    ImGui::SetItemTooltip("view.go %s (or double-click the row)", v.name);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!active);
+    if (ImGui::Button("Update"))
+        runViewLine(std::string("view.save ") + v.name);
+    ImGui::SetItemTooltip(active ? "view.save %s: the camera the tool holds now replaces the view's"
+                                 : "Needs a camera held by the tool: free fly (F8) or a view", v.name);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(index == 0);
+    if (ImGui::ArrowButton("##up", ImGuiDir_Up))
+        runViewLine(std::string("view.move ") + v.name + " up");
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("view.move %s up", v.name);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(index + 1 >= t->uiViewCount());
+    if (ImGui::ArrowButton("##down", ImGuiDir_Down))
+        runViewLine(std::string("view.move ") + v.name + " down");
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("view.move %s down", v.name);
+    ImGui::SameLine();
+    if (g_viewDeleteArmed == v.name)
+    {
+        if (ImGui::Button("Confirm delete"))
+        {
+            runViewLine(std::string("view.delete ") + v.name);
+            g_viewDeleteArmed.clear();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+            g_viewDeleteArmed.clear();
+    }
+    else if (ImGui::Button("Delete"))
+    {
+        g_viewDeleteArmed = v.name;
+    }
+    ImGui::SetItemTooltip("view.delete %s: also drops it from every set", v.name);
+
+    char fov[32] = "game's";
+    if (v.hasFov)
+        std::snprintf(fov, sizeof(fov), "%.1f", v.fov);
+    ImGui::TextDisabled("pos %.2f, %.2f, %.2f   yaw %.2f   pitch %.2f   fov %s%s", v.x, v.y, v.z, v.yaw,
+                        v.pitch, fov, held ? "   (held)" : "");
+
+    if (g_viewNoteFor != v.name)
+    {
+        g_viewNoteFor = v.name;
+        std::snprintf(g_viewNote, sizeof(g_viewNote), "%s", v.note);
+    }
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::InputTextWithHint("##note", "note (Enter saves)", g_viewNote, sizeof(g_viewNote),
+                                 ImGuiInputTextFlags_EnterReturnsTrue))
+    {
+        const std::string note = trim(g_viewNote);
+        runViewLine(std::string("view.note ") + v.name + (note.empty() ? "" : " " + quoted(g_viewNote)));
+        g_viewNoteFor.clear();
+    }
+    ImGui::SetItemTooltip("view.note %s \"text\"; empty removes the note", v.name);
+
+    for (int r = 0; r < v.runCount; ++r)
+    {
+        bool undone = false;
+        const char* const line = t->uiViewRun(index, r, undone);
+        ImGui::BulletText("run %s", line);
+        if (!undone)
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(command, not undone)");
+        }
+    }
+    if (v.runCount == 0)
+        ImGui::TextDisabled("No run lines; add them by hand under the view's line in the file.");
+}
+
+void drawViewSets(dx9rend::IUiViewTool* t)
+{
+    ImGui::SeparatorText("Sets");
+    const bool selected = !g_viewSelected.empty();
+    for (int s = 0; s < t->uiSetCount(); ++s)
+    {
+        const std::string name = t->uiSetName(s);
+        ImGui::PushID(s);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(name.c_str());
+        ImGui::SameLine(110.0f * uiScale());
+        // The field being typed in keeps its own text; the others show the file's.
+        char shown[sizeof(g_viewSetText)];
+        std::string views;
+        for (int v = 0; v < t->uiSetViewCount(s); ++v)
+            views += (v ? " " : "") + std::string(t->uiSetView(s, v));
+        std::snprintf(shown, sizeof(shown), "%s", views.c_str());
+        const bool editing = g_viewEditingSet == name;
+        char* const text = editing ? g_viewSetText : shown;
+        const float buttons = ImGui::CalcTextSize("+ selected- selectedRemove").x
+            + ImGui::GetStyle().FramePadding.x * 6.0f + ImGui::GetStyle().ItemSpacing.x * 3.0f;
+        ImGui::SetNextItemWidth(std::max(80.0f * uiScale(), ImGui::GetContentRegionAvail().x - buttons));
+        if (ImGui::InputText("##views", text, sizeof(g_viewSetText), ImGuiInputTextFlags_EnterReturnsTrue))
+            runViewLine("view.set " + name + " \"" + trim(text) + "\"");
+        if (ImGui::IsItemActivated())
+        {
+            g_viewEditingSet = name;
+            std::snprintf(g_viewSetText, sizeof(g_viewSetText), "%s", text);
+        }
+        if (ImGui::IsItemDeactivated() && g_viewEditingSet == name)
+            g_viewEditingSet.clear();
+        ImGui::SetItemTooltip("The views in order, separated by spaces; Enter saves (view.set %s \"...\")",
+                              name.c_str());
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!selected);
+        if (ImGui::Button("+ selected"))
+            runViewLine(setLine(t, s, g_viewSelected, std::string()));
+        ImGui::SameLine();
+        if (ImGui::Button("- selected"))
+            runViewLine(setLine(t, s, std::string(), g_viewSelected));
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Remove"))
+            runViewLine("view.set " + name);
+        ImGui::SetItemTooltip("view.set %s: removes the set, not its views", name.c_str());
+        ImGui::PopID();
+    }
+    ImGui::SetNextItemWidth(160.0f * uiScale());
+    ImGui::InputTextWithHint("##newset", "new set name", g_viewNewSet, sizeof(g_viewNewSet));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!selected || trim(g_viewNewSet).empty());
+    if (ImGui::Button("Add set with the selected view"))
+        runViewLine("view.set " + trim(g_viewNewSet) + " " + g_viewSelected);
+    ImGui::EndDisabled();
+}
+
+void drawViewsTab()
+{
+    dx9rend::IUiViewTool* const t = g_host ? g_host->uiViewTool() : 0;
+    if (!t)
+    {
+        ImGui::TextDisabled("The view tool is not available.");
+        return;
+    }
+    t->uiViewsRefresh();
+    const char* const path = t->uiViewsPath();
+    if (!*path)
+    {
+        ImGui::TextDisabled("No map loaded: views belong to a map.");
+        return;
+    }
+    const bool active = t->uiViewActive();
+
+    // The camera: who holds it, free fly, leave, reload.
+    ImGui::AlignTextToFramePadding();
+    if (!active)
+        ImGui::TextUnformatted("Game camera");
+    else if (*t->uiHeldView())
+        ImGui::Text("View %s%s", t->uiHeldView(), t->uiViewFlying() ? ", free fly" : "");
+    else
+        ImGui::TextUnformatted("Free fly");
+    ImGui::SameLine();
+    bool fly = t->uiViewFlying();
+    if (ImGui::Checkbox("Free fly", &fly))
+        runViewLine(fly ? "view.fly 1" : "view.fly 0");
+    ImGui::SetItemTooltip("view.fly (tools.flyKey, F8): flies once the menu closes");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!active);
+    if (ImGui::Button("Leave"))
+        runViewLine("view.leave");
+    ImGui::SetItemTooltip("view.leave: hands the camera back and restores the view's variables");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Reload"))
+        runViewLine("view.reload");
+    ImGui::SetItemTooltip("view.reload: rereads %s", path);
+    ImGui::TextDisabled("%s%s", path, t->uiViewsFileExists() ? "" : " (no file yet)");
+
+    // Save the camera the tool holds as a new view, or over one of the same name.
+    ImGui::SetNextItemWidth(140.0f * uiScale());
+    ImGui::InputTextWithHint("##savename", "name", g_viewSaveName, sizeof(g_viewSaveName));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(std::max(80.0f * uiScale(), ImGui::GetContentRegionAvail().x
+        - ImGui::CalcTextSize("Save current view").x - ImGui::GetStyle().FramePadding.x * 2.0f
+        - ImGui::GetStyle().ItemSpacing.x));
+    ImGui::InputTextWithHint("##savenote", "note (optional)", g_viewSaveNote, sizeof(g_viewSaveNote));
+    ImGui::SameLine();
+    const std::string saveName = trim(g_viewSaveName);
+    ImGui::BeginDisabled(!active || saveName.empty());
+    if (ImGui::Button("Save current view"))
+    {
+        runViewLine("view.save " + saveName
+                    + (trim(g_viewSaveNote).empty() ? std::string() : " " + quoted(g_viewSaveNote)));
+        g_viewSelected = saveName;
+        g_viewSaveName[0] = '\0';
+        g_viewSaveNote[0] = '\0';
+    }
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip(active ? "view.save NAME [note]: the camera the tool holds"
+                                 : "Needs a camera held by the tool: free fly (F8) or a view");
+    if (!g_viewResult.empty())
+        ImGui::TextWrapped("%s", g_viewResult.c_str());
+
+    if (!ImGui::BeginChild("##views", ImVec2(0.0f, 0.0f)))
+    {
+        ImGui::EndChild();
+        return;
+    }
+    ImGui::SeparatorText("Views");
+    int selected = -1;
+    dx9rend::UiView v;
+    const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV;
+    if (t->uiViewCount() == 0)
+        ImGui::TextDisabled("No views yet: fly with F8, close the menu, then Save current view.");
+    else if (ImGui::BeginTable("##viewlist", 2, flags))
+    {
+        ImGui::TableSetupColumn("view", ImGuiTableColumnFlags_WidthFixed, 160.0f * uiScale());
+        ImGui::TableSetupColumn("note", ImGuiTableColumnFlags_WidthStretch);
+        for (int i = 0; i < t->uiViewCount(); ++i)
+        {
+            if (!t->uiViewAt(i, v))
+                continue;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushID(i);
+            const bool held = std::strcmp(t->uiHeldView(), v.name) == 0;
+            const std::string label = std::string(held ? "* " : "  ") + v.name;
+            if (ImGui::Selectable(label.c_str(), g_viewSelected == v.name,
+                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick))
+            {
+                g_viewSelected = v.name;
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    runViewLine(std::string("view.go ") + v.name);
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(v.note);
+            ImGui::PopID();
+            if (g_viewSelected == v.name)
+                selected = i;
+        }
+        ImGui::EndTable();
+    }
+    if (selected < 0)
+        g_viewSelected.clear();
+    if (selected >= 0 && t->uiViewAt(selected, v))
+    {
+        ImGui::PushID("selected");
+        drawViewDetails(t, selected, v, active);
+        ImGui::PopID();
+    }
+    drawViewSets(t);
+    if (t->uiViewProblemCount() > 0)
+    {
+        ImGui::SeparatorText("Lines not understood");
+        for (int i = 0; i < t->uiViewProblemCount(); ++i)
+            ImGui::TextDisabled("%s", t->uiViewProblem(i));
+    }
+    ImGui::EndChild();
+}
+
 std::string keyName(int vk)
 {
     char name[64] = "";
@@ -957,6 +1269,11 @@ void uiDebugDrawMenu()
         if (ImGui::BeginTabItem("Commands"))
         {
             drawCommandsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Views"))
+        {
+            drawViewsTab();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Shadows"))

@@ -41,6 +41,7 @@
 #include "../../IO/Input/PlayerInput.h"
 #include "../../Math/Mat4.h"
 #include "../../RendMisc/IRenderView.h"
+#include "../../RendMisc/IRendererUi.h"
 
 #include <chrono>
 #include <cstring>
@@ -426,6 +427,163 @@ std::string viewReload()
     return out.str() + problemsText();
 }
 
+// Writes the file after an edit; "" when it was written, else the reason.
+std::string writeViews()
+{
+    std::string error;
+    return g_views.write(error) ? std::string() : error;
+}
+
+// Moves view NAME one place up (-1, "up") or down (1, "down") in the file, and so in the list.
+std::string viewMove(const std::string& name, const std::string& direction)
+{
+    const int delta = direction == "up" || direction == "-1" ? -1
+                    : direction == "down" || direction == "1" ? 1 : 0;
+    if (delta == 0)
+        return "view.move: direction is up or down";
+    std::string error;
+    if (!refreshViews(error))
+        return "view.move: " + error;
+    if (!g_views.find(name))
+        return "view.move: no view " + name + " in " + g_views.path();
+    if (!g_views.moveView(name, delta))
+        return "view.move: " + name + " is already " + (delta < 0 ? "first" : "last");
+    error = writeViews();
+    return error.empty() ? "moved view " + name + " " + (delta < 0 ? "up" : "down")
+                         : "view.move: " + error;
+}
+
+// Replaces view NAME's note; no note removes it.
+std::string viewNote(const std::string& name, const std::string& note = std::string())
+{
+    std::string error;
+    if (!refreshViews(error))
+        return "view.note: " + error;
+    if (!g_views.setNote(name, note))
+        return "view.note: no view " + name + " in " + g_views.path();
+    error = writeViews();
+    return error.empty() ? (note.empty() ? "removed the note of " : "set the note of ") + name
+                         : "view.note: " + error;
+}
+
+// Set NAME becomes the views listed (one argument, quoted when there are several); no views
+// removes the set.
+std::string viewSet(const std::string& name, const std::string& list = std::string())
+{
+    if (!ViewFile::validName(name))
+        return "view.set: a name has no spaces, '|', '#' or '='";
+    std::string error;
+    if (!refreshViews(error))
+        return "view.set: " + error;
+    std::vector<std::string> views;
+    std::istringstream in(list);
+    std::string view;
+    while (in >> view)
+    {
+        if (!g_views.find(view))
+            return "view.set: no view " + view + " in " + g_views.path();
+        views.push_back(view);
+    }
+    bool existed = false;
+    for (size_t i = 0; i < g_views.sets().size(); ++i)
+        existed = existed || g_views.sets()[i].name == name;
+    if (views.empty() && !existed)
+        return "view.set: no set " + name;
+    g_views.setSet(name, views);
+    CreateDirectoryA(g_views.path().substr(0, g_views.path().find_last_of('/')).c_str(), 0);
+    error = writeViews();
+    if (!error.empty())
+        return "view.set: " + error;
+    return (views.empty() ? "removed set " : existed ? "updated set " : "added set ") + name;
+}
+
+// The Views tab's read-only window on the tool (IRendererUi.h).
+class UiViewTool : public dx9rend::IUiViewTool
+{
+public:
+    UiViewTool() : m_haveCheck(false) { }
+
+    virtual void uiViewsRefresh()
+    {
+        const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+        if (m_haveCheck && now - m_lastCheck < std::chrono::milliseconds(500))
+            return;
+        m_haveCheck = true;
+        m_lastCheck = now;
+        std::string error;
+        m_path = refreshViews(error) ? g_views.path() : std::string();
+    }
+    virtual const char* uiViewsPath() const { return m_path.c_str(); }
+    virtual bool uiViewsFileExists() const { return !m_path.empty() && g_views.exists(); }
+    virtual int uiViewCount() const
+    {
+        return m_path.empty() ? 0 : static_cast<int>(g_views.views().size());
+    }
+    virtual bool uiViewAt(int index, dx9rend::UiView& out) const
+    {
+        if (index < 0 || index >= uiViewCount())
+            return false;
+        const ViewDef& v = g_views.views()[index];
+        out.name = v.name.c_str();
+        out.note = v.note.c_str();
+        out.x = v.x;
+        out.y = v.y;
+        out.z = v.z;
+        out.yaw = v.yaw;
+        out.pitch = v.pitch;
+        out.fov = v.fov;
+        out.hasFov = v.hasFov;
+        out.runCount = static_cast<int>(v.runs.size());
+        return true;
+    }
+    virtual const char* uiViewRun(int view, int run, bool& undone) const
+    {
+        undone = false;
+        if (view < 0 || view >= uiViewCount() || run < 0
+            || run >= static_cast<int>(g_views.views()[view].runs.size()))
+            return "";
+        const std::string& line = g_views.views()[view].runs[run];
+        undone = !variableSetBy(line).empty();
+        return line.c_str();
+    }
+    virtual int uiSetCount() const
+    {
+        return m_path.empty() ? 0 : static_cast<int>(g_views.sets().size());
+    }
+    virtual const char* uiSetName(int set) const
+    {
+        return set >= 0 && set < uiSetCount() ? g_views.sets()[set].name.c_str() : "";
+    }
+    virtual int uiSetViewCount(int set) const
+    {
+        return set >= 0 && set < uiSetCount() ? static_cast<int>(g_views.sets()[set].views.size())
+                                              : 0;
+    }
+    virtual const char* uiSetView(int set, int index) const
+    {
+        return index >= 0 && index < uiSetViewCount(set) ? g_views.sets()[set].views[index].c_str()
+                                                         : "";
+    }
+    virtual int uiViewProblemCount() const
+    {
+        return m_path.empty() ? 0 : static_cast<int>(g_views.problems().size());
+    }
+    virtual const char* uiViewProblem(int index) const
+    {
+        return index >= 0 && index < uiViewProblemCount() ? g_views.problems()[index].c_str() : "";
+    }
+    virtual bool uiViewActive() const { return g_viewToolActive; }
+    virtual bool uiViewFlying() const { return g_state.fly; }
+    virtual const char* uiHeldView() const { return g_state.view.c_str(); }
+
+private:
+    std::string m_path;
+    bool m_haveCheck;
+    std::chrono::steady_clock::time_point m_lastCheck;
+};
+
+UiViewTool g_uiViewTool;
+
 inline bool keyDown(int virtualKey)
 {
     return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
@@ -553,6 +711,12 @@ BF2_CONSOLE_METHOD_1_2_RET_ACTIVE(save, viewSave, std::string, true, std::string
                                   kViewToolConsoleTag)
 BF2_CONSOLE_METHOD_1_RET_ACTIVE(delete, viewDelete, std::string, true, std::string,
                                 kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_2_RET_ACTIVE(move, viewMove, std::string, true, std::string, std::string,
+                                kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_1_2_RET_ACTIVE(note, viewNote, std::string, true, std::string, std::string,
+                                  kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_1_2_RET_ACTIVE(set, viewSet, std::string, true, std::string, std::string,
+                                  kViewToolConsoleTag)
 BF2_CONSOLE_METHOD_0_RET_ACTIVE(list, viewList, std::string, true, kViewToolConsoleTag)
 BF2_CONSOLE_METHOD_0_RET_ACTIVE(reload, viewReload, std::string, true, kViewToolConsoleTag)
 
@@ -561,6 +725,11 @@ BF2_CONSOLE_OBJECT("tools", 1, 0)
 BF2_CONSOLE_PROPERTY_FN(flySpeed, float, true, g_flySpeed, g_flySpeed =, kViewToolConsoleTag)
 BF2_CONSOLE_PROPERTY_FN(flyMouse, float, true, g_flyMouse, g_flyMouse =, kViewToolConsoleTag)
 BF2_CONSOLE_PROPERTY_FN(flyKey, int, true, g_flyKey, g_flyKey =, kViewToolConsoleTag)
+
+dx9rend::IUiViewTool* viewToolUi()
+{
+    return &g_uiViewTool;
+}
 
 std::list<ConsoleObject*>& viewToolConsoleObjects()
 {

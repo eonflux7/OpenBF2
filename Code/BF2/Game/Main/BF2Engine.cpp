@@ -2806,6 +2806,7 @@ public:
     }
     virtual const char* uiMapName() const { return game ? game->getCurrentMapName().c_str() : ""; }
     virtual const char* uiGameMode() const { return game ? game->getCurrentMapGameMode().c_str() : ""; }
+    virtual dx9rend::IUiViewTool* uiViewTool() { return viewToolUi(); }   // [TOOLS]
 
 private:
     mutable std::string m_modDirectory;

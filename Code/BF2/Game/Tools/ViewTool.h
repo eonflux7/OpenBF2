@@ -13,7 +13,7 @@ namespace hfe {
 
 class ConsoleObject;
 namespace io { class PlayerInput; }
-namespace dx9rend { class IRenderView; }
+namespace dx9rend { class IRenderView; class IUiViewTool; }
 
 // True while the tool owns the render camera (free fly, or later a view).
 extern bool g_viewToolActive;
@@ -32,6 +32,9 @@ bool viewToolFilterPlayerInput(io::PlayerInput& input);
 void viewToolKeyDown(unsigned int virtualKey);
 // The window's WM_MOUSEWHEEL delta: the FOV during free fly.
 void viewToolMouseWheel(int delta);
+
+// The views as the debug menu's Views tab reads them (IRendererUi.h).
+dx9rend::IUiViewTool* viewToolUi();
 
 std::list<ConsoleObject*>& viewToolConsoleObjects();
 

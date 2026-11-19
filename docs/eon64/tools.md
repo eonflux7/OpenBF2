@@ -105,7 +105,8 @@ last read, reloads it first. It then rewrites only the lines of the views and se
 keeping comments, order and blank lines. `view.reload` (Reload in the tab) rereads the file.
 
 **Commands:** `view.go NAME`, `view.save NAME [note]` (the current camera), `view.delete NAME`,
-`view.leave`, `view.list`, `view.reload`, `view.fly 0|1`, `view.shot [NAME]`.
+`view.move NAME up|down`, `view.note NAME [note]`, `view.set NAME ["VIEW..."]`, `view.leave`,
+`view.list`, `view.reload`, `view.fly 0|1`, `view.shot [NAME]`.
 
 As built (`Game/Tools/ViewFile.cpp`, `ViewTool.cpp`): the file is reread whenever it differs on
 disk from the last read, so the next view command after a hand edit sees it; `view.reload` forces
@@ -122,6 +123,15 @@ old value, and `view.leave` or the next `view.go` restores them, last first. Com
 
 **Views tab:** the list with Go, Update (to the current camera), Delete and reordering; set editing;
 Save current view; the note and run lines of the selected view.
+
+As built (`RendDX9/UiDebug.cpp`, read through `IUiViewTool` in `RendMisc/IRendererUi.h`): the
+tab only reads the tool's state; every change is a `view.*` line run through the console, and its
+result shows under the Save row. It rereads the file at most twice a second while shown. Free fly
+pauses while the menu or the console window is shown, so it flies once the menu closes.
+`view.move` swaps the view's lines (view line through last run line) with its neighbour's, leaving
+lines between them in place. `view.note` with no note removes it. `view.set NAME "a b c"` replaces
+or adds the set (after the last set); `view.set NAME` alone removes it. Run lines are shown, not
+edited: they are added by hand.
 
 **Screenshot in the engine.** The scene is read back before the HUD (or with it, by option) and
 written as PNG, plus a 960-wide JPEG for quick review. It works when the window is covered.

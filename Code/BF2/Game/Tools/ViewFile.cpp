@@ -378,6 +378,76 @@ bool ViewFile::deleteView(const std::string& name)
     return true;
 }
 
+namespace {
+
+int blockEnd(const ViewDef& view)
+{
+    return view.runLines.empty() ? view.header : view.runLines.back();
+}
+
+} // namespace
+
+bool ViewFile::moveView(const std::string& name, int delta)
+{
+    size_t index = m_views.size();
+    for (size_t i = 0; i < m_views.size(); ++i)
+        if (m_views[i].name == name)
+            index = i;
+    if (index == m_views.size() || delta == 0)
+        return false;
+    const size_t other = delta < 0 ? index - 1 : index + 1;
+    if ((delta < 0 && index == 0) || other >= m_views.size())
+        return false;
+    const ViewDef& first = m_views[delta < 0 ? other : index];
+    const ViewDef& second = m_views[delta < 0 ? index : other];
+    const std::vector<std::string>::iterator begin = m_lines.begin();
+    std::vector<std::string> lines(begin, begin + first.header);
+    lines.insert(lines.end(), begin + second.header, begin + blockEnd(second) + 1);
+    lines.insert(lines.end(), begin + blockEnd(first) + 1, begin + second.header);
+    lines.insert(lines.end(), begin + first.header, begin + blockEnd(first) + 1);
+    lines.insert(lines.end(), begin + blockEnd(second) + 1, m_lines.end());
+    m_lines.swap(lines);
+    parse();
+    return true;
+}
+
+bool ViewFile::setNote(const std::string& name, const std::string& note)
+{
+    const ViewDef* view = find(name);
+    if (!view)
+        return false;
+    HeaderParts parts;
+    splitHeader(trim(m_lines[view->header]), parts);
+    parts.note = trim(note);
+    parts.hasNote = !parts.note.empty();
+    m_lines[view->header] = joinHeader(parts);
+    parse();
+    return true;
+}
+
+void ViewFile::setSet(const std::string& name, const std::vector<std::string>& views)
+{
+    std::string line = "set " + name;
+    for (size_t v = 0; v < views.size(); ++v)
+        line += " " + views[v];
+    for (size_t s = 0; s < m_sets.size(); ++s)
+    {
+        if (m_sets[s].name != name)
+            continue;
+        if (views.empty())
+            m_lines.erase(m_lines.begin() + m_sets[s].line);
+        else
+            m_lines[m_sets[s].line] = line;
+        parse();
+        return;
+    }
+    if (views.empty())
+        return;
+    const int at = m_sets.empty() ? static_cast<int>(m_lines.size()) : m_sets.back().line + 1;
+    m_lines.insert(m_lines.begin() + at, line);
+    parse();
+}
+
 bool ViewFile::write(std::string& error)
 {
     std::string text;
