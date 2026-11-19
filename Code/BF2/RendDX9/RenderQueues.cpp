@@ -3406,8 +3406,9 @@ bool rendererCasterCaptureActive()
 }
 
 namespace {
-// 8: about 10 % of the frame on Fallujah West and Muttrah City for view shots within the noise.
-float g_contributionCullPixels = 8.0f;
+// 3, the safe side (owner, 2026-11-19): 8 saved about 10 % on Fallujah West and Muttrah City but
+// drops props at distances where they are still seen.
+float g_contributionCullPixels = 3.0f;
 }
 
 float rendererContributionCullPixels()

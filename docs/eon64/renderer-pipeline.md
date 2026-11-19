@@ -426,7 +426,7 @@ and caster walks leave its entries to the submission walk.
 
 ### Contribution culling
 
-`renderer.contributionCull` (pixels, default 8, 0 off) in place of the distance cull milestone 8
+`renderer.contributionCull` (pixels, default 3, 0 off; owner, 2026-11-19) in place of the distance cull milestone 8
 removed: a static mesh whose bounding sphere (its geom's LOD radius) projects to fewer pixels across
 than the threshold, at the view's own projection and viewport height, returns from its draw before
 any work (`StaticMesh.cpp`, both draw paths). Zoom narrows the projection, so a scope brings small

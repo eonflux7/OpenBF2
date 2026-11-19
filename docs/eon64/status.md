@@ -207,7 +207,7 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks
 9. Contribution culling: below a projected size (`renderer.*` variable) an object is not drawn,
    faded out over the LOD dither band. Done for static meshes (`2002788d`,
    [Contribution culling](renderer-pipeline.md#contribution-culling)): `renderer.contributionCull`,
-   default 8 pixels across; vehicles, soldiers and overgrowth left alone. Loaded by an agent,
+   default 3 pixels across (owner, 2026-11-19: 8 saves about 10 % but is too eager); vehicles, soldiers and overgrowth left alone. Loaded by an agent,
    2026-11-19: view shots 8 against 0 differ only in wind and smoke (Muttrah `high` 68 pixels,
    Fallujah `city1` 4849, `city3` 9634, Saaremaa `forest1` 430, `runway` 1565 of 2.07 M); same
    session, 2 runs each, 0 against 8: Muttrah City `bench1` 8.08 / 7.51 and 8.08 / 7.20 ms
