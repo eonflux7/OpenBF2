@@ -7,7 +7,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 | Lane | Done | Next | Detail |
 |---|---|---|---|
 | `render` | Milestones 1–8 accepted | Milestone 9, draw submission, after `tools` milestones 1–3 | [renderer.md](renderer.md#roadmap) |
-| `tools` | Milestone 1: tasks 1–2 built | Milestone 1: tasks 1–2 in game, then task 3 | [tools.md](tools.md#milestones) |
+| `tools` | Milestone 1: tasks 1–2 | Milestone 1, task 3: view file | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
 | `perf` (frame) | `/O2` plugins, `tailField` table | Parked until render milestone 9 | [perf-frame.md](perf-frame.md#plan) |
@@ -34,12 +34,10 @@ Found (2026-11-19):
 - Screenshot: `renderer.dumpScreen` reads the back buffer at end of scene, after the HUD and before
   ImGui.
 
-Tasks (state: 1–2 built `0179ea64`. Seen on Muttrah City, spawn screen, by console: `view.fly 1`
-takes over the spawn camera and hides the HUD and spawn menu; `view.leave` brings both back. Not
-yet tried: flying with mouse and keys, F8, the wheel FOV):
+Tasks (1–2 done: seen in game by the owner on Muttrah City, spawn screen, 2026-11-19):
 1. Camera override: `view.*` state in a `[TOOLS]` module, applied at the hook; HUD hidden through
    `renderer.drawHud` and restored on leaving; idle is one test.
-2. Free fly: `view.fly`, mouse look, speed, wheel FOV, no collision.
+2. Free fly: `view.fly`, F8, keyboard and mouse read directly, wheel FOV, no collision.
 3. View file: parse and minimal-diff write of `settings/eon64-views/<map>.txt`; `view.go`, `save`,
    `delete`, `leave`, `list`, `reload`; `run` lines with variable restore.
 4. Views tab in the debug menu.

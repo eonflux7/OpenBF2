@@ -60,11 +60,14 @@ dynamic objects wait for soldier mode (milestone 6).
 for FOV. This is how views are placed.
 
 As built (`Game/Tools/ViewTool.cpp`): `tools.flyKey` (Win32 virtual-key code, default 119, F8) or
-`view.fly 1` starts from the game's current camera. Free fly reads the player's own bindings:
-forward/back and strafe as on foot, lie up, crouch down, sprint 5x, alt-sprint 0.2x, next and
-previous item (mouse wheel) narrow and widen the FOV by 2 degrees. `tools.flySpeed` is metres per
-second (default 20). `view.fly 0` or `view.leave` hands the camera back and restores
-`renderer.drawHud`.
+`view.fly 1` starts from the game's current camera. Free fly reads the keyboard and mouse itself
+once per frame, not the player input: the spawn screen's control map has mouse look but no
+movement, and player input arrives at tick rate. W A S D move, E or Space up, Q or C down, Shift
+5x, Ctrl 0.2x; the mouse looks (`tools.flyMouse`, degrees per pixel, default 0.15) with the
+DirectInput mouse released and the cursor re-centred; the wheel changes the FOV by 2 degrees.
+Input is read only while the game window is in front, and the game's player input is cleared
+meanwhile. `tools.flySpeed` is metres per second (default 20). `view.fly 0` or `view.leave` hands
+the camera back and restores `renderer.drawHud`.
 
 **A view** is a name, position, yaw, pitch, FOV, and options:
 - `run` lines, executed on entering the view (debug mode, a forced cascade, a time of day). Before
