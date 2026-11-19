@@ -731,6 +731,10 @@ static int bf2MessageHandler(HWND /*hwnd*/, UINT message, WPARAM wParam, LPARAM 
                 return 0;
             }
         }
+#if !DEDICATED
+        else if (message == WM_MOUSEWHEEL)          // [TOOLS] the FOV during free fly
+            viewToolMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+#endif
         return 0;
     }
     if (message == WM_LBUTTONDOWN)                  // 0x201
@@ -772,11 +776,6 @@ static int bf2MessageHandler(HWND /*hwnd*/, UINT message, WPARAM wParam, LPARAM 
         pushMenuKey(127);                           // DEL reaches the menu as 127
         return 0;
 
-#if !DEDICATED
-    case WM_MOUSEWHEEL:                             // [TOOLS] the FOV during free fly
-        viewToolMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
-        return 0;
-#endif
 
     case WM_CHAR:                                   // 0x102
         if (!settings)
