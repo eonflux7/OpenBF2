@@ -775,6 +775,10 @@ void rendererBeginCasterCapture(const Frustum* volume);
 void rendererEndCasterCapture();
 const Frustum* rendererSubmitCullFrustum();
 bool rendererCasterCaptureActive();   // a shadow pass is capturing (draw() submits casters)
+// [RENDER] Milestone 9 contribution culling (renderer.contributionCull): the projected diameter,
+// in pixels, below which a static mesh is not drawn; 0 turns the cull off.
+float rendererContributionCullPixels();
+void rendererSetContributionCullPixels(float pixels);
 std::vector<ShadowCaster>& rendererShadowCasters();
 // Gives every caster captured from index `first` on the world sphere (centre, radius).
 void rendererSetCasterBounds(size_t first, const float sphere[4]);

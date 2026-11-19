@@ -123,6 +123,7 @@ struct StaticMeshLodCrossfade
     int   other;                // the LOD drawn beside the selected one, -1 for none
     float selectedDither[2];    // RaLodDither.xy of each
     float otherDither[2];
+    float fade;                 // contribution fade-out, 0 none: the pixels below it are dropped
 };
 
 // switchDistances[k] times scale is where LOD k gives way to LOD k + 1; selected is the LOD the
@@ -130,7 +131,7 @@ struct StaticMeshLodCrossfade
 StaticMeshLodCrossfade staticMeshLodCrossfade(const float* switchDistances, int count, float scale,
                                               float lodDistance, int selected)
 {
-    StaticMeshLodCrossfade result = { -1, { 0.0f, 1.0f }, { 0.0f, 1.0f } };
+    StaticMeshLodCrossfade result = { -1, { 0.0f, 1.0f }, { 0.0f, 1.0f }, 0.0f };
     for (int k = 0; k < count; ++k)
     {
         const float s = scale * switchDistances[k];
@@ -153,6 +154,59 @@ StaticMeshLodCrossfade staticMeshLodCrossfade(const float* switchDistances, int 
         break;
     }
     return result;
+}
+
+// [RENDER] Milestone 9 contribution culling (renderer.contributionCull): a static mesh whose
+// bounding sphere projects to fewer pixels across than the threshold is not drawn, and over the
+// 20 % above it dissolves through the same Bayer pattern as the LOD crossfade (RaLodDither
+// (1, -fade)), so the cull follows resolution and field of view and does not pop. It replaces the
+// distance cull milestone 8 removed. Roads, water and overgrowth (its own fade) are left alone, and
+// so are bundled and skinned meshes: vehicles and soldiers stay visible at any size. Shadow
+// casters are dropped below the threshold with the mesh, without a fade.
+const float kStaticMeshContributionBand = 0.2f;
+
+// Returns false when the mesh is culled; otherwise *fade is its fade-out, 0 when whole.
+bool staticMeshContribution(const StaticMesh& mesh, const StaticMeshTemplate* t,
+                            dx9rend::IRenderView* view, float radius, float distance, float* fade)
+{
+    *fade = 0.0f;
+    const float threshold = dx9rend::rendererContributionCullPixels();
+    if (!(threshold > 0.0f) || t->m_isRoad || t->m_isWater || !(distance > radius))
+        return true;
+    if (view->getProjectionMode() == 1)                                   // ortho
+        return true;
+    // Diameter in pixels: 2r / d times the projection's y scale times half the viewport height.
+    const float pixels = radius * view->getProjectionMatrixPtr()->m[5] * view->getViewport()[3]
+                       / distance;
+    const float top = threshold * (1.0f + kStaticMeshContributionBand);
+    if (pixels >= top)
+        return true;
+    world::IObject* const owner = static_cast<world::IObject*>(mesh.m_dword330);
+    if (owner && owner->getIsOvergrowth())
+        return true;
+    if (pixels < threshold)
+    {
+        if (dx9rend::drawStatsOn())
+            dx9rend::drawStatsCount("contribution culled", 1);
+        return false;
+    }
+    if (!dx9rend::rendererCasterCaptureActive())
+    {
+        *fade = (top - pixels) / (top - threshold);
+        if (dx9rend::drawStatsOn())
+            dx9rend::drawStatsCount("contribution fading", 1);
+    }
+    return true;
+}
+
+// A fading mesh draws its selected LOD alone, through the fade's share of the pattern; where the
+// fade band meets a LOD crossfade band the switch pops (one pattern cannot hold both).
+void staticMeshContributionFade(StaticMeshLodCrossfade& crossfade, float fade)
+{
+    if (!(fade > 0.0f))
+        return;
+    crossfade.other = -1;
+    crossfade.fade = fade;
 }
 
 int staticMeshLodPassCount(const StaticMeshLodCrossfade& crossfade)
@@ -179,6 +233,8 @@ public:
             const float* const dither = pass != 0 ? crossfade.otherDither : crossfade.selectedDither;
             dx9rend::renderEntryPoolSetLodDither(dither[0], dither[1]);
         }
+        else if (crossfade.fade > 0.0f)
+            dx9rend::renderEntryPoolSetLodDither(1.0f, -crossfade.fade);
         if (!m_switched)
             return;
         setLod(crossfade.other);
@@ -2173,8 +2229,14 @@ void StaticMesh::drawVanilla()
     *reinterpret_cast<float*>(&m_dword288) = distance;
     *reinterpret_cast<float*>(&op.tail220)  = distance;
 
+    // [RENDER] Milestone 9: contribution culling.
+    float contributionFade;
+    if (!staticMeshContribution(*this, t, mainView, m_geomRadii.data()[m_dword314], distance,
+                                &contributionFade))
+        return;
+
     // 3. lod selection
-    StaticMeshLodCrossfade crossfade = { -1, { 0.0f, 1.0f }, { 0.0f, 1.0f } };
+    StaticMeshLodCrossfade crossfade = { -1, { 0.0f, 1.0f }, { 0.0f, 1.0f }, 0.0f };
     if (!m_byte357)
     {
         const float radius = m_geomRadii.data()[m_dword314];
@@ -2230,6 +2292,7 @@ void StaticMesh::drawVanilla()
         m_byte357 = 0;
         crossfade.other = -1;
     }
+    staticMeshContributionFade(crossfade, contributionFade);
 
     // 4. the lightmap, the view, the parameters
     if (!m_dword26C && !m_byte35A)
@@ -2716,8 +2779,14 @@ void staticMeshDrawExpansion(void* self)
     std::memcpy(&mesh.m_dword288, &distance, sizeof(distance));
     std::memcpy(&op.tail220, &distance, sizeof(distance));
 
+    // [RENDER] Milestone 9: contribution culling.
+    float contributionFade;
+    if (!staticMeshContribution(mesh, t, mainView, mesh.m_geomRadii.data()[mesh.m_dword314],
+                                distance, &contributionFade))
+        return;
+
     // 3. lod selection
-    StaticMeshLodCrossfade crossfade = { -1, { 0.0f, 1.0f }, { 0.0f, 1.0f } };
+    StaticMeshLodCrossfade crossfade = { -1, { 0.0f, 1.0f }, { 0.0f, 1.0f }, 0.0f };
     if (!mesh.m_byte357)
     {
         const float radius = mesh.m_geomRadii.data()[mesh.m_dword314];
@@ -2773,6 +2842,7 @@ void staticMeshDrawExpansion(void* self)
         mesh.m_byte357 = 0;
         crossfade.other = -1;
     }
+    staticMeshContributionFade(crossfade, contributionFade);
 
     // 4. the lightmap, the view, the parameters
     if (!mesh.m_dword26C && !mesh.m_byte35A)

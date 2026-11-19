@@ -3405,6 +3405,20 @@ bool rendererCasterCaptureActive()
     return g_casterCapture.active;
 }
 
+namespace {
+float g_contributionCullPixels = 3.0f;
+}
+
+float rendererContributionCullPixels()
+{
+    return g_contributionCullPixels;
+}
+
+void rendererSetContributionCullPixels(float pixels)
+{
+    g_contributionCullPixels = pixels;
+}
+
 const Frustum* rendererSubmitCullFrustum()
 {
     if (g_casterCapture.active && g_casterCapture.volume)

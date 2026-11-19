@@ -1369,6 +1369,16 @@ bool getCasterCull() { return sunShadowSettings().casterCull; }
 void setCasterCull(bool value) { sunShadowSettings().casterCull = value; }
 BF2_CONSOLE_PROPERTY_FN(casterCull, bool, true, getCasterCull(), setCasterCull, kRendererConsoleTag)
 
+// [RENDER] Contribution culling (milestone 9): a static mesh whose bounding sphere projects to fewer
+// pixels across than this is not drawn, and fades out over the 20 % above it; 0 turns it off.
+float getContributionCull() { return rendererContributionCullPixels(); }
+void setContributionCull(float value)
+{
+    rendererSetContributionCullPixels(value < 0.0f ? 0.0f : value > 32.0f ? 32.0f : value);
+}
+BF2_CONSOLE_PROPERTY_FN_RANGED_T(contributionCull, float, true, getContributionCull(),
+                                 setContributionCull, 0.0f, 32.0f, kRendererConsoleTag)
+
 // Texels per cascade side: the nearest power of two in 512..4096.
 int getSunShadowResolution() { return static_cast<int>(sunShadowSettings().resolution); }
 void setSunShadowResolution(int value)
@@ -1410,6 +1420,7 @@ const char* rendererVariableHelp(const char* name)
         { "submit", "Depth prepass and sun casters drawn by the submission layer; off, through D3DX effects (milestone 9 A/B)" },
         { "instancing", "Static meshes that share a material drawn as instances of one draw; off, each instance drawn on its own (milestone 9 A/B)" },
         { "casterCull", "Sun casters culled to the shadow range swept toward the sun before any work on them; off, every object in the cascades' light volume (milestone 9 A/B)" },
+        { "contributionCull", "Static meshes whose bounding sphere spans fewer pixels than this are not drawn, faded out just above it; 0 off" },
         { "softParticleDistance", "Depth over which particles fade out in front of the scene, in metres" },
         { "uiMenuKey", "Win32 virtual-key code that opens and closes this menu (45 = Insert)" },
         { "uiOverlay", "Performance overlay, top right; kept between sessions" },
