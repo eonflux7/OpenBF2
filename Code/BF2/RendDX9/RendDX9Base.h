@@ -813,6 +813,7 @@ void renderEntryBindLodDither(const RenderQueueEntry* entry);
 // (RendererConsole.cpp), which clamp to their ranges. A new resolution re-creates the atlas.
 struct SunShadowSettings
 {
+    bool enabled;                 // off: no cascades drawn, receivers use the baked sun
     float distance;               // m: the view depth the cascades reach
     unsigned int resolution;      // texels per cascade side, a power of two
     float casterReach;            // m: how far toward the sun past a cascade casters still draw

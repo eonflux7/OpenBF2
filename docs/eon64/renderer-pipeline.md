@@ -231,6 +231,7 @@ milestone was accepted with:
 
 | Variable | Default | Range | What |
 |---|---|---|---|
+| `renderer.sunShadows` | 1 | 0–1 | Cascades drawn; off, surfaces take the baked lightmap sun |
 | `renderer.sunShadowDistance` | 400 | 50–2000 m | View depth the cascades reach |
 | `renderer.sunShadowResolution` | 2048 | 512–4096 | Texels per cascade side, a power of two; a change re-creates the atlas |
 | `renderer.sunShadowCasterReach` | 500 | 0–2000 m | Caster reach toward the sun past a cascade's sphere |

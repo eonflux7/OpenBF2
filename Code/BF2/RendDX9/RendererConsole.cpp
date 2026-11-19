@@ -1350,6 +1350,10 @@ BF2_SUN_SHADOW_VARIABLE(sunShadowNormalOffset, float, normalOffset, 0.0f, 4.0f)
 BF2_SUN_SHADOW_VARIABLE(sunShadowDepthBias, float, depthBias, 0.0f, 4.0f)
 #undef BF2_SUN_SHADOW_VARIABLE
 
+bool getSunShadows() { return sunShadowSettings().enabled; }
+void setSunShadows(bool value) { sunShadowSettings().enabled = value; }
+BF2_CONSOLE_PROPERTY_FN(sunShadows, bool, true, getSunShadows(), setSunShadows, kRendererConsoleTag)
+
 // Texels per cascade side: the nearest power of two in 512..4096.
 int getSunShadowResolution() { return static_cast<int>(sunShadowSettings().resolution); }
 void setSunShadowResolution(int value)
@@ -1380,6 +1384,7 @@ BF2_CONSOLE_PROPERTY_FN_RANGED_T(softParticleDistance, float, true, getSoftParti
 const char* rendererVariableHelp(const char* name)
 {
     static const char* const kHelp[][2] = {
+        { "sunShadows", "Sun shadow cascades; off, surfaces take the baked lightmap sun" },
         { "sunShadowDistance", "View depth the sun shadow cascades reach, in metres" },
         { "sunShadowResolution", "Texels per cascade side (512-4096, a power of two); the atlas holds four" },
         { "sunShadowCasterReach", "How far toward the sun beyond a cascade casters still draw, in metres" },
