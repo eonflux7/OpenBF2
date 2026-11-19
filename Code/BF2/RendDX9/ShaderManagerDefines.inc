@@ -1,8 +1,8 @@
 // Shader preprocessor vocabulary: D3D enums and engine detail/render-path symbols.
 // Unspecified feature values use the string "0", not an empty expansion.
 
-// The retail table at 0x101DEF90 (120 entries) less IS_NV4X [RENDER], and the {0, 0} terminator;
-// D3DXCreateEffect reads to that terminator when DiceEffect::compile passes the table as pDefines.
+// The retail table at 0x101DEF90 (120 entries) less IS_NV4X and plus RA_CONTRACT [RENDER], and the
+// {0, 0} terminator; D3DXCreateEffect reads to that terminator when DiceEffect::compile passes the table as pDefines.
 const ShaderDefine kShaderDefines[] =
 {
     { "USEPARTIALPRECISIONTYPES", "0" },
@@ -21,6 +21,7 @@ const ShaderDefine kShaderDefines[] =
     { "DLLow", "16" },
     { "DLAbysmal", "32" },
     { "RAPATH", "0" },
+    { "RA_CONTRACT", RA_CONTRACT_TEXT(RA_CONTRACT_VERSION) },   // [RENDER] not retail
     { "CMPR350", "1" },
     { "CMPR300", "2" },
     { "CMPNV3X", "4" },

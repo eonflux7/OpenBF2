@@ -1382,6 +1382,8 @@ const char* const kForce14[2][2] =
 };
 // dword_101E12F8 - the minimum (major<<8 | minor) pixel-shader version each psmodel row needs.
 const unsigned int kMinPsVersion[5] = { 0x103u, 0x104u, 0x201u, 0x202u, 0x200u };
+// The defines fillProfileDefines writes before its terminator: retail's six and [RENDER] RA_CONTRACT.
+const int kRaProfileDefines = 7;
 
 // PE 0x10035DC0.
 template <typename Interface>
@@ -1901,8 +1903,8 @@ struct RaPrefetchJob
     std::string   name;
     std::string   key;
     std::string   source;
-    std::string   defineText[12];
-    D3DXMACRO     defines[7];
+    std::string   defineText[2 * kRaProfileDefines];
+    D3DXMACRO     defines[kRaProfileDefines + 1];
     unsigned long flags;
     RaIncludeMap  includes;
     // Results, written by one worker and read by the main thread once done is set.
@@ -2591,7 +2593,10 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
         defines[4].Name = "LOWPSMODEL";          defines[4].Definition = "ps_1_4";
         defines[5].Name = kPsVersion[psIndex][0];
         defines[5].Definition = kPsVersion[psIndex][1];
-        defines[6].Name = 0;                     defines[6].Definition = 0;
+        // [RENDER] The renderer contract version (RendDX9Base.h), not retail.
+        defines[6].Name = "RA_CONTRACT";
+        defines[6].Definition = RA_CONTRACT_TEXT(RA_CONTRACT_VERSION);
+        defines[7].Name = 0;                     defines[7].Definition = 0;
     };
 
     if (setupT0 >= 0)   // [DEV] BF2_LOAD_TRACE
@@ -2627,7 +2632,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
         if (keyPs < 5)
         {
             ::dice::hfe::loadtrace::Scope keyTrace("fx.key", name.c_str());   // [DEV] BF2_LOAD_TRACE
-            D3DXMACRO keyDefines[7];
+            D3DXMACRO keyDefines[kRaProfileDefines + 1];
             fillProfileDefines(0, keyPs, keyDefines);
             // [PERF] The source key; the preprocessor key only where it cannot be formed.
             cacheKey = raEffectSourceKey(reinterpret_cast<const char*>(source), sourceLen,
@@ -2659,7 +2664,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
         {
             g_raPrefetchStarted = true;
             ::dice::hfe::loadtrace::Scope prepTrace("fx.prefetch", "queue");   // [DEV] BF2_LOAD_TRACE
-            D3DXMACRO keyDefines[7];
+            D3DXMACRO keyDefines[kRaProfileDefines + 1];
             fillProfileDefines(0, keyPs, keyDefines);
             const std::string raDefines = m_shaderDefines + m_debugDefines;
             unsigned int queued = 0, current = 0, unreadable = 0;
@@ -2738,7 +2743,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
                     continue;
                 }
                 int d = 0;
-                for (; d < 6 && keyDefines[d].Name; ++d)
+                for (; d < kRaProfileDefines && keyDefines[d].Name; ++d)
                 {
                     job->defineText[2 * d] = keyDefines[d].Name;
                     job->defineText[2 * d + 1] = keyDefines[d].Definition ? keyDefines[d].Definition : "";
@@ -2858,7 +2863,7 @@ void* EffectManager::compileEffect(const std::string& name, int unused, void** e
                     psIndex = 0;
                 }
 
-                D3DXMACRO defines[7];
+                D3DXMACRO defines[kRaProfileDefines + 1];
                 fillProfileDefines(vsIndex, psIndex, defines);
 
                 raRelease(errors);

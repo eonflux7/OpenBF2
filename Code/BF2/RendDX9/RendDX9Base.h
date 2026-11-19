@@ -785,6 +785,15 @@ bool rendererShadowCascadeTouches(const ShadowCascadeCull& cull, const float sph
 void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection,
                                    const ShadowCascadeCull& cull);
 
+// [RENDER] The renderer contract version, passed as the define RA_CONTRACT to every effect the
+// engine compiles (ShaderManager's define table and the Ra profile defines), so a shader set that
+// needs a newer contract stops with #error instead of running against an engine without it. Raised
+// whenever the engine changes what the shaders may rely on; docs/eon64/renderer-pipeline.md lists
+// what each version adds.
+#define RA_CONTRACT_VERSION 1
+#define RA_CONTRACT_TEXT_(v) #v
+#define RA_CONTRACT_TEXT(v) RA_CONTRACT_TEXT_(v)
+
 // [RENDER] Sun cascaded shadow maps (SunShadows.cpp). Run from the
 // depth prepass: submits the casters in the cascades' light volume, renders four cascades into an
 // R32F atlas (light depth; the atlas is bound to the reserved sampler s13), and fills the cascade

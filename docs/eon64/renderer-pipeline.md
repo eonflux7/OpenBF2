@@ -265,6 +265,17 @@ anything else there.
 
 ## Shader contract
 
+The contract has a version, `RA_CONTRACT_VERSION` in `RendDX9Base.h`. The engine passes it as the
+define `RA_CONTRACT` to every effect it compiles: Ra effects get it with their profile defines,
+every other effect through the ShaderManager define table. The shaders' core header stops with
+`#error` when it is missing or older than they need, so a shader set never runs on an engine
+without its contract. Raise the version in the change that alters what the shaders may rely on,
+and add its row here.
+
+| Version | Adds |
+|---|---|
+| 1 | The contract as of render milestone 8: everything below |
+
 Samplers 13 and 15 are reserved for renderer frame resources, and pixel registers c200–c221 for
 `RASM`. No effect may use them for anything else.
 Every other sampler states `SRGBTexture` in its `sampler_state`: TRUE where it reads colour (the
