@@ -36,7 +36,11 @@ owner, 2026-11-19, Muttrah City):
 4. One path each on Muttrah City and Saaremaa: `bench1` on both (20 s, recorded by the owner,
    2026-11-19, Conquest 64). Saaremaa baseline, 3 runs: 8.12 ms (123 fps), 1 % low 11.75 ms,
    CPU bound, spread 5.26 % on average and 9.14 % on 1 % low (above the 2 % / 5 % target).
-   Draws read 146 per frame, which looks too low to be the whole frame; not checked.
+   Fallujah West added by the owner (worst map, ~35 fps in play), path `bench`: 25.50 ms
+   (39 fps), 1 % low 32.05 ms, CPU bound, spread 2.71 % / 2.85 %; pass spans largest in the
+   depth prepass (6.2 ms), world opaque (4.8) and sun cascade 3 (3.7), CPU submission included.
+   Draws read 146 (Saaremaa) and 313 (Fallujah) per frame, which look too low to be the whole
+   frame; not checked. Muttrah City baseline not yet taken.
 
 ## Paused: `tools` milestone 1, views
 
