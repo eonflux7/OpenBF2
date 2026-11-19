@@ -68,7 +68,7 @@ void submitSetInstancingEnabled(bool on);
 // instanced, else null (the walk draws through D3DX).
 SubmitProgram* submitProgramForWalk(Ra::RaShader* shader, unsigned int key, bool orDefault = false);
 // A group: begun at an entry submitEntry has uploaded, joined by later entries that can share its
-// draw (each records its instance), bound before the one draw (the instance records on stream 1,
+// draw (each records its instance), bound before the one draw (the instance records on the stream after the material's last,
 // the bound declaration merged with the instance elements, the stream frequencies) and ended after
 // it. Bind fails (nothing to draw) when the declaration or the record buffer cannot be made.
 // A hash of what decides whether two entries can share a group (their instance parameters and LOD

@@ -1399,10 +1399,17 @@ const unsigned int kInstanceBufferRecords = 65536;
 IDirect3DVertexBuffer9* g_instanceBuffer = 0;
 unsigned int g_instanceBufferNext = 0;   // the next free record
 
-// The declarations a material binds, each with the instance elements added on stream 1. Both the
+// The declarations a material binds, each with the instance elements added on the stream after the
+// last it uses (static meshes keep each texture coordinate set in a stream of its own). Both the
 // material's declaration and the merged one map to the merged one (a run binds it again after its
 // first draw). The keys hold a reference, so a freed declaration's address is never met again.
-std::map<IDirect3DVertexDeclaration9*, IDirect3DVertexDeclaration9*> g_mergedDeclarations;
+struct MergedDeclaration
+{
+    IDirect3DVertexDeclaration9* declaration;
+    unsigned int instanceStream;
+};
+std::map<IDirect3DVertexDeclaration9*, MergedDeclaration> g_mergedDeclarations;
+unsigned int g_boundInstanceStream = 0;   // of the group bound, for submitGroupEnd
 
 // The group being built: its key (the instance parameters its first entry captured) and records.
 SubmitProgram* g_groupProgram = 0;
@@ -1466,27 +1473,31 @@ void appendRecord(SubmitProgram* program, RenderQueueEntry* entry)
     }
 }
 
-IDirect3DVertexDeclaration9* mergedDeclaration(IDirect3DDevice9* device,
-                                               IDirect3DVertexDeclaration9* declaration)
+const MergedDeclaration* mergedDeclaration(IDirect3DDevice9* device,
+                                           IDirect3DVertexDeclaration9* declaration)
 {
     if (!declaration)
         return 0;
-    std::map<IDirect3DVertexDeclaration9*, IDirect3DVertexDeclaration9*>::iterator it =
+    std::map<IDirect3DVertexDeclaration9*, MergedDeclaration>::iterator it =
         g_mergedDeclarations.find(declaration);
     if (it != g_mergedDeclarations.end())
-        return it->second;
+        return &it->second;
     D3DVERTEXELEMENT9 elements[MAXD3DDECLLENGTH + 1];
     UINT count = 0;
     IDirect3DVertexDeclaration9* merged = 0;
+    unsigned int instanceStream = 0;
     if (declaration->GetDeclaration(0, &count) >= 0 && count >= 1
         && count + 4 <= MAXD3DDECLLENGTH + 1
         && declaration->GetDeclaration(elements, &count) >= 0)
     {
         unsigned int n = count - 1;   // past the last element, before D3DDECL_END
+        for (unsigned int k = 0; k < n; ++k)
+            if (elements[k].Stream + 1u > instanceStream)
+                instanceStream = elements[k].Stream + 1u;
         for (unsigned int k = 0; k < 4; ++k, ++n)
         {
             D3DVERTEXELEMENT9& e = elements[n];
-            e.Stream = 1;
+            e.Stream = static_cast<WORD>(instanceStream);
             e.Offset = static_cast<WORD>(16 * k);
             e.Type = D3DDECLTYPE_FLOAT4;
             e.Method = D3DDECLMETHOD_DEFAULT;
@@ -1508,7 +1519,7 @@ IDirect3DVertexDeclaration9* mergedDeclaration(IDirect3DDevice9* device,
             }
             ::renddx9abi::logf("Submit: instanced declaration%s", text.c_str());
         }
-        if (device->CreateVertexDeclaration(elements, &merged) < 0)
+        if (instanceStream > 15 || device->CreateVertexDeclaration(elements, &merged) < 0)
             merged = 0;
     }
     if (!merged)
@@ -1516,11 +1527,12 @@ IDirect3DVertexDeclaration9* mergedDeclaration(IDirect3DDevice9* device,
         ::renddx9abi::logf("Submit: no instanced declaration for %p", declaration);
         return 0;
     }
+    const MergedDeclaration value = { merged, instanceStream };
     declaration->AddRef();
-    g_mergedDeclarations[declaration] = merged;
+    g_mergedDeclarations[declaration] = value;
     merged->AddRef();
-    g_mergedDeclarations[merged] = merged;
-    return merged;
+    g_mergedDeclarations[merged] = value;
+    return &g_mergedDeclarations[merged];
 }
 
 bool ensureInstanceBuffer(IDirect3DDevice9* device)
@@ -1617,7 +1629,7 @@ bool submitGroupBind()
         return false;
     IDirect3DDevice9* const device = program->shader->m_device;
     const unsigned int count = submitGroupSize();
-    IDirect3DVertexDeclaration9* const merged = mergedDeclaration(
+    const MergedDeclaration* const merged = mergedDeclaration(
         device, static_cast<IDirect3DVertexDeclaration9*>(stateManagerVertexDeclaration()));
     if (!merged || !ensureInstanceBuffer(device))
         return false;
@@ -1633,12 +1645,15 @@ bool submitGroupBind()
         return false;
     std::memcpy(data, &g_groupRecords[0], count * kRecordBytes);
     g_instanceBuffer->Unlock();
-    stateManagerSetVertexDeclaration(merged);
-    stateManagerSetStreamSource(1, g_instanceBuffer, g_instanceBufferNext * kRecordBytes,
+    const unsigned int stream = merged->instanceStream;
+    stateManagerSetVertexDeclaration(merged->declaration);
+    stateManagerSetStreamSource(stream, g_instanceBuffer, g_instanceBufferNext * kRecordBytes,
                                 kRecordBytes);
     g_instanceBufferNext += count;
-    device->SetStreamSourceFreq(0, D3DSTREAMSOURCE_INDEXEDDATA | count);
-    device->SetStreamSourceFreq(1, D3DSTREAMSOURCE_INSTANCEDATA | 1u);
+    for (unsigned int k = 0; k < stream; ++k)
+        device->SetStreamSourceFreq(k, D3DSTREAMSOURCE_INDEXEDDATA | count);
+    device->SetStreamSourceFreq(stream, D3DSTREAMSOURCE_INSTANCEDATA | 1u);
+    g_boundInstanceStream = stream;
     return true;
 }
 
@@ -1647,8 +1662,9 @@ void submitGroupEnd()
     if (g_groupProgram)
     {
         IDirect3DDevice9* const device = g_groupProgram->shader->m_device;
-        device->SetStreamSourceFreq(0, 1u);
-        device->SetStreamSourceFreq(1, 1u);
+        for (unsigned int k = 0; k <= g_boundInstanceStream; ++k)
+            device->SetStreamSourceFreq(k, 1u);
+        g_boundInstanceStream = 0;
     }
     g_groupProgram = 0;
     g_groupFirst = 0;
@@ -1666,12 +1682,12 @@ void submitInstancesRelease()
 void submitReset()
 {
     g_programs.clear();
-    for (std::map<IDirect3DVertexDeclaration9*, IDirect3DVertexDeclaration9*>::iterator it =
+    for (std::map<IDirect3DVertexDeclaration9*, MergedDeclaration>::iterator it =
              g_mergedDeclarations.begin(); it != g_mergedDeclarations.end(); ++it)
     {
         it->first->Release();
-        if (it->second != it->first)
-            it->second->Release();   // the reference CreateVertexDeclaration gave
+        if (it->second.declaration != it->first)
+            it->second.declaration->Release();   // the reference CreateVertexDeclaration gave
     }
     g_mergedDeclarations.clear();
 }
