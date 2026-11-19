@@ -132,10 +132,14 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 next, before 4):
    both); view `high` with `submit` 1 and 0 differs in 19 pixels. Then the shader constants'
    dirty registers as a bit mask (`f3515fb4`): the pre-draw apply from 8.2 % to 2.5 % of the main
    thread; view `high` differs from the build before in 17 pixels; same-session pairs, programs
-   against D3DX, Muttrah City `bench1` 10.86 / 11.73 ms, Fallujah West `bench` 19.40 / 20.78 ms. Then the coming draws' parameter blocks prefetched and the depth
-   order sorted on keys (`85cf4ae4`): no frame-time change beyond the spread (`bench1` 10.90 / 11.57 ms).
-   Not yet seen by the owner. Left: one draw per mesh in the depth passes, at most 2321 of 10541
-   draws at Muttrah `high` ([perf-frame.md](perf-frame.md#render-milestone-9-task-5)).
+   against D3DX, Muttrah City `bench1` 10.86 / 11.73 ms, Fallujah West `bench` 19.40 / 20.78 ms. Then the depth order sorted on keys (`85cf4ae4`; a prefetch of
+   the parameter blocks tried and dropped, `f6dd0829`), and one draw per mesh in the depth passes
+   (`7bdd3a77`): static mesh index buffers hold whole-template vertex indices, and a run of one
+   instance's consecutive opaque materials draws as one range. Loaded by an agent on Muttrah City
+   and Fallujah West, 2026-11-19: draws at Muttrah `high` 10541 to 8834; views `high` and `market`
+   against the earlier shots differ in 21 and 407 pixels (wind-blown palms); same-session pairs,
+   programs against D3DX, Muttrah City `bench1` 10.94 / 11.90 ms, Fallujah West `bench` 18.70 /
+   20.52 ms ([perf-frame.md](perf-frame.md#render-milestone-9-task-5)). Not yet seen by the owner.
 6. Static meshes in the lit passes on packets, then bundled and skinned meshes (bone constants).
 7. Terrain, overgrowth and undergrowth on packets.
 8. Instancing (stream frequency) for overgrowth and repeated static meshes.

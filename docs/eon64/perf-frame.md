@@ -168,6 +168,21 @@ At the same view, with `BF2_DRAW_STATS`: the depth passes (prepass and cascades)
 without alpha test a frame, in 5069 (mesh instance, effect) groups; one draw per mesh would remove
 at most 2321 of the frame's 10541 draws.
 
+The prefetch was then dropped (`f6dd0829`). One draw per mesh in the depth passes (`7bdd3a77`): at
+Muttrah `high` the frame's draws go from 10541 to 8834 (prepass 2507 to 1969, cascade c3 3939 to
+3098), the same primitives. The CPU moves more than it goes: Submit.cpp 11.0 to 8.6 % of the main
+thread and the state manager 7.2 to 6.5 %, but the walks with their run test 11.6 to 13.9 % and
+the materials' stream records 2.3 to 3.0 %; DXVK stays at 14.8 %, so its cost here is not per
+draw. Same-session pairs, 3 runs each, programs against D3DX:
+
+| Path | Programs | D3DX |
+|---|---|---|
+| Muttrah City `bench1` | 10.94 ms (10.90 before) | 11.90 ms (11.57) |
+| Fallujah West `bench` | 18.70 ms (19.40 before the keyed sort) | 20.52 ms (20.78) |
+
+D3DX draws in the instance-first order without merging, which costs it material switches on
+Muttrah. Fallujah West, with the most draws, gains 3.6 %, near the runs' spread (2.9 %).
+
 ## Plan
 
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
