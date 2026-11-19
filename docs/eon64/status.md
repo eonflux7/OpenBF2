@@ -126,9 +126,12 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 next, before 4):
    Loaded by an agent on Muttrah City, 2026-11-19: views `high` and `market` with `submit` 1 and 0
    differ in 3 and 102 pixels of 1.44 M (wind-blown palms). `bench1`, 3 runs each: 12.44 ms with
    programs, 12.92 ms through D3DX (13.52 ms before the banded order); profile in
-   [perf-frame.md](perf-frame.md#render-milestone-9-task-5). Not yet seen by the owner. Left: the
-   sink's own cost (holder calls and value conversion, about 8 % of the main thread at `high`),
-   the pre-draw apply (10 %), one draw per mesh in the depth passes.
+   [perf-frame.md](perf-frame.md#render-milestone-9-task-5). Then float values copied whole and
+   register-shaped targets uploaded in place: same-session pairs, 3 runs each, programs against
+   D3DX, Muttrah City `bench1` 12.03 / 13.07 ms, Fallujah West `bench` 21.52 / 23.43 ms (8 % on
+   both); view `high` with `submit` 1 and 0 differs in 19 pixels. Not yet seen by the owner.
+   Left: the holder calls into the sink, the pre-draw apply (10 %), one draw per mesh in the
+   depth passes.
 6. Static meshes in the lit passes on packets, then bundled and skinned meshes (bone constants).
 7. Terrain, overgrowth and undergrowth on packets.
 8. Instancing (stream frequency) for overgrowth and repeated static meshes.

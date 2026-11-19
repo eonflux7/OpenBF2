@@ -134,6 +134,18 @@ version (strict near-to-far order, a conversion per component) spent 16.9 %: the
 program at almost every prepass draw, each switch binding the program's states, defaults and global
 parameters again. `bench1`: 12.44 ms programs, 12.92 ms D3DX; before the banded order 13.46 / 13.52.
 
+Then float values copied whole into the sink and register-shaped targets (row-packed matrices,
+vectors) uploaded in place, without the per-component conversion and gather. Same-session pairs,
+3 runs each, skirmish layer:
+
+| Path | Programs | D3DX | Gain |
+|---|---|---|---|
+| Muttrah City `bench1` | 12.03 ms | 13.07 ms | 8.0 % |
+| Fallujah West `bench` | 21.52 ms | 23.43 ms | 8.2 % |
+
+Fallujah West has the most draws (16085 a frame), so the per-draw work shows most there; Muttrah
+City's runs spread less (about 2 % against 3 %), so it separates small changes better.
+
 ## Plan
 
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
