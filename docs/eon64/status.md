@@ -42,8 +42,9 @@ owner, 2026-11-19, Muttrah City):
    Muttrah City, `bench1`: 13.37 ms (75 fps), 1 % low 18.48 ms, CPU bound, spread 1.16 % /
    1.83 % (within target); depth prepass 3.2 ms, world opaque 3.0, sun cascade 3 1.2.
    Those draw counts (146, 313, 377) left out every queued mesh; counted since `52868e8c`:
-   Muttrah City `bench1` 8927 draws a frame (1 run, 14.00 ms, 2026-11-19); the other maps'
-   counts are retaken with milestone 9's task 1.
+   Muttrah City `bench1` 8927 draws a frame (1 run, 14.00 ms, 2026-11-19); Fallujah West `bench`
+   16085 (1 run, 26.11 ms) and Saaremaa `bench1` 4464 (1 run, 8.36 ms), engine `aa754216`,
+   2026-11-19.
 
 ## Paused: `tools` milestone 1, views
 
@@ -89,11 +90,17 @@ acceptance number); the breakdown that steers the work is taken at fixed views, 
 holds still: CPU samples by subsystem ([perf-frame.md](perf-frame.md#measuring)), GPU spans and
 draws per technique and pass.
 
-Tasks (owner breakdown pending, 2026-11-19):
+Tasks (owner breakdown pending, 2026-11-19; task 1 done by an agent, 2026-11-19):
 1. Breakdown at fixed views: one view each on Muttrah City and Fallujah West (the dense ones),
    CPU samples by subsystem, GPU spans, draws per pass (`BF2_DRAW_STATS`), and the same with the
-   sun cascades off, for the caster pass's whole cost. Recorded in perf-frame.md; it orders
-   tasks 4–9 if they need reordering.
+   sun cascades off, for the caster pass's whole cost. Recorded in
+   [perf-frame.md](perf-frame.md#render-milestone-9-task-1). The cascades are 42 % (Muttrah
+   `high`, 6.2 of 14.9 ms) and 46 % (Fallujah `city1`, 13.3 of 28.9 ms) of the frame, mostly per
+   draw; their own culling is 1 to 2.5 ms. Cascade c3 has three quarters of the caster draws. Off
+   switch added for it: `renderer.sunShadows` (`aa754216`, tried by an agent on both maps). Order
+   proposed for the owner: 5 (submission layer, prepass and casters) before 4, with one draw per
+   mesh in the depth-only passes where materials share the depth shader; contribution culling
+   (9) for casters, by size in cascade texels, brought forward next to 4.
 2. Contract version: `RA_CONTRACT` passed to every effect compiled; the shaders `#error` when it
    is older than they need. First, since the later tasks change the contract.
 3. Frame module: the pass sequence moves out of `BF2Render.cpp`'s `renderFrame` into its own

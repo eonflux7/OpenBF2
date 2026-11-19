@@ -21,7 +21,10 @@ seen as a whole.
   from the PE headers, symbols from the link maps (`BF2.map`, `RendDX9.map`). A link map lists public
   symbols only, so samples in static or inlined code are credited to the nearest public symbol
   before them: object-file totals are reliable, single function names approximate.
-- **Draws.** `BF2_DRAW_STATS` ([flags.md](flags.md)) for what each pass issues.
+- **Draws.** `BF2_DRAW_STATS` ([flags.md](flags.md)) for what each pass issues. It costs about
+  9 % of the main thread itself (its lookups), so CPU samples are taken in a session without it.
+- **Sun cascades' whole cost.** `renderer.sunShadows 0` at the same view: the frame-time difference
+  is the caster pass, CPU and GPU together.
 
 ## Baseline
 
@@ -59,6 +62,58 @@ world opaque 1.22, sun cascades 1.53, resolve 0.19, depth rebuild 0.05.
 
 GPU-side lead: `Ra_LodDitherClip` runs in every lit shader, so opaque shaders lose early depth
 rejection even at dither (0, 1); a static branch or a separate dithered technique would avoid it.
+
+## Render milestone 9, task 1
+
+Fixed views, 1600x900, 4x MSAA, vsync off, `game.lockFps 1000`, engine `aa754216`, 2026-11-19.
+Muttrah City 2 `gpm_skirmish` 16, view `high` (overview over the city); Fallujah West `gpm_cq` 64,
+view `city1`. Main thread at 100 % and the `hud` span (the wait in Present) large in every case:
+CPU-bound. Times are per frame; CPU shares of the main thread are turned into ms of the frame.
+
+| | Muttrah `high` | Fallujah `city1` |
+|---|---|---|
+| Frame, cascades on | 14.9 ms | 28.9 ms |
+| Frame, `renderer.sunShadows 0` | 8.7 ms | 15.6 ms |
+| Caster pass, whole cost | 6.2 ms (42 %) | 13.3 ms (46 %) |
+| Draws: cascade c0 / c1 / c2 / c3 | 0 / 97 / 1232 / 3939 | 31 / 228 / 2437 / 7181 |
+| Draws: depth prepass | 2507 | 4524 |
+| Draws: lit and other passes | 2770 | 4623 |
+| Draws, total | 10545 | 19024 |
+
+Draws are the last frame of a `BF2_DRAW_STATS` session at the same view. Nearly all of them are
+static mesh materials, one draw per material in every pass (the caster and prepass techniques
+included); terrain, overgrowth and roads are a few hundred. Cascade c3 (about 107 to 400 m) holds
+three quarters of the caster draws at about 185 triangles a draw; on Fallujah the fog hides most
+of what it draws.
+
+Main thread by image and object file, ms per frame, cascades on / off / difference:
+
+| | Muttrah on | off | diff | Fallujah on | off | diff |
+|---|---|---|---|---|---|---|
+| RendDX9.dll | 8.06 | 4.27 | 3.79 | 15.62 | 8.04 | 7.58 |
+| d3dx9_25.dll (effect framework) | 2.44 | 1.46 | 0.98 | 5.32 | 2.58 | 2.75 |
+| d3d9.dll (DXVK) | 2.05 | 1.41 | 0.64 | 3.62 | 2.42 | 1.20 |
+| BF2.exe | 1.29 | 0.90 | 0.39 | 2.60 | 1.51 | 1.09 |
+| StateManager | 1.83 | 1.00 | 0.83 | 3.30 | 1.72 | 1.58 |
+| RenderQueues | 1.58 | 1.04 | 0.54 | 2.69 | 1.76 | 0.93 |
+| RaShader | 1.22 | 0.63 | 0.59 | 2.49 | 1.37 | 1.11 |
+| StaticMesh | 1.07 | 0.48 | 0.59 | 2.40 | 1.03 | 1.37 |
+| ObjectDrawer | 0.77 | 0.23 | 0.54 | 2.08 | 0.64 | 1.44 |
+
+Top functions (nearest public symbol, Muttrah, cascades on): StateManager's pre-draw apply 8.4 %,
+`RaShader::applyParameterVector` 5.6 %, `StaticMesh::drawVanilla` 4.1 %, render queue walk 2.5 %,
+`renderQueuesDrawShadowCasters` 2.4 %, `StaticMeshMaterial::applyStreams` 2.3 %, box-frustum tests
+1.5 %, `ObjectDrawer::submitShadowCasters` 1.3 %.
+
+Read:
+- The caster pass is the largest single cost, and most of it is per draw: D3DX, the state manager,
+  Ra parameters, mesh draws and DXVK. Its own culling (ObjectDrawer, the BF2.exe cullers, the caster
+  sort) is about 1 ms on Muttrah and 2.5 ms on Fallujah.
+- The main thread spends about 1.4 µs (Muttrah) to 1.5 µs (Fallujah) per draw, culling included.
+- Leads for the task order: draws in the depth-only passes (prepass, casters) could be one per mesh
+  rather than one per material where the materials share the depth shader (no alpha test); and
+  contribution culling applied to casters by their size in cascade texels would remove much of
+  cascade c3's small draws.
 
 ## Plan
 
