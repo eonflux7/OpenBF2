@@ -33,11 +33,16 @@ off by default and inert when unset, and is listed in [flags.md](flags.md) when 
 |---|---|---|
 | 1. Views | `tools(view)` | Planned |
 | 2. Unattended runs and regression | `tools(run)` | Planned |
-| 3. Paths and benchmark | `tools(bench)` | Planned |
+| 3. Benchmark path | `tools(bench)` | Planned |
 | 4. Renderer inspection (alongside render milestone 9) | `tools(inspect)` | Planned |
-| 5. Soldier mode and capture | `tools(soldier)` | Planned |
+| 5. Repeatability and map coverage (after render milestone 9) | `tools(bench)` | Planned |
+| 6. Soldier mode and capture | `tools(soldier)` | Planned |
 
-Starting set (owner): about 5 views and one benchmark path each on Muttrah City and Saaremaa.
+Scope (owner, 2026-11-19): milestones 1–3 hold only what render milestone 9 needs: views,
+screenshots stamped with both commits, unattended runs with a diff and contact sheet, and one
+real-time benchmark path per map with a per-frame CSV. Bookmarks, bit-identical shots, the
+fixed-step clock, path editing in the Views tab, the hitch log and the perf map wait for
+milestone 5. Starting set: about 5 views and one benchmark path each on Muttrah City and Saaremaa.
 
 ### 1. Views
 
@@ -49,7 +54,7 @@ view hands the camera back to the game.
 Only the client's camera moves. The server still places the player at the spawn screen, so dynamic
 objects (vehicles, other soldiers) far from it may not be sent to the client and do not appear at
 a view. Static geometry, terrain, overgrowth and effects are local and always draw. Views that need
-dynamic objects wait for soldier mode (milestone 5).
+dynamic objects wait for soldier mode (milestone 6).
 
 **Free fly.** A key toggles a free camera: no collision, mouse look, adjustable speed, mouse wheel
 for FOV. This is how views are placed.
@@ -93,10 +98,6 @@ keeping comments, order and blank lines. `view.reload` (Reload in the tab) rerea
 **Views tab:** the list with Go, Update (to the current camera), Delete and reordering; set editing;
 Save current view; the note and run lines of the selected view.
 
-**Bookmarks:** while free fly is on, Ctrl+F1..F8 store the current camera and F1..F8 go back to it,
-for quick A/B looks without naming views. Not saved. Outside free fly, F1..F8 keep switching vehicle
-seats ([ui.md](ui.md)); free fly takes the input from the soldier, so the keys never mean both.
-
 **Screenshot in the engine.** The scene is read back before the HUD (or with it, by option) and
 written as PNG, plus a 960-wide JPEG for quick review. It works when the window is covered.
 
@@ -114,9 +115,10 @@ their defaults.
 
 Accepted when: views are placed with free fly and saved from the menu, `view.go` from the console
 and from `BF2_DEVCMD_FILE` reaches the same image, and two shots of the same view in one session
-are bit-identical (the **determinism check**). Render milestone 8's anti-aliasing has no temporal part, so any
-difference has a source that can be named; one that cannot be frozen is named in the report, and
-only then does the check fall back to a tolerance.
+differ by no more than a stated tolerance (the **determinism check**), with every remaining source
+of difference named in the report. Render milestone 8's anti-aliasing has no temporal part, so each
+difference has a source that can be named. Bit-identical shots are milestone 5's goal, not a
+condition here.
 
 ### 2. Unattended runs and regression
 
@@ -159,17 +161,13 @@ Accepted when: an unattended run on Muttrah City and on Saaremaa produces a repo
 sheet, a second run diffs clean against the first, and a deliberate shader error fails the load
 gate.
 
-### 3. Paths and benchmark
+### 3. Benchmark path
 
 **A path** is a list of keyframes (view fields plus a time), played on a Catmull-Rom spline for
 position and smoothed for angles and FOV. It is stored in the map's view file as `path NAME` with
-indented `key TIME pos=… yaw=… pitch=… fov=…` lines. The Views tab adds a keyframe at the current
-camera, previews the path and draws it in the world while editing.
-
-**Two clocks.** Real time for benchmarks (frame times as they are); fixed step for images (frame N
-looks the same in every run). The fixed step drives the frozen renderer time from milestone 1 as
-well as the camera, so the image at frame N does not depend on how fast frames drew.
-`path.play NAME [real|fixed]`, `path.stop`.
+indented `key TIME pos=… yaw=… pitch=… fov=…` lines. `path.key NAME TIME` appends a keyframe at the
+current camera; otherwise the file is edited by hand. Paths play in real time: `path.play NAME`,
+`path.stop`.
 
 **Benchmark.** `bench.run PATH [runs] [label]` plays the path in real time, after one warm-up pass,
 the given number of times (default 3). It turns vsync off and `game.lockFps` to 0 for the
@@ -182,20 +180,9 @@ work, not the span from start to end of the frame); the summary gives the share 
 GPU bound. Each labelled benchmark appends its summary to a per-map history file, so frame time and
 draw counts can be charted across milestones.
 
-**Hitch log.** During paths and benchmarks (and in normal play with `tools.hitchLog 1`), frames over
-`tools.hitchMs` (default 50 ms) are logged with what happened in them: an effect compiled at run
-time, textures streamed in, effects created. It reuses the timed spans `BF2_LOAD_TRACE` already
-records ([perf-load.md](perf-load.md)) rather than a second set of probes.
-
-**Perf map.** `bench.map [step]` samples the map on a grid (default 64 m) at four headings, with
-the camera 2 m above the terrain, unattended, and writes frame time and draw counts per cell as an
-image over the minimap and as a table. Each sample settles and then averages 30 frames; a 2 km map
-at the default grid is about 1,000 cells and 4,000 samples, roughly 20 minutes. Any cell can be
-saved as a view, so the worst places on a map are found rather than guessed.
-
 Accepted when: three runs of each of the Muttrah City and Saaremaa benchmark paths agree within
 2 % on average frame time and 5 % on 1 % low (stated in the report, so render milestone 9's gains can
-be told from noise), and a perf map of one map is produced.
+be told from noise).
 
 ### 4. Renderer inspection
 
@@ -219,7 +206,38 @@ Accepted when: at a Muttrah City view, the draw breakdown's totals match the fra
 every debug mode and pass toggle works in the menu and from the console, a RenderDoc capture reads
 by pass marker, and a variable sweep writes its strip.
 
-### 5. Soldier mode and capture
+### 5. Repeatability and map coverage
+
+After render milestone 9; what milestones 1–3 left out.
+
+**Bookmarks:** while free fly is on, Ctrl+F1..F8 store the current camera and F1..F8 go back to it,
+for quick A/B looks without naming views. Not saved. Outside free fly, F1..F8 keep switching vehicle
+seats ([ui.md](ui.md)); free fly takes the input from the soldier, so the keys never mean both.
+
+**Fixed-step clock.** Besides real time for benchmarks (frame times as they are), a fixed step for images (frame N
+looks the same in every run). The fixed step drives the frozen renderer time from milestone 1 as
+well as the camera, so the image at frame N does not depend on how fast frames drew.
+`path.play NAME [real|fixed]`, `path.stop`.
+
+**Path editing** in the Views tab: add a keyframe at the current camera, preview the path and draw
+it in the world while editing.
+
+**Hitch log.** During paths and benchmarks (and in normal play with `tools.hitchLog 1`), frames over
+`tools.hitchMs` (default 50 ms) are logged with what happened in them: an effect compiled at run
+time, textures streamed in, effects created. It reuses the timed spans `BF2_LOAD_TRACE` already
+records ([perf-load.md](perf-load.md)) rather than a second set of probes.
+
+**Perf map.** `bench.map [step]` samples the map on a grid (default 64 m) at four headings, with
+the camera 2 m above the terrain, unattended, and writes frame time and draw counts per cell as an
+image over the minimap and as a table. Each sample settles and then averages 30 frames; a 2 km map
+at the default grid is about 1,000 cells and 4,000 samples, roughly 20 minutes. Any cell can be
+saved as a view, so the worst places on a map are found rather than guessed.
+
+Accepted when: two shots of the same view are bit-identical, or the report names what cannot be
+frozen; a fixed-step path gives the same frame N in two runs; the hitch log names the work in a
+frame over `tools.hitchMs`; and a perf map of one map is produced.
+
+### 6. Soldier mode and capture
 
 - **Soldier mode:** the local server spawns a kit at a view's position and heading, so views can
   show the first-person model (toggled per view) and its shaders. Optionally a vehicle at the view
@@ -230,7 +248,7 @@ by pass marker, and a variable sweep writes its strip.
 - **Load stress:** spawn vehicles and soldiers at a view, or trigger explosions and smoke, for the
   cost of skinned meshes and particles.
 - **Settings matrix:** run a set under several profiles (antialiasing, resolution, shadow quality).
-- **Temporal metric:** on a slow fixed-step path, the difference between consecutive frames, so
+- **Temporal metric:** on a slow fixed-step path (milestone 5), the difference between consecutive frames, so
   LOD popping, shadow shimmer and crossfade flicker become a number.
 
 Accepted when: a view with soldier mode on shows the first-person model and a vehicle view shows

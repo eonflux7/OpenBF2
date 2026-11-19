@@ -6,7 +6,8 @@ flags. Rules: [AGENTS.md](../../AGENTS.md#flags).
 
 ## `render`: only while a milestone is developed
 
-None at present. Retired, their behaviour now unconditional: `BF2_REVERSED_Z`, `BF2_HDR`,
+None at present; a milestone's A/B switch is a temporary console variable unless it cannot change at
+run time. Retired, their behaviour now unconditional: `BF2_REVERSED_Z`, `BF2_HDR`,
 `BF2_FRAME_GRADE`, `BF2_DEPTH_PREPASS` (`2b3fec82`); `BF2_SUN_SHADOWS`, `BF2_CSM_DISTANCE`,
 `BF2_CSM_RES`, `BF2_CSM_CASTER_REACH` (milestone 5; the values are console variables now).
 

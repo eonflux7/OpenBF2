@@ -33,7 +33,9 @@ is in [renderer-pipeline.md](renderer-pipeline.md).
 The owner accepts each milestone in game before the next starts. From milestone 9 on that is done
 against the `tools` lane's reference views and benchmark paths ([tools.md](tools.md)), with the GPU
 pass timers ([renderer-pipeline.md](renderer-pipeline.md#gpu-pass-timers)) and the debug overlay
-([ui.md](ui.md)).
+([ui.md](ui.md)). Each milestone from 9 on also states its frame-time change on the benchmark paths
+against the previous milestone's baseline; a regression stands only if the owner accepts it
+explicitly, and is recorded with the milestone in [renderer-pipeline.md](renderer-pipeline.md).
 
 Order: draw submission comes before terrain and the atmosphere, so the new terrain draw is written
 once on the new path and the parameters milestones 11–13 add cost nothing per draw. Terrain comes
@@ -47,11 +49,29 @@ inputs (milestone 11) instead.
 ### 9. Draw submission
 
 The frame is CPU-bound ([perf-frame.md](perf-frame.md)): the D3DX effect framework's per-draw
-parameter, pass and commit calls take about 15 % of the main thread, and Ra parameter apply and mesh
-draws about 14 %. The renderer takes over constant uploads and shader binding for its draws, keeping
-the effect files as the shader source. The sun caster pass reuses the camera's object culling
-instead of culling again over the cascades' light volume (about 7 %). Behind a flag selecting the
-D3DX path until accepted.
+parameter, pass and commit calls take about 15 % of the main thread, Ra parameter apply and mesh
+draws about 14 %, and DXVK's own per-draw work 13 %; milestone 8's LOD policy raised the draw count.
+This milestone makes each draw cheaper, issues fewer of them, and gives the renderer code of its own
+in place of patches spread through the retail renderer. Decided by the owner, 2026-11-19:
+
+- **Frame module.** A new module owns the pass sequence ([Frame](renderer-pipeline.md#frame)) in
+  one place; `BF2Render.cpp`'s retail-shaped frame function calls into it instead of carrying the
+  passes inline.
+- **Submission layer.** Mesh, terrain and overgrowth code fills draw packets (technique, constants,
+  vertex and index buffers, states) instead of calling D3DX per draw. The layer uploads constants and
+  binds shaders itself, keeping the effect files as the shader source. Packets name no D3D9 type
+  beyond their resources, so a later Vulkan backend consumes the same packets.
+- **Fewer draws.** Hardware instancing (D3D9 stream frequency) for overgrowth and repeated static
+  meshes. Contribution culling in place of the distance cull milestone 8 removed: an object whose
+  projected size is below a pixel threshold (a `renderer.*` variable) is not drawn, fading out over
+  the LOD dither band rather than popping, so the cull follows resolution and field of view rather
+  than raw distance.
+- **Caster culling.** The sun caster pass reuses the camera's object culling instead of culling
+  again over the cascades' light volume (about 7 %).
+- **Contract version.** The engine passes `RA_CONTRACT` (a number) as a define to every effect it
+  compiles, and the shaders `#error` when it is older than they need, so a shader set never runs on
+  an engine without its contract. The load gate (`tools` milestone 2) reports the failure.
+- **A/B.** A temporary console variable selects the D3DX path while the milestone is developed.
 
 ### 10. Terrain in one pass
 

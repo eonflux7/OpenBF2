@@ -105,11 +105,14 @@ the same comment. A marker is a pointer, not a justification.
 
 ## Flags
 
-- Environment flags select code paths. Values that get tuned are console variables (`renderer.*`,
-  `tools.*`), so the console, scripts, config files and the debug menu can all set them.
+- Environment flags select what is fixed for a session (dev hooks, device creation). Anything that
+  can change while the game runs is a console variable (`renderer.*`, `tools.*`): tuned values and
+  the A/B switches of milestones in development, so the console, scripts, config files and the
+  debug menu can all set them.
 - Every environment flag and build option this project adds is listed in `docs/eon64/flags.md`.
-- `render`: a flag exists only while its milestone is developed. On acceptance the flag and the
-  path it replaced are deleted in the same change.
+- `render`: a milestone in development may keep the old path selectable, by a temporary console
+  variable (an environment flag only where the switch cannot happen at run time). On acceptance the
+  switch and the old path are deleted in the same change.
 - `perf`: a change to order, threading or caching has a flag forcing the old path (serial, uncached,
   in the old order) until the owner accepts it, then goes as for `render`. A swap that returns the
   same result (a lookup in place of a scan) needs no flag, only the in-game check.
