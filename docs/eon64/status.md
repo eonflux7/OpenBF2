@@ -39,8 +39,10 @@ owner, 2026-11-19, Muttrah City):
    Fallujah West added by the owner (worst map, ~35 fps in play), path `bench`: 25.50 ms
    (39 fps), 1 % low 32.05 ms, CPU bound, spread 2.71 % / 2.85 %; pass spans largest in the
    depth prepass (6.2 ms), world opaque (4.8) and sun cascade 3 (3.7), CPU submission included.
-   Draws read 146 (Saaremaa) and 313 (Fallujah) per frame, which look too low to be the whole
-   frame; not checked. Muttrah City baseline not yet taken.
+   Muttrah City, `bench1`: 13.37 ms (75 fps), 1 % low 18.48 ms, CPU bound, spread 1.16 % /
+   1.83 % (within target); depth prepass 3.2 ms, world opaque 3.0, sun cascade 3 1.2.
+   Draws read 146 (Saaremaa), 313 (Fallujah) and 377 (Muttrah City) per frame, which look too
+   low to be the whole frame; not checked.
 
 ## Paused: `tools` milestone 1, views
 
