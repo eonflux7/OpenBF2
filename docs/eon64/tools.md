@@ -259,6 +259,29 @@ work, not the span from start to end of the frame); the summary gives the share 
 GPU bound. Each labelled benchmark appends its summary to a per-map history file, so frame time and
 draw counts can be charted across milestones.
 
+As built (`ViewTool.cpp`; renderer side `RendDX9/ToolsBench.cpp`, `GpuTimers.cpp`): `bench.run PATH
+[runs] [label]` (runs 1–20, default 3) plays the warm-up and the runs back to back, without handing
+the camera back between them; `bench.stop` ends it without files, as does anything that stops the
+path (`path.stop`, `view.go`, `view.leave`, free fly); `path.play` is refused meanwhile;
+`bench.last` says which pass is drawing, or gives the last result line. `game.lockFps` refuses 0,
+so the benchmark skips BF2Engine's client frame limiter instead and leaves `lockFps` as it was;
+vsync goes through `renderer.vsync`, which resets the device when it changes (the warm-up absorbs
+it). The renderer records each presented frame of a run: the time between Present returns (the
+frame time), the time Present blocked, the draws and primitives of the frame's statistics row, and
+the GPU time per pass, filed under its frame when the timestamp queries come back (the timers run
+while the benchmark records, eight frames in flight so that uncapped frames are not dropped). Twelve
+frames after the last run, still uncapped, the tool writes `<tools.outputDir>/<map>/bench/<PATH>
+[-<label>]-<time>.csv` (one row per frame: run, frame, time, frame, CPU and Present-wait ms, GPU
+ms, GPU bound, draws, primitives, one column per pass) and `.txt` (per run and overall: frames,
+average, 1 % low, worst, CPU, wait and GPU means, draws, primitives, GPU-bound share; the spread
+between runs, (largest − smallest) / mean, of the average and the 1 % low; per-pass means).
+
+GPU busy time is not measurable with D3D9 timestamps: the pass spans include the GPU's idle time
+when the CPU is the bottleneck, and under DXVK they sum to about the frame time either way. A
+frame is therefore GPU bound when Present blocked for 10 % of its frame time or more (the driver
+holds Present while the GPU is frames behind); CPU time is the frame time less that wait. Not yet
+built: the history file and the acceptance check.
+
 Accepted when: three runs of each of the Muttrah City and Saaremaa benchmark paths agree within
 2 % on average frame time and 5 % on 1 % low (stated in the report, so render milestone 9's gains can
 be told from noise).

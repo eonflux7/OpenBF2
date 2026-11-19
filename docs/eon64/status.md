@@ -23,14 +23,17 @@ Plan: [tools.md](tools.md#3-benchmark-path). Left for later: milestone 1 tasks 6
 and milestone 3's history file and acceptance check (the spread between runs is still reported).
 
 Tasks (1–2 done: paths, playback and their Views tab section seen in game by the owner,
-2026-11-19, Muttrah City):
+2026-11-19, Muttrah City; 3 built and tried on Muttrah City by an agent, 2026-11-19, not yet seen
+by the owner):
 1. Paths in the view file: `path NAME` with indented `key TIME pos=… yaw=… pitch=… fov=…` lines,
    parsed and written like views; `path.key NAME TIME` appends a keyframe at the current camera.
 2. Playback: `path.play NAME`, `path.stop`; real time, Catmull-Rom position, smoothed angles and FOV.
-3. `bench.run PATH [runs] [label]`: a warm-up pass, then the runs with vsync and `game.lockFps` off
-   (restored after); per-frame CSV (frame, CPU frame time, GPU busy per pass, draws) and a summary
+3. `bench.run PATH [runs] [label]`: a warm-up pass, then the runs with vsync and the frame cap off
+   (restored after); per-frame CSV (frame, CPU frame time, GPU time per pass, draws) and a summary
    (average, 1 % low, worst, per-pass averages, spread between runs, CPU or GPU bound) in
-   `<tools.outputDir>/<map>/bench/`.
+   `<tools.outputDir>/<map>/bench/`. Tried: path `new` (10 s), 3 runs at 11.57 ms (86 fps), spread
+   0.84 % on average and 18 % on 1 % low, every frame CPU bound, no GPU result dropped; vsync
+   restored; the cap bypassed (`game.lockFps 50` ran at 75 fps); `bench.stop` writes nothing.
 4. One path each on Muttrah City and Saaremaa.
 
 ## Paused: `tools` milestone 1, views
@@ -73,6 +76,9 @@ Plan: [renderer.md](renderer.md#9-draw-submission): frame module, submission lay
 contribution culling, caster culling, contract version. Tasks: not yet broken down.
 
 Open from milestone 8:
+- Crash in the first frame after a device reset (`renderer.vsync` toggled, here by `bench.run`):
+  a null read in d3dx9 from `renderQueuesDrawShadowCasters` in `rendererSunShadowsRender`. Once
+  in four resets, Muttrah City, 2026-11-19.
 - Frame rate: about 20 % lower on Muttrah City after milestone 8's LOD work (owner), perhaps lower
   again after the overgrowth crossfade (Saaremaa, not measured). CPU-bound; measurements and leads
   in [perf-frame.md](perf-frame.md#after-render-milestone-8). Milestone 9's target.
