@@ -112,6 +112,9 @@ struct Target
     // Per register component (per register for BOOL), the word of the parameter's value that
     // feeds it, or -1 for zero; computed once, so a draw only copies.
     std::vector<int> source;
+    // Float registers filled from consecutive words starting at `offset`, none zero: the value is
+    // uploaded in place, without the gather.
+    bool identity;
 };
 
 // Fills t.source from the shape: either matrix packing, arrays, vectors and scalars.
@@ -125,6 +128,7 @@ void mapTarget(Target& t, unsigned int wordCount)
     const unsigned int width = t.set == D3DXRS_BOOL ? 1u : 4u;
     t.regCount = regCount;
     t.source.assign(width * regCount, -1);
+    t.identity = false;
     if (!perElement)
         return;
     unsigned int out = 0;
@@ -149,6 +153,12 @@ void mapTarget(Target& t, unsigned int wordCount)
             }
         }
     }
+    if (t.set != D3DXRS_FLOAT4 || t.type != D3DXPT_FLOAT || t.source.empty())
+        return;
+    for (size_t k = 0; k < t.source.size(); ++k)
+        if (t.source[k] != static_cast<int>(t.offset + k))
+            return;
+    t.identity = true;
 }
 
 struct Binding
@@ -179,6 +189,15 @@ void emitTarget(const Target& t, const std::uint32_t* words, unsigned int)
     if (!count)
         return;
     const int* const source = &t.source[0];
+    if (t.identity)
+    {
+        const float* const data = reinterpret_cast<const float*>(words + t.offset);
+        if (t.pixel)
+            stateManagerSetPixelShaderConstantF(t.reg, data, t.regCount);
+        else
+            stateManagerSetVertexShaderConstantF(t.reg, data, t.regCount);
+        return;
+    }
     if (t.set == D3DXRS_FLOAT4 && t.type == D3DXPT_FLOAT)
     {
         for (unsigned int k = 0; k < count; ++k)
@@ -453,6 +472,13 @@ private:
         if (!current)
             return E_FAIL;
         std::vector<std::uint32_t>& w = current->words;
+        if (current->type == D3DXPT_FLOAT)
+        {
+            const size_t count = (std::min<size_t>)(n, w.size());
+            if (count)
+                std::memcpy(&w[0], values, count * 4u);
+            return emit();
+        }
         for (unsigned int i = 0; i < n && i < w.size(); ++i)
             w[i] = wordFromFloat(current->type, values[i]);
         return emit();
@@ -465,6 +491,13 @@ private:
         std::vector<std::uint32_t>& w = current->words;
         const unsigned int stride = (std::max)(1u, current->rows * current->cols);
         const unsigned int take = (std::min)(4u, stride);
+        if (current->type == D3DXPT_FLOAT)
+        {
+            for (unsigned int e = 0; e < n && e * stride < w.size(); ++e)
+                std::memcpy(&w[e * stride], &v[e].x,
+                            (std::min<size_t>)(take, w.size() - e * stride) * 4u);
+            return emit();
+        }
         for (unsigned int e = 0; e < n; ++e)
         {
             const float* const f = &v[e].x;
@@ -483,12 +516,21 @@ private:
         const unsigned int rows = (std::min)(4u, current->rows);
         const unsigned int cols = (std::min)(4u, current->cols);
         const unsigned int stride = current->rows * current->cols;
+        // A float matrix four columns wide, not transposed: its rows are the value's rows.
+        const bool rowCopy = current->type == D3DXPT_FLOAT && !transpose && current->cols == 4;
         for (unsigned int e = 0; e < n; ++e)
         {
             const D3DXMATRIX* const matrix = contiguous
                 ? reinterpret_cast<const D3DXMATRIX*>(m) + e : m[e];
             if (!matrix)
                 continue;
+            if (rowCopy)
+            {
+                if (e * stride < w.size())
+                    std::memcpy(&w[e * stride], matrix,
+                                (std::min<size_t>)(rows * 4u, w.size() - e * stride) * 4u);
+                continue;
+            }
             for (unsigned int r = 0; r < rows; ++r)
                 for (unsigned int c = 0; c < cols; ++c)
                 {
