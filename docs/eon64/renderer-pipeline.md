@@ -210,16 +210,23 @@ against the cascade volume into a caster list (`rendererShadowCasters`). Camera 
 reused, because meshes cull per material against the camera. Casters draw with each Ra effect's
 `RaShadowDepth` technique; terrain draws its own (`Terrain::drawShadowCasters`).
 
-Objects come from the object manager's roots-only grid query against the light volume;
-hierarchies are expanded by the drawer. Seen in game on Muttrah (`2860a74a`): a supply crate's
-shadow no longer depends on view direction. Objects have no distance cull (milestone 8), so a caster
-never depends on the camera's distance to it.
+Objects come from the object manager's roots-only grid query against the light volume (the
+light-space box around the four cascade spheres); hierarchies are expanded by the drawer. Seen in
+game on Muttrah (`2860a74a`): a supply crate's shadow no longer depends on view direction. Objects
+have no distance cull (milestone 8), so a caster never depends on the camera's distance to it.
 
 Each cascade draws only the casters that can shadow a receiver in its own slice
 (`ShadowCascadeCull`): in light space, the 2D convex hull of the slice's eight corners, pushed out by
 the receivers' filter (2.5 cascade texels) plus their normal offset, and in depth from the projection's
-sun-side bound to the slice's farthest corner. Casters carry a world bounding sphere; one without
-bounds draws in every cascade.
+sun-side bound to the slice's farthest corner. Casters carry a world bounding sphere, the geometry's
+local box sphere through its world transform; one without bounds draws in every cascade.
+
+The gather applies the same test once for the whole shadow range (the hull of the slice from the
+near plane to the shadow distance, the widest cascade's margin, the nearest sun-side bound), which
+holds every cascade's own cull, before any work on an object: an object stays when its visual
+bounding sphere (the grid query's) or one of its geometries' spheres touches the range. Only those
+are brought up to date (visual update, geometry update) where the camera pass did not see them, and
+submitted. The light volume holds 1.5 to 2.3 times as many objects as reach a cascade.
 
 - Four cascades over the view depth up to 400 m, split by a blend of
   logarithmic and uniform (lambda 0.75). Each cascade but the last also covers the first 20 % of

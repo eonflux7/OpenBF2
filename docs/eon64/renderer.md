@@ -66,8 +66,10 @@ in place of patches spread through the retail renderer. Decided by the owner, 20
   projected size is below a pixel threshold (a `renderer.*` variable) is not drawn, fading out over
   the LOD dither band rather than popping, so the cull follows resolution and field of view rather
   than raw distance.
-- **Caster culling.** The sun caster pass reuses the camera's object culling instead of culling
-  again over the cascades' light volume (about 7 %).
+- **Caster culling.** The sun caster pass does no work on objects that cannot reach a cascade
+  (about 7 % of the main thread went to the caster pass's culling and gather). Reusing the camera's
+  culled sets alone would lose the shadows of casters it does not see, so the gather tests each
+  object against the shadow range swept toward the sun first (owner, 2026-11-19).
 - **Contract version.** The engine passes `RA_CONTRACT` (a number) as a define to every effect it
   compiles, and the shaders `#error` when it is older than they need, so a shader set never runs on
   an engine without its contract. The load gate (`tools` milestone 2) reports the failure.

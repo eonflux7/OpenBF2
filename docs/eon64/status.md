@@ -90,7 +90,7 @@ acceptance number); the breakdown that steers the work is taken at fixed views, 
 holds still: CPU samples by subsystem ([perf-frame.md](perf-frame.md#measuring)), GPU spans and
 draws per technique and pass.
 
-Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 next, before 4):
+Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; task 4 loaded by an agent):
 1. Breakdown at fixed views: one view each on Muttrah City and Fallujah West (the dense ones),
    CPU samples by subsystem, GPU spans, draws per pass (`BF2_DRAW_STATS`), and the same with the
    sun cascades off, for the caster pass's whole cost. Recorded in
@@ -115,7 +115,18 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 next, before 4):
    588 pixels of 1.44 M differ, all on wind-blown palms (PSNR 60 and 44 dB). Not yet seen by
    the owner.
 4. Caster culling: the sun caster pass takes the camera's object culling instead of culling again
-   over the cascades' light volume.
+   over the cascades' light volume. Built as a test at the gather instead (owner's choice,
+   2026-11-19: reusing the camera's sets alone would lose the shadows of casters the camera does
+   not see): each object from the light volume is tested against the whole shadow range swept
+   toward the sun before any work on it, and the casters' spheres are the local box's own.
+   `renderer.casterCull` (default 1). Loaded by an agent on Fallujah West and Muttrah City,
+   2026-11-19: caster draws per cascade equal with 1 and 0 at five views, captured casters 23 to
+   57 % fewer; view shots within the noise; same-session pairs, 1 against 0, Muttrah City `bench1`
+   9.59 / 10.73 ms, Fallujah West `bench` 17.85 / 19.62 ms
+   ([perf-frame.md](perf-frame.md#render-milestone-9-task-4)). Not yet seen by the owner.
+   Proposed next to it (owner, 2026-11-19, "most of the map is static"): cached static casters,
+   the far cascades' static casters kept in their map while the snapped cascade holds still,
+   moving objects drawn over a copy each frame. Not planned yet.
 5. Submission layer and its A/B variable: the packet (shaders, constants, buffers, states), shaders
    and constant layout taken from the effect files once, constants uploaded by the layer. First
    consumers the depth prepass and the sun casters (one technique each, most of the draws).

@@ -183,6 +183,41 @@ draw. Same-session pairs, 3 runs each, programs against D3DX:
 D3DX draws in the instance-first order without merging, which costs it material switches on
 Muttrah. Fallujah West, with the most draws, gains 3.6 %, near the runs' spread (2.9 %).
 
+## Render milestone 9, task 4
+
+Caster culling (`renderer.casterCull`): each object from the light volume's grid query is tested
+against the whole shadow range swept toward the sun before its visual update, geometry update and
+submission ([Sun shadows](renderer-pipeline.md#sun-shadows)). Caster draws per cascade are equal
+with the variable at 1 and 0 at every view counted (`BF2_DRAW_STATS`, last frame):
+
+| View | Captured casters, 0 / 1 | Cascade draws c0–c3 |
+|---|---|---|
+| Fallujah West `city1` | 10515 / 7020 | 26, 193, 2175, 6469 |
+| Fallujah West `city2` | 8308 / 4218 | 38, 369, 1073, 3586 |
+| Fallujah West `city3` | 10471 / 6617 | 39, 217, 1432, 6024 |
+| Muttrah City `high` | 4908 / 3770 | 0, 51, 948, 3097 |
+| Muttrah City `market` | 4934 / 2130 | 44, 181, 644, 1502 |
+
+A first version tested only the objects' visual bounding spheres and lost 6 of the 6476 c3 draws
+at `city1`: the casters' own spheres (then the sphere around the transformed box's world-aligned
+box) were 1.1 to 1.3 times larger and centred up to a metre off the object's position. The casters'
+spheres are now the local box's own sphere, which also takes 20 draws out of c1–c3 at `city1`,
+and the range test keeps an object when either sphere touches.
+
+At Fallujah `city1` (10 s samples) `ObjectDrawer::submitShadowCasters` goes from 4.5 % to 2.2 % of
+the main thread, plus 1.6 % for the range test. The two pointer sorts of the gather (3.1 % before
+the task) are gone in both settings: the dedupe and the camera sets' membership test use a hashed
+pointer set. Same-session pairs, 3 runs each, skirmish layer, programs, `casterCull` 1 against 0:
+
+| Path | 1 | 0 | Gain |
+|---|---|---|---|
+| Muttrah City `bench1` | 9.51, 9.67 ms | 10.91, 10.54 ms | 10.6 % |
+| Fallujah West `bench` | 18.17, 17.52 ms | 19.65, 19.59 ms | 9.0 % |
+
+View shots, `casterCull` 1 against 0: Muttrah `high` 19 pixels differ (17 between two shots at
+1); Fallujah `city1` 5414 (3680 between two shots at 1), the same regions in both: smoke and
+wind-blown palms.
+
 ## Plan
 
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
