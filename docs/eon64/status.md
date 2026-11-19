@@ -90,7 +90,7 @@ acceptance number); the breakdown that steers the work is taken at fixed views, 
 holds still: CPU samples by subsystem ([perf-frame.md](perf-frame.md#measuring)), GPU spans and
 draws per technique and pass.
 
-Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; task 4 loaded by an agent):
+Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks 4 and 6 loaded by an agent):
 1. Breakdown at fixed views: one view each on Muttrah City and Fallujah West (the dense ones),
    CPU samples by subsystem, GPU spans, draws per pass (`BF2_DRAW_STATS`), and the same with the
    sun cascades off, for the caster pass's whole cost. Recorded in
@@ -153,6 +153,13 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; task 
    20.52 ms ([perf-frame.md](perf-frame.md#render-milestone-9-task-5)). Seen in game by the
    owner during these runs, 2026-11-19.
 6. Static meshes in the lit passes on packets, then bundled and skinned meshes (bone constants).
+   Done (`e9b6a8a4`): the queue walks draw a run of one effect and technique through its program,
+   so static, bundled and skinned meshes (bones through the `GeomBones` holder), roads, leaves and
+   water all leave D3DX; techniques of more than one pass keep it (none was met). Loaded by an
+   agent on Muttrah City, Fallujah West and Saaremaa, 2026-11-19: view shots with `submit` 1 and 0
+   differ only in wind and smoke; same-session pairs, 1 against 0, Muttrah City `bench1` 10.46 /
+   11.78 ms, Fallujah West `bench` 18.39 / 20.26 ms, Saaremaa `bench1` 8.27 / 8.70 ms
+   ([perf-frame.md](perf-frame.md#render-milestone-9-task-6)). Not yet seen by the owner.
 7. Terrain, overgrowth and undergrowth on packets.
 8. Instancing (stream frequency) for overgrowth and repeated static meshes.
 9. Contribution culling: below a projected size (`renderer.*` variable) an object is not drawn,

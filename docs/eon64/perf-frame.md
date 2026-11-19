@@ -218,6 +218,23 @@ View shots, `casterCull` 1 against 0: Muttrah `high` 19 pixels differ (17 betwee
 1); Fallujah `city1` 5414 (3680 between two shots at 1), the same regions in both: smoke and
 wind-blown palms.
 
+## Render milestone 9, task 6
+
+The queue walks (`drawWalkDefault`, `drawWalkNear`) draw through programs: static, bundled and
+skinned meshes, roads, leaves and water in their lit passes. No technique the three maps reached
+was refused (no `Submit: ... not drawable` line). Same-session pairs, 3 runs each, skirmish
+layer, `renderer.submit` 1 against 0 (0 now also puts the depth passes back on D3DX):
+
+| Path | 1 | 0 | Gain | Task 5's pair |
+|---|---|---|---|---|
+| Muttrah City `bench1` | 10.53, 10.46 ms | 11.78 ms | 11.2 % | 10.94 / 11.90 ms |
+| Fallujah West `bench` | 18.39 ms | 20.26 ms | 9.2 % | 18.70 / 20.52 ms |
+| Saaremaa `bench1` | 8.27 ms | 8.70 ms | 4.9 % | not measured |
+
+View shots, 1 against 0: Muttrah `high` 19 and `market` 580 pixels of 1.44 M (wind-blown palms);
+Fallujah `city1` 8072, `city2` 491, `city3` 15273 (drifting smoke and palms only); Saaremaa
+`forest1` 2242, `forest2` 8323 (7957 between two shots at 1: wind in the foliage), `runway` 3028.
+
 ## Plan
 
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here

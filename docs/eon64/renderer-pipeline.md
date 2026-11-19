@@ -340,9 +340,13 @@ Parameters the engine sets by semantic:
 ## Submission
 
 Render milestone 9 (in development, `renderer.submit`, default 1; 0 draws through D3DX). The depth
-prepass, water's linear depth and the sun casters draw through `Submit.cpp` instead of the D3DX
-effect calls. A **program** is pass 0 of one technique of a Ra effect, built the first time a walk
-reaches it and again when the effect is rebuilt or reset:
+prepass, water's linear depth, the sun casters and the render queues' walks (every lit mesh pass:
+static, bundled and skinned meshes, roads, leaves, water, first person) draw through `Submit.cpp`
+instead of the D3DX effect calls. A **program** is the one pass of one technique of a Ra effect,
+built the first time a walk reaches it and again when the effect is rebuilt or reset; a technique
+of more than one pass gets none and its walk stays on D3DX. A queue entry's technique key 0, or a
+key its effect lacks, takes the effect's default technique, as `RaShader::begin`. Ra effects share
+no effect pool, so every value a program reads comes from a holder or the effect's own default:
 
 - Its shaders and fixed states, recorded from one `BeginPass` through a recording state manager.
 - Where each parameter its shaders read lives: from the vertex and pixel shaders' constant tables
