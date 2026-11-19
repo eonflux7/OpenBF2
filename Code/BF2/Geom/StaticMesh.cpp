@@ -2439,13 +2439,11 @@ void StaticMesh::drawVanilla()
                     }
                     else if (material->m_vegetationNonTiled)                       // +0x1EC
                     {
-                        // [RENDER] One sun: trees take the static sun (retail: treeSunColor, +0x1C8).
-                        // Retail scaled sun by the overgrowth instance's baked shadow squared and the
-                        // ambient by it once; the sun cascades shadow trees now, so neither is.
-                        const Vec3& treeSun = g_LightManager->getStaticSunColor();
-                        sun->color[0] = treeSun.x;
-                        sun->color[1] = treeSun.y;
-                        sun->color[2] = treeSun.z;
+                        // [RENDER] Leaves are instanced (contract 3) and lit by the static sun in
+                        // world space (RaSunColor), not this entry's sun record (retail:
+                        // treeSunColor, +0x1C8). Retail scaled sun by the overgrowth instance's
+                        // baked shadow squared and the ambient by it once; the sun cascades shadow
+                        // trees now, so neither is.
                         staticMeshMaterialShader(material) = staticMeshFindShaderBits(
                             qualityMask & 0xF0000000u);
 
@@ -3066,14 +3064,13 @@ void staticMeshDrawExpansion(void* self)
                         staticMeshMaterialShader(material) = staticMeshFindShaderBits(bits & qualityMask);
                     else
                     {
+                        // [RENDER] Leaves and trunks are instanced (contract 3) and lit by the
+                        // static sun in world space (RaSunColor, RaSunDirection), not by this
+                        // entry's sun record (retail: treeSunColor for leaves, treeSkyColor for
+                        // expansion-pack trunks); no baked overgrowth shadow (retail: sun x
+                        // shadow squared, ambient x shadow), the sun cascades shadow them.
                         if (material->m_vegetationNonTiled)
                         {
-                            // [RENDER] One sun: the static sun (retail: treeSunColor); no baked
-                            // overgrowth shadow (retail: sun x shadow squared, ambient x shadow).
-                            const Vec3& color = g_LightManager->getStaticSunColor();
-                            sun->color[0] = color.x;
-                            sun->color[1] = color.y;
-                            sun->color[2] = color.z;
                             staticMeshMaterialShader(material) = staticMeshFindShaderBits(0xF0000000u & qualityMask);
                             const Vec3& ambient = g_LightManager->getTreeAmbientColor();
                             std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(&ambient.x, 1.0f),
@@ -3087,15 +3084,6 @@ void staticMeshDrawExpansion(void* self)
                         {
                             staticMeshMaterialShader(material) = staticMeshFindShaderBits(
                                 (bits & 4u ? 0xF9000000u : 0xFA000000u) & qualityMask);
-                            // [RENDER] No baked overgrowth shadow (retail: x shadow squared on the
-                            // sun, x shadow on the sky); the sun cascades shadow trunks.
-                            if (dx9rend::rendererIsExpansionPack())
-                            {
-                                const Vec3& color = g_LightManager->getTreeSkyColor();
-                                sun->color[0] = color.x;
-                                sun->color[1] = color.y;
-                                sun->color[2] = color.z;
-                            }
                             const Vec3& ambient = g_LightManager->getStaticSkyColor();
                             std::memcpy(entry->lighting.overGrowthAmbient.value, staticMeshPackVec4(&ambient.x, 1.0f),
                                         sizeof(entry->lighting.overGrowthAmbient.value));
