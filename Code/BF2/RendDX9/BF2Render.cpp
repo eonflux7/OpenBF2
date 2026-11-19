@@ -86,6 +86,7 @@
 #include "../GeomMisc/DebugRenderer.h"    // geom::g_DebugRenderer, flushed by renderFrame
 #include "../AI/AIDLL/AI/Main/BF2AI.h"    // ai::IAI - the "AI" singleton's isInitialized
 #include "GpuTimers.h"                    // [DEV] BF2_GPU_TIMERS
+#include "Submit.h"                       // [RENDER] submitInstancesRelease
 #include "Frame.h"                        // [RENDER] the scene's pass sequence
 #include "UiLayer.h"                      // [UI] docs/eon64/ui.md
 #include "../RendMisc/IRendererUi.h"     // [UI]
@@ -1040,6 +1041,7 @@ void releaseRendererPathResources(Renderer* renderer)
     dx9rend::rendererHdrReleaseSurface();                         // [RENDER] HDR
     dx9rend::rendererDepthPrepassRelease();                       // [RENDER] depth prepass
     dx9rend::rendererSunShadowsRelease();                         // [RENDER] sun cascades
+    dx9rend::submitInstancesRelease();                            // [RENDER] instance records
     dx9rend::gpuTimersRelease();                                  // [DEV] BF2_GPU_TIMERS
     dx9rend::uiLayerDeviceLost();                                 // [UI] ImGui device objects
     renderer->releaseHemiScratchTexture();

@@ -1359,6 +1359,9 @@ BF2_CONSOLE_PROPERTY_FN(sunShadows, bool, true, getSunShadows(), setSunShadows, 
 bool getSubmit() { return submitEnabled(); }
 void setSubmit(bool value) { submitSetEnabled(value); }
 BF2_CONSOLE_PROPERTY_FN(submit, bool, true, getSubmit(), setSubmit, kRendererConsoleTag)
+bool getInstancing() { return submitInstancingEnabled(); }
+void setInstancing(bool value) { submitSetInstancingEnabled(value); }
+BF2_CONSOLE_PROPERTY_FN(instancing, bool, true, getInstancing(), setInstancing, kRendererConsoleTag)
 
 // [RENDER] Caster culling A/B (milestone 9): 1 casters culled to the shadow range at the gather,
 // 0 every object in the cascades' light volume brought up to date and submitted.
@@ -1405,6 +1408,7 @@ const char* rendererVariableHelp(const char* name)
         { "sunShadowNormalOffset", "Receiver offset along its normal, in cascade texels (against acne)" },
         { "sunShadowDepthBias", "Receiver offset toward the sun, in cascade texels (against acne)" },
         { "submit", "Depth prepass and sun casters drawn by the submission layer; off, through D3DX effects (milestone 9 A/B)" },
+        { "instancing", "Static meshes that share a material drawn as instances of one draw; off, each instance drawn on its own (milestone 9 A/B)" },
         { "casterCull", "Sun casters culled to the shadow range swept toward the sun before any work on them; off, every object in the cascades' light volume (milestone 9 A/B)" },
         { "softParticleDistance", "Depth over which particles fade out in front of the scene, in metres" },
         { "uiMenuKey", "Win32 virtual-key code that opens and closes this menu (45 = Insert)" },

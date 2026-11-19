@@ -655,6 +655,7 @@ void stateManagerSetIndices(IDirect3DIndexBuffer9* indices);
 void stateManagerSetStreamSource(unsigned int stream, IDirect3DVertexBuffer9* vertexBuffer,
                                  unsigned int offset, unsigned int stride);
 void stateManagerSetVertexDeclaration(IDirect3DVertexDeclaration9* declaration);
+void* stateManagerVertexDeclaration();   // [RENDER] the declaration wanted for the next draw
 // the +0x34 SetVertexShader (0x10025BF0) and +0x44 SetPixelShader (0x10025C20)
 // slots as owner-TU seams, like the three dice binding slots above. Their one new caller is the
 // display-mode render probe sub_10009FF0 (RendDX9Init.cpp), which binds the shaders it assembles.
@@ -803,7 +804,7 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 // needs a newer contract stops with #error instead of running against an engine without it. Raised
 // whenever the engine changes what the shaders may rely on; docs/eon64/renderer-pipeline.md lists
 // what each version adds.
-#define RA_CONTRACT_VERSION 2
+#define RA_CONTRACT_VERSION 3
 #define RA_CONTRACT_TEXT_(v) #v
 #define RA_CONTRACT_TEXT(v) RA_CONTRACT_TEXT_(v)
 

@@ -1585,6 +1585,11 @@ void stateManagerSetStreamSource(unsigned int stream, IDirect3DVertexBuffer9* ve
     smSetStreamSource(sm(), stream, vertexBuffer, offset, stride);
 }
 
+void* stateManagerVertexDeclaration()
+{
+    return sm()->vertexDecl;
+}
+
 void stateManagerSetVertexDeclaration(IDirect3DVertexDeclaration9* declaration)
 {
     smSetVertexDeclaration(sm(), declaration);

@@ -10,6 +10,8 @@
 #include "DrawStats.h"
 #include "Ra/RaShader.h"
 #include "Submit.h"
+#include "../Geom/XpLightManager.h"
+#include "../Game/Objects/Visual/LightSource.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -23,6 +25,9 @@
 
 namespace dice {
 namespace hfe {
+
+namespace geom { extern LightManager* g_LightManager; }
+
 namespace dx9rend {
 
 extern void* g_stateManager;
@@ -294,10 +299,28 @@ struct SubmitProgram
     std::vector<Binding*> unheld;
     std::uint32_t stateValues[kStateSlots];
     bool hasState[kStateSlots];
+    // Contract 3: the vertex shader reads the instance stream (an input TEXCOORD8). An instance
+    // record is taken from the holders of World and LightMapOffset, which the program's shaders
+    // do not read: `recordSources` (block, holder, scratch binding the value lands in).
+    bool instanced;
+    struct RecordSource
+    {
+        unsigned int block;
+        UsedParameter used;
+        std::unique_ptr<Binding> value;
+    };
+    RecordSource recordSources[2];   // World, LightMapOffset; used.binding null when absent
 
     SubmitProgram() : shader(0), effect(0), buildSerial(-1), key(0), valid(false), pass(0), vs(0),
-                      ps(0)
+                      ps(0), instanced(false)
     {
+        for (unsigned int n = 0; n < 2; ++n)
+        {
+            recordSources[n].block = 0;
+            recordSources[n].used.registryOffset = 0;
+            recordSources[n].used.binding = 0;
+            recordSources[n].used.handle = 0;
+        }
         std::memset(stateValues, 0, sizeof(stateValues));
         std::memset(hasState, 0, sizeof(hasState));
     }
@@ -335,8 +358,10 @@ public:
     Binding* target;
     SubmitProgram* program;
     ID3DXEffect* mirror;
+    // When set, each value is appended here (a texture as its pointer) instead of uploaded.
+    std::vector<std::uint32_t>* capture;
 
-    ParameterSink() : current(0), target(0), program(0), mirror(0) {}
+    ParameterSink() : current(0), target(0), program(0), mirror(0), capture(0) {}
 
     // IUnknown: the sink lives in static storage and is never handed out.
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** out) override { *out = 0; return E_NOINTERFACE; }
@@ -445,6 +470,13 @@ public:
             mirror->SetTexture(h, texture);
         if (!current)
             return E_FAIL;
+        if (capture)
+        {
+            const std::uintptr_t bits = reinterpret_cast<std::uintptr_t>(texture);
+            capture->push_back(static_cast<std::uint32_t>(bits));
+            capture->push_back(static_cast<std::uint32_t>(static_cast<std::uint64_t>(bits) >> 32));
+            return S_OK;
+        }
         if (current->stored)
         {
             if (texture)
@@ -528,6 +560,11 @@ public:
 private:
     HRESULT emit()
     {
+        if (capture)
+        {
+            capture->insert(capture->end(), current->words.begin(), current->words.end());
+            return S_OK;
+        }
         if (current->stored)
             current->dirty |= !mirror;
         if (target)
@@ -832,6 +869,39 @@ const DWORD* shaderFunction(Shader* shader, std::vector<DWORD>& out)
     return &out[0];
 }
 
+// Whether vertex shader bytecode declares the input TEXCOORD8 (contract 3: the instance stream).
+// Walks the instruction stream for dcl (opcode 31): its usage token (usage in bits 0-4, index in
+// bits 16-19), then its destination, an input register (type 1).
+bool readsInstanceStream(const DWORD* function, size_t words)
+{
+    if (!function || words < 2)
+        return false;
+    size_t i = 1;   // past the version token
+    while (i < words)
+    {
+        const DWORD token = function[i];
+        if (token == 0x0000FFFFu)   // end
+            break;
+        const DWORD opcode = token & 0xFFFFu;
+        if (opcode == 0xFFFEu)      // comment: its length in bits 16-30
+        {
+            i += 1 + ((token >> 16) & 0x7FFFu);
+            continue;
+        }
+        const size_t length = (token >> 24) & 0xFu;   // shader model 2 and later
+        if (opcode == 31u && length >= 2 && i + 2 < words)
+        {
+            const DWORD usage = function[i + 1];
+            const DWORD dest = function[i + 2];
+            const DWORD regType = ((dest >> 28) & 0x7u) | ((dest >> 8) & 0x18u);
+            if (regType == 1u && (usage & 0x1Fu) == 5u && ((usage >> 16) & 0xFu) == 8u)
+                return true;
+        }
+        i += 1 + length;
+    }
+    return false;
+}
+
 // The parameter each constant of `function` reads gets its targets. A constant with no effect
 // parameter of its name is skipped for a Ra program; an effect program refuses it (`missing`).
 bool addShaderConstants(SubmitProgram& program, ID3DXEffect* effect, const DWORD* function,
@@ -1085,31 +1155,68 @@ void buildProgram(SubmitProgram& program)
     for (size_t i = 0; i < program.bindings.size(); ++i)
         if (!program.bindings[i]->held)
             program.unheld.push_back(program.bindings[i].get());
+
+    // Contract 3: the holders an instance record is taken from.
+    std::vector<DWORD> function;
+    shaderFunction(program.vs, function);
+    program.instanced = readsInstanceStream(function.empty() ? 0 : &function[0], function.size());
+    if (program.instanced)
+    {
+        static const char* const kRecordNames[2] = { "World", "LightMapOffset" };
+        for (unsigned int n = 0; n < 2; ++n)
+        {
+            const D3DXHANDLE handle = source.effect->GetParameterByName(0, kRecordNames[n]);
+            D3DXPARAMETER_DESC desc;
+            if (!handle || source.effect->GetParameterDesc(handle, &desc) < 0)
+                continue;
+            for (unsigned int block = 0; block < 5; ++block)
+            {
+                const std::vector<Ra::RaBoundParameter>& bound = shader->m_instanceParameters[block];
+                for (size_t i = 0; i < bound.size(); ++i)
+                {
+                    if (::renddx9abi::d3dxHandle(bound[i].handle) != handle)
+                        continue;
+                    SubmitProgram::RecordSource& r = program.recordSources[n];
+                    r.value.reset(new Binding);
+                    r.value->handle = handle;
+                    r.value->name = kRecordNames[n];
+                    r.value->type = desc.Type;
+                    r.value->rows = desc.Rows;
+                    r.value->cols = desc.Columns;
+                    r.value->words.assign(desc.Rows * desc.Columns, 0u);
+                    r.block = block;
+                    const UsedParameter used = { bound[i].offset, r.value.get(), handle };
+                    r.used = used;
+                }
+            }
+        }
+    }
     program.valid = true;
     logProgram(program);
 }
 
-// RaShader::applyParameterVector with the sink in place of the effect.
-void applyUsed(SubmitProgram* program, void* block, const std::vector<UsedParameter>& used)
+// RaShader::applyParameterVector with the sink in place of the effect, for one holder. Without
+// `upload` the value only lands in the binding's words (or the sink's capture).
+void applyOne(SubmitProgram* program, void* block, const UsedParameter& used, bool upload)
 {
-    if (used.empty())
-        return;
     typedef int (__thiscall* ApplyFn)(void*, void*, void*);
     struct BlockHeader { void* vptr; const std::vector<int>* registry; };
     unsigned char* const bytes = static_cast<unsigned char*>(block);
     const std::vector<int>& offsets = *reinterpret_cast<const BlockHeader*>(bytes)->registry;
+    unsigned char* const holder = bytes + offsets[used.registryOffset];
     g_sink.program = program;
-    for (size_t i = 0; i < used.size(); ++i)
-    {
-        unsigned char* const holder = bytes + offsets[used[i].registryOffset];
-        g_sink.current = used[i].binding;
-        g_sink.target = used[i].binding;
-        reinterpret_cast<ApplyFn>((*reinterpret_cast<void***>(holder))[0])(
-            holder, static_cast<ID3DXEffect*>(&g_sink),
-            const_cast<char*>(used[i].handle));
-    }
+    g_sink.current = used.binding;
+    g_sink.target = upload ? used.binding : 0;
+    reinterpret_cast<ApplyFn>((*reinterpret_cast<void***>(holder))[0])(
+        holder, static_cast<ID3DXEffect*>(&g_sink), const_cast<char*>(used.handle));
     g_sink.current = 0;
     g_sink.target = 0;
+}
+
+void applyUsed(SubmitProgram* program, void* block, const std::vector<UsedParameter>& used)
+{
+    for (size_t i = 0; i < used.size(); ++i)
+        applyOne(program, block, used[i], true);
 }
 
 void applySet(SubmitProgram* program, unsigned int set, RenderQueueEntry* entry)
@@ -1125,6 +1232,58 @@ void applySet(SubmitProgram* program, unsigned int set, RenderQueueEntry* entry)
 
 bool submitEnabled() { return g_enabled; }
 void submitSetEnabled(bool on) { g_enabled = on; }
+
+namespace {
+
+// Uploads `count` floats to the parameter with `semantic`, when the program reads it.
+void setSemanticFloats(SubmitProgram* program, const char* semantic, const float* values,
+                       unsigned int count)
+{
+    ID3DXEffect* const effect = static_cast<ID3DXEffect*>(program->effect);
+    const D3DXHANDLE handle = effect->GetParameterBySemantic(0, semantic);
+    Binding* const b = handle ? program->find(handle) : 0;
+    if (!b)
+        return;
+    g_sink.program = program;
+    g_sink.current = b;
+    g_sink.target = b;
+    g_sink.SetFloatArray(handle, values, count);
+    g_sink.current = 0;
+    g_sink.target = 0;
+}
+
+// Contract 3: the sun in world space for the run, in place of each instance's object-space
+// Lights[0] (the static mesh's sun record: the sky light's direction, the static sun colour).
+void setSun(SubmitProgram* program)
+{
+    float direction[3] = { 0.0f, -1.0f, 0.0f };
+    float color[3] = { 0.0f, 0.0f, 0.0f };
+    if (geom::g_LightManager)
+    {
+        world::LightSource* const sky = geom::g_LightManager->getSkyLight();
+        if (sky)
+        {
+            const Vec3& d = sky->getDirection();   // the direction the sunlight travels
+            direction[0] = d.x;
+            direction[1] = d.y;
+            direction[2] = d.z;
+        }
+        const Vec3& c = geom::g_LightManager->getStaticSunColor();
+        color[0] = c.x;
+        color[1] = c.y;
+        color[2] = c.z;
+    }
+    setSemanticFloats(program, "RaSunDirection", direction, 3);
+    setSemanticFloats(program, "RaSunColor", color, 3);
+}
+
+} // namespace
+
+SubmitProgram* submitProgramForWalk(Ra::RaShader* shader, unsigned int key, bool orDefault)
+{
+    SubmitProgram* const program = submitProgram(shader, key, orDefault);
+    return program && (g_enabled || program->instanced) ? program : 0;
+}
 
 SubmitProgram* submitProgram(Ra::RaShader* shader, unsigned int key, bool orDefault)
 {
@@ -1171,6 +1330,8 @@ void submitBegin(SubmitProgram* program, RenderQueueEntry* entry)
         }
     }
     applySet(program, 1u, entry);
+    if (program->instanced)
+        setSun(program);
     if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
         drawStatsBeginPass(program->effectName, program->techniqueName, 0);
 }
@@ -1223,9 +1384,283 @@ bool submitEntry(SubmitProgram* program, RenderQueueEntry* entry)
     return stateManagerWantedRenderState(kZEnable) && stateManagerWantedRenderState(kZWriteEnable);
 }
 
+// ---- Instancing (contract 3) ----
+
+namespace {
+
+bool g_instancing = true;
+
+// One record per instance: the world transform's three columns, the lightmap offset.
+const unsigned int kRecordFloats = 16;
+const unsigned int kRecordBytes = kRecordFloats * 4;
+const unsigned int kRecordUsageIndex = 8;    // TEXCOORD8..11
+const unsigned int kInstanceBufferRecords = 65536;
+
+IDirect3DVertexBuffer9* g_instanceBuffer = 0;
+unsigned int g_instanceBufferNext = 0;   // the next free record
+
+// The declarations a material binds, each with the instance elements added on stream 1. Both the
+// material's declaration and the merged one map to the merged one (a run binds it again after its
+// first draw). The keys hold a reference, so a freed declaration's address is never met again.
+std::map<IDirect3DVertexDeclaration9*, IDirect3DVertexDeclaration9*> g_mergedDeclarations;
+
+// The group being built: its key (the instance parameters its first entry captured) and records.
+SubmitProgram* g_groupProgram = 0;
+const RenderQueueEntry* g_groupFirst = 0;
+std::vector<std::uint32_t> g_groupKey;
+std::vector<std::uint32_t> g_candidateKey;
+std::vector<float> g_groupRecords;
+
+void* entryBlock(RenderQueueEntry* entry, unsigned int block)
+{
+    switch (block)
+    {
+    case 0: return entry->materialParameters;
+    case 1: return entry->objectParameters;
+    case 2: return g_raShaderConstants;
+    case 3: return &entry->lighting;
+    default: return &entry->lightArray;
+    }
+}
+
+// The values the instance parameters of `entry` take in `program`, into `out` (not uploaded).
+void captureInstanceKey(SubmitProgram* program, RenderQueueEntry* entry,
+                        std::vector<std::uint32_t>& out)
+{
+    out.clear();
+    g_sink.capture = &out;
+    for (unsigned int block = 0; block < 5; ++block)
+    {
+        const std::vector<UsedParameter>& used = program->used[0][block];
+        for (size_t i = 0; i < used.size(); ++i)
+            applyOne(program, entryBlock(entry, block), used[i], false);
+    }
+    g_sink.capture = 0;
+}
+
+void appendRecord(SubmitProgram* program, RenderQueueEntry* entry)
+{
+    const size_t at = g_groupRecords.size();
+    g_groupRecords.resize(at + kRecordFloats, 0.0f);
+    float* const record = &g_groupRecords[at];
+    SubmitProgram::RecordSource& world = program->recordSources[0];
+    if (world.used.binding)
+    {
+        applyOne(program, entryBlock(entry, world.block), world.used, false);
+        const std::vector<std::uint32_t>& w = world.value->words;
+        if (w.size() >= 16)
+        {
+            // Row-vector world matrix (translation in row 3): column c is m[0..3][c].
+            for (unsigned int c = 0; c < 3; ++c)
+                for (unsigned int r = 0; r < 4; ++r)
+                    record[4 * c + r] = wordFloat(w[4 * r + c]);
+        }
+    }
+    SubmitProgram::RecordSource& lightMap = program->recordSources[1];
+    if (lightMap.used.binding)
+    {
+        applyOne(program, entryBlock(entry, lightMap.block), lightMap.used, false);
+        const std::vector<std::uint32_t>& w = lightMap.value->words;
+        for (unsigned int k = 0; k < 4 && k < w.size(); ++k)
+            record[12 + k] = wordFloat(w[k]);
+    }
+}
+
+IDirect3DVertexDeclaration9* mergedDeclaration(IDirect3DDevice9* device,
+                                               IDirect3DVertexDeclaration9* declaration)
+{
+    if (!declaration)
+        return 0;
+    std::map<IDirect3DVertexDeclaration9*, IDirect3DVertexDeclaration9*>::iterator it =
+        g_mergedDeclarations.find(declaration);
+    if (it != g_mergedDeclarations.end())
+        return it->second;
+    D3DVERTEXELEMENT9 elements[MAXD3DDECLLENGTH + 1];
+    UINT count = 0;
+    IDirect3DVertexDeclaration9* merged = 0;
+    if (declaration->GetDeclaration(0, &count) >= 0 && count >= 1
+        && count + 4 <= MAXD3DDECLLENGTH + 1
+        && declaration->GetDeclaration(elements, &count) >= 0)
+    {
+        unsigned int n = count - 1;   // past the last element, before D3DDECL_END
+        for (unsigned int k = 0; k < 4; ++k, ++n)
+        {
+            D3DVERTEXELEMENT9& e = elements[n];
+            e.Stream = 1;
+            e.Offset = static_cast<WORD>(16 * k);
+            e.Type = D3DDECLTYPE_FLOAT4;
+            e.Method = D3DDECLMETHOD_DEFAULT;
+            e.Usage = D3DDECLUSAGE_TEXCOORD;
+            e.UsageIndex = static_cast<BYTE>(kRecordUsageIndex + k);
+        }
+        const D3DVERTEXELEMENT9 end = D3DDECL_END();
+        elements[n] = end;
+        if (device->CreateVertexDeclaration(elements, &merged) < 0)
+            merged = 0;
+    }
+    if (!merged)
+    {
+        ::renddx9abi::logf("Submit: no instanced declaration for %p", declaration);
+        return 0;
+    }
+    declaration->AddRef();
+    g_mergedDeclarations[declaration] = merged;
+    merged->AddRef();
+    g_mergedDeclarations[merged] = merged;
+    return merged;
+}
+
+bool ensureInstanceBuffer(IDirect3DDevice9* device)
+{
+    if (g_instanceBuffer)
+        return true;
+    const HRESULT hr = device->CreateVertexBuffer(kInstanceBufferRecords * kRecordBytes,
+                                                  D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, 0,
+                                                  D3DPOOL_DEFAULT, &g_instanceBuffer, 0);
+    if (hr < 0)
+    {
+        ::renddx9abi::logf("Submit: instance buffer not created (0x%08lX)",
+                           static_cast<unsigned long>(hr));
+        g_instanceBuffer = 0;
+        return false;
+    }
+    g_instanceBufferNext = 0;
+    return true;
+}
+
+} // namespace
+
+bool submitInstancingEnabled() { return g_instancing; }
+void submitSetInstancingEnabled(bool on) { g_instancing = on; }
+
+bool submitInstanced(const SubmitProgram* program)
+{
+    return program && program->instanced;
+}
+
+void submitGroupBegin(SubmitProgram* program, RenderQueueEntry* entry)
+{
+    g_groupProgram = program;
+    g_groupFirst = entry;
+    g_groupRecords.clear();
+    appendRecord(program, entry);
+    if (g_instancing)
+        captureInstanceKey(program, entry, g_groupKey);
+}
+
+bool submitGroupJoin(RenderQueueEntry* entry)
+{
+    SubmitProgram* const program = g_groupProgram;
+    const RenderQueueEntry* const first = g_groupFirst;
+    if (!g_instancing || !program || !first
+        || g_groupRecords.size() >= kInstanceBufferRecords * kRecordFloats
+        || entry->lodDither[0] != first->lodDither[0] || entry->lodDither[1] != first->lodDither[1]
+        || entry->lighting.tail10C || !entry->lighting.tail0FC.empty()
+        || first->lighting.tail10C || !first->lighting.tail0FC.empty())
+        return false;
+    captureInstanceKey(program, entry, g_candidateKey);
+    if (g_candidateKey != g_groupKey)
+        return false;
+    appendRecord(program, entry);
+    return true;
+}
+
+std::uint64_t submitInstanceKeyHash(SubmitProgram* program, RenderQueueEntry* entry)
+{
+    // FNV-1a over the instance parameters' values and the LOD dither. An entry with clip planes
+    // never joins a group: its address makes its hash its own.
+    std::uint64_t h = 14695981039346656037ull;
+    const auto mix = [&h](std::uint32_t w) {
+        for (unsigned int b = 0; b < 4; ++b)
+        {
+            h ^= (w >> (8 * b)) & 0xFFu;
+            h *= 1099511628211ull;
+        }
+    };
+    if (entry->lighting.tail10C || !entry->lighting.tail0FC.empty())
+    {
+        const std::uint64_t bits = reinterpret_cast<std::uintptr_t>(entry);
+        mix(static_cast<std::uint32_t>(bits));
+        mix(static_cast<std::uint32_t>(bits >> 32));
+        return h;
+    }
+    captureInstanceKey(program, entry, g_candidateKey);
+    for (size_t i = 0; i < g_candidateKey.size(); ++i)
+        mix(g_candidateKey[i]);
+    mix(floatWord(entry->lodDither[0]));
+    mix(floatWord(entry->lodDither[1]));
+    return h;
+}
+
+unsigned int submitGroupSize()
+{
+    return static_cast<unsigned int>(g_groupRecords.size() / kRecordFloats);
+}
+
+bool submitGroupBind()
+{
+    SubmitProgram* const program = g_groupProgram;
+    if (!program || g_groupRecords.empty())
+        return false;
+    IDirect3DDevice9* const device = program->shader->m_device;
+    const unsigned int count = submitGroupSize();
+    IDirect3DVertexDeclaration9* const merged = mergedDeclaration(
+        device, static_cast<IDirect3DVertexDeclaration9*>(stateManagerVertexDeclaration()));
+    if (!merged || !ensureInstanceBuffer(device))
+        return false;
+    DWORD flags = D3DLOCK_NOOVERWRITE;
+    if (g_instanceBufferNext + count > kInstanceBufferRecords)
+    {
+        g_instanceBufferNext = 0;
+        flags = D3DLOCK_DISCARD;
+    }
+    void* data = 0;
+    if (g_instanceBuffer->Lock(g_instanceBufferNext * kRecordBytes, count * kRecordBytes, &data,
+                               flags) < 0 || !data)
+        return false;
+    std::memcpy(data, &g_groupRecords[0], count * kRecordBytes);
+    g_instanceBuffer->Unlock();
+    stateManagerSetVertexDeclaration(merged);
+    stateManagerSetStreamSource(1, g_instanceBuffer, g_instanceBufferNext * kRecordBytes,
+                                kRecordBytes);
+    g_instanceBufferNext += count;
+    device->SetStreamSourceFreq(0, D3DSTREAMSOURCE_INDEXEDDATA | count);
+    device->SetStreamSourceFreq(1, D3DSTREAMSOURCE_INSTANCEDATA | 1u);
+    return true;
+}
+
+void submitGroupEnd()
+{
+    if (g_groupProgram)
+    {
+        IDirect3DDevice9* const device = g_groupProgram->shader->m_device;
+        device->SetStreamSourceFreq(0, 1u);
+        device->SetStreamSourceFreq(1, 1u);
+    }
+    g_groupProgram = 0;
+    g_groupFirst = 0;
+    g_groupRecords.clear();
+}
+
+void submitInstancesRelease()
+{
+    if (g_instanceBuffer)
+        g_instanceBuffer->Release();
+    g_instanceBuffer = 0;
+    g_instanceBufferNext = 0;
+}
+
 void submitReset()
 {
     g_programs.clear();
+    for (std::map<IDirect3DVertexDeclaration9*, IDirect3DVertexDeclaration9*>::iterator it =
+             g_mergedDeclarations.begin(); it != g_mergedDeclarations.end(); ++it)
+    {
+        it->first->Release();
+        if (it->second != it->first)
+            it->second->Release();   // the reference CreateVertexDeclaration gave
+    }
+    g_mergedDeclarations.clear();
 }
 
 // ---- Effect programs (SubmitEffect) ----

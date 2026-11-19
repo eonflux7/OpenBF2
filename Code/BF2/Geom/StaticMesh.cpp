@@ -1926,6 +1926,9 @@ void StaticMesh::updateObjectParameters()
     const Mat4* const viewProjection = view->getViewProjectionMatrixPtr();    // +0x84
     reinterpret_cast<Mat4*>(op.worldViewProjection.value)->fullMult(*m_transform, *viewProjection);
     std::memcpy(op.world.value, m_transform->m, sizeof(op.world.value));
+    // [RENDER] Contract 3: instanced static meshes take their positions from the view's
+    // projection times the world transform of their instance stream (render milestone 9).
+    std::memcpy(op.viewProjection.value, viewProjection->m, sizeof(op.viewProjection.value));
 
     const Mat4* const camera = view->getViewMatrixPtr();                      // +0x64
     const float* const c = &camera->m[12];

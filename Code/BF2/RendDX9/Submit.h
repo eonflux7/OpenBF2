@@ -15,6 +15,7 @@
 // the parameters with semantic RaAlphaTest, RaAlphaRef and RaDepthWrite.
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -53,6 +54,33 @@ bool submitEntry(SubmitProgram* program, RenderQueueEntry* entry);
 
 // Drops every program (effects reset or reloaded).
 void submitReset();
+
+// Instancing (shader contract 3): a program whose vertex shader reads the instance stream draws
+// every entry as an instance, in groups of entries that share the material (or a material run),
+// LOD dither and every instance parameter the program reads; a group of one included. Such a
+// program is used whatever renderer.submit says: D3DX cannot feed the stream.
+bool submitInstanced(const SubmitProgram* program);
+// renderer.instancing: 0 draws each instance on its own (the A/B switch while milestone 9 is
+// developed); the shaders and the stream stay the same.
+bool submitInstancingEnabled();
+void submitSetInstancingEnabled(bool on);
+// The program for the walks: submitProgram when renderer.submit is on or the program is
+// instanced, else null (the walk draws through D3DX).
+SubmitProgram* submitProgramForWalk(Ra::RaShader* shader, unsigned int key, bool orDefault = false);
+// A group: begun at an entry submitEntry has uploaded, joined by later entries that can share its
+// draw (each records its instance), bound before the one draw (the instance records on stream 1,
+// the bound declaration merged with the instance elements, the stream frequencies) and ended after
+// it. Bind fails (nothing to draw) when the declaration or the record buffer cannot be made.
+// A hash of what decides whether two entries can share a group (their instance parameters and LOD
+// dither), for sorting candidates next to each other; submitGroupJoin still compares in full.
+std::uint64_t submitInstanceKeyHash(SubmitProgram* program, RenderQueueEntry* entry);
+void submitGroupBegin(SubmitProgram* program, RenderQueueEntry* entry);
+bool submitGroupJoin(RenderQueueEntry* entry);
+unsigned int submitGroupSize();
+bool submitGroupBind();
+void submitGroupEnd();
+// The record buffer (D3DPOOL_DEFAULT) before a device reset.
+void submitInstancesRelease();
 
 // Effect programs: the passes of an engine Effect (Effect.cpp) that opted in (effectEnableSubmit),
 // drawn the same way. Terrain and undergrowth.
