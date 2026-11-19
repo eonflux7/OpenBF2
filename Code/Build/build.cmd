@@ -199,6 +199,7 @@ for /r "%ROOT%" %%F in (*.cpp) do (
             if /i "%%~fF"=="%ROOT%\Game\Main\BF2Render.cpp" set "ENGINE_OBJECT=0"
             if /i "%%~fF"=="%ROOT%\Game\Main\BF2RenderConsole.cpp" set "ENGINE_OBJECT=0"
             if /i "%%~fF"=="%ROOT%\Game\Tools\ViewTool.cpp" set "ENGINE_OBJECT=0"
+            if /i "%%~fF"=="%ROOT%\Game\Tools\ViewFile.cpp" set "ENGINE_OBJECT=0"
             if /i "%%~fF"=="%ROOT%\Game\SettingsConsole.cpp" set "ENGINE_OBJECT=0"
             if /i "%%~fF"=="%ROOT%\Sound\BfSound\MusicPlayer.cpp" set "ENGINE_OBJECT=0"
             if /i "%%~fF"=="%ROOT%\Menu\MenuTeamManager.cpp" set "ENGINE_OBJECT=0"
