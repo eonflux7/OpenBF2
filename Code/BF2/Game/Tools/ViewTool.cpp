@@ -5,11 +5,14 @@
 // renderer culls, picks LODs, streams or sets up cascades, so all of those follow the override.
 // Only the client's camera moves: no soldier is spawned and the server does not know.
 //
-// Free fly reads the game's own player input (the player's bindings and mouse sensitivity) in
-// BF2Engine's input filter, which runs before the HUD's, and clears the sample, so neither a
-// soldier nor the spawn menu sees it. Moves: throttle forward and back, yaw strafes, lie up, crouch
-// down; sprint is faster and alt-sprint slower; the next and previous item (mouse wheel) change
-// the FOV. The HUD and spawn menu are hidden through renderer.drawHud while the tool is active.
+// Free fly reads the keyboard and mouse directly, once per rendered frame, so it moves as smoothly
+// as the frame rate and also on the spawn screen, whose control map has no movement. While it
+// flies, the DirectInput mouse is released (as for the debug menu; the message pump keeps it
+// released) and the cursor is hidden and re-centred each frame: its offset is the mouse look. The
+// game's player input is cleared in BF2Engine's filter, so neither a soldier nor the spawn menu
+// reacts. Keys: W A S D, E or Space up, Q or C down, Shift faster, Ctrl slower; the mouse wheel
+// changes the FOV. Input is read only while the game window is in the foreground. The HUD and spawn
+// menu are hidden through renderer.drawHud while the tool is active.
 //
 // Camera convention: BF2's camera-to-world matrix (rows right, up, forward, position; y up),
 // yaw and pitch in degrees as getRotationZXY reports them (pitch negative looking down), the FOV
@@ -30,10 +33,15 @@
 #include <cstring>
 #include <string>
 
+#include <windows.h>    // after the engine headers: GetAsyncKeyState, the cursor
+
 namespace dice {
 namespace hfe {
 
+namespace io { extern IBase* inputDeviceManager; }   // Core/Globals.cpp
+
 bool g_viewToolActive = false;
+bool g_viewToolFlying = false;
 
 namespace {
 
@@ -43,7 +51,6 @@ const float kDegToRad = 3.14159265358979f / 180.0f;
 const float kMinFov = 5.0f;
 const float kMaxFov = 120.0f;
 const float kFovStep = 2.0f;          // degrees per wheel notch
-const float kLookRate = 100.0f;       // degrees per unit of look axis per second, as FreeCamera
 
 struct Camera
 {
@@ -52,32 +59,23 @@ struct Camera
     float fov;          // vertical, degrees
 };
 
-// The latest player input sample, held until the next one.
-struct FlyInput
-{
-    float lookX, lookY, forward, strafe, up;
-    bool  fast, slow;
-    bool  valid;
-    std::chrono::steady_clock::time_point received;
-};
-
 struct State
 {
     bool  fly;
     bool  seedFromGame;     // take the game's camera at the next apply
+    bool  recentre;         // the next frame only centres the cursor
     Camera camera;
     std::string savedDrawHud;
-    FlyInput input;
+    int   wheel;            // wheel notches since the last frame
     std::chrono::steady_clock::time_point lastStep;
     bool  haveLastStep;
 };
 
-State g_state = { false, false, { 0, 0, 0, 0, 0, 60.0f }, std::string(), {}, {}, false };
-
-const float kInputExpiry = 0.25f;     // seconds without a sample before the held input is dropped
+State g_state = { false, false, false, { 0, 0, 0, 0, 0, 60.0f }, std::string(), 0, {}, false };
 
 // tools.* variables
 float g_flySpeed = 20.0f;   // metres per second
+float g_flyMouse = 0.15f;   // degrees per pixel of mouse movement
 int   g_flyKey   = 0x77;    // VK_F8
 
 std::string runConsole(const std::string& line)
@@ -102,6 +100,44 @@ void restoreHud()
     runConsole("renderer.drawHud " + (value.empty() ? std::string("1") : value));
 }
 
+// The window that takes the input: the foreground window, when it is this process's.
+HWND gameWindow()
+{
+    HWND window = GetForegroundWindow();
+    DWORD process = 0;
+    if (!window)
+        return 0;
+    GetWindowThreadProcessId(window, &process);
+    return process == GetCurrentProcessId() ? window : 0;
+}
+
+void startFlying()
+{
+    if (g_state.fly)
+        return;
+    g_state.fly = true;
+    g_viewToolFlying = true;
+    g_state.haveLastStep = false;
+    g_state.recentre = true;
+    g_state.wheel = 0;
+    // Release the DirectInput mouse, as the debug menu does; the message pump keeps it released
+    // while g_viewToolFlying and re-acquires it afterwards.
+    io::IInputDevice* mouse =
+        static_cast<io::IInputDeviceManager*>(io::inputDeviceManager)->getInputDevice(io::IDFMouse);
+    if (mouse)
+        mouse->deActivate();
+    ShowCursor(FALSE);
+}
+
+void stopFlying()
+{
+    if (!g_state.fly)
+        return;
+    g_state.fly = false;
+    g_viewToolFlying = false;
+    ShowCursor(TRUE);
+}
+
 void enter()
 {
     if (g_viewToolActive)
@@ -115,9 +151,7 @@ void leave()
     if (!g_viewToolActive)
         return;
     g_viewToolActive = false;
-    g_state.fly = false;
-    g_state.haveLastStep = false;
-    g_state.input.valid = false;
+    stopFlying();
     restoreHud();
 }
 
@@ -147,9 +181,7 @@ void setFly(int on)
     {
         if (!g_viewToolActive)
             g_state.seedFromGame = true;
-        g_state.fly = true;
-        g_state.haveLastStep = false;
-    g_state.input.valid = false;
+        startFlying();
         enter();
     }
     else
@@ -163,17 +195,13 @@ int getFly() { return g_state.fly ? 1 : 0; }
 
 void viewLeave() { leave(); }
 
-inline bool pressed(const io::PlayerInput& input, io::PlayerInputMap index)
+inline bool keyDown(int virtualKey)
 {
-    return (input.mappingFlags & (1ULL << index)) != 0 && input.inputs[index] > 0.5f;
+    return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 }
 
-inline float axis(const io::PlayerInput& input, io::PlayerInputMap index)
-{
-    return (input.mappingFlags & (1ULL << index)) ? input.inputs[index] : 0.0f;
-}
-
-// One frame of free fly: the held input applied over the wall-clock time since the last frame.
+// One frame of free fly: keys and the mouse's offset from the window centre, over the wall-clock
+// time since the last frame.
 void flyStep()
 {
     const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
@@ -185,37 +213,56 @@ void flyStep()
     if (dt > 0.1f)
         dt = 0.1f;
 
-    FlyInput& in = g_state.input;
-    if (!in.valid)
-        return;
-    if (std::chrono::duration<float>(now - in.received).count() > kInputExpiry)
+    Camera& c = g_state.camera;
+    c.fov -= g_state.wheel * kFovStep;
+    g_state.wheel = 0;
+    if (c.fov < kMinFov) c.fov = kMinFov;
+    if (c.fov > kMaxFov) c.fov = kMaxFov;
+
+    HWND window = gameWindow();
+    if (!window)
     {
-        in.valid = false;
+        g_state.recentre = true;
         return;
     }
 
-    Camera& c = g_state.camera;
-    c.yaw   -= in.lookX * dt * kLookRate;
-    c.pitch -= in.lookY * dt * kLookRate;
+    RECT client;
+    GetClientRect(window, &client);
+    POINT centre = { (client.right - client.left) / 2, (client.bottom - client.top) / 2 };
+    ClientToScreen(window, &centre);
+    POINT cursor;
+    GetCursorPos(&cursor);
+    SetCursorPos(centre.x, centre.y);
+    if (g_state.recentre)
+    {
+        g_state.recentre = false;
+        return;
+    }
+
+    c.yaw   -= (cursor.x - centre.x) * g_flyMouse;
+    c.pitch -= (cursor.y - centre.y) * g_flyMouse;
     if (c.pitch > 89.0f)  c.pitch = 89.0f;
     if (c.pitch < -89.0f) c.pitch = -89.0f;
     while (c.yaw > 180.0f)   c.yaw -= 360.0f;
     while (c.yaw <= -180.0f) c.yaw += 360.0f;
 
     float speed = g_flySpeed;
-    if (in.fast)
+    if (keyDown(VK_SHIFT))
         speed *= 5.0f;
-    else if (in.slow)
+    else if (keyDown(VK_CONTROL))
         speed *= 0.2f;
     const float step = speed * dt;
 
+    const float forward = (keyDown('W') ? 1.0f : 0.0f) - (keyDown('S') ? 1.0f : 0.0f);
+    const float strafe  = (keyDown('D') ? 1.0f : 0.0f) - (keyDown('A') ? 1.0f : 0.0f);
+    const float up      = (keyDown('E') || keyDown(VK_SPACE) ? 1.0f : 0.0f)
+                        - (keyDown('Q') || keyDown('C') ? 1.0f : 0.0f);
+
     Mat4 m;
     cameraToMatrix(c, m);
-    const float forward = in.forward * step;
-    const float strafe  = in.strafe * step;
-    c.x += m.m[8] * forward + m.m[0] * strafe;
-    c.y += m.m[9] * forward + m.m[1] * strafe + in.up * step;
-    c.z += m.m[10] * forward + m.m[2] * strafe;
+    c.x += (m.m[8] * forward + m.m[0] * strafe) * step;
+    c.y += (m.m[9] * forward + m.m[1] * strafe + up) * step;
+    c.z += (m.m[10] * forward + m.m[2] * strafe) * step;
 }
 
 } // namespace
@@ -237,33 +284,20 @@ void viewToolApplyCamera(dx9rend::IRenderView* view)
     view->setViewMatrix(m.m);
 }
 
-// The player input arrives once per game tick, slower than frames. The filter keeps the latest
-// sample's axes and buttons, and flyStep moves the camera by them every frame (wall-clock time), so
-// the camera moves as smoothly as the frame rate. Only the wheel's FOV step is taken per sample.
+// During free fly the game's player input is cleared, so neither a soldier nor the spawn menu
+// moves; the camera reads the devices itself (flyStep).
 bool viewToolFilterPlayerInput(io::PlayerInput& input)
 {
     if (!g_state.fly)
         return true;
-
-    FlyInput& in = g_state.input;
-    in.lookX    = axis(input, io::PIMouseLookX);
-    in.lookY    = axis(input, io::PIMouseLookY);
-    in.forward  = axis(input, io::PIThrottle);
-    in.strafe   = axis(input, io::PIYaw);
-    in.up       = pressed(input, io::PILie) ? 1.0f : (pressed(input, io::PICrouch) ? -1.0f : 0.0f);
-    in.fast     = pressed(input, io::PISprint);
-    in.slow     = pressed(input, io::PIAltSprint);
-    in.received = std::chrono::steady_clock::now();
-    in.valid    = true;
-
-    Camera& c = g_state.camera;
-    if (pressed(input, io::PINextItem)) c.fov -= kFovStep;
-    if (pressed(input, io::PIPrevItem)) c.fov += kFovStep;
-    if (c.fov < kMinFov) c.fov = kMinFov;
-    if (c.fov > kMaxFov) c.fov = kMaxFov;
-
     std::memset(input.inputs, 0, sizeof(input.inputs));
     return false;
+}
+
+void viewToolMouseWheel(int delta)
+{
+    if (g_state.fly)
+        g_state.wheel += delta / WHEEL_DELTA;
 }
 
 void viewToolKeyDown(unsigned int virtualKey)
@@ -280,6 +314,7 @@ BF2_CONSOLE_METHOD_0_STATIC_ACTIVE(leave, viewLeave, true, kViewToolConsoleTag)
 // tools.* variables
 BF2_CONSOLE_OBJECT("tools", 1, 0)
 BF2_CONSOLE_PROPERTY_FN(flySpeed, float, true, g_flySpeed, g_flySpeed =, kViewToolConsoleTag)
+BF2_CONSOLE_PROPERTY_FN(flyMouse, float, true, g_flyMouse, g_flyMouse =, kViewToolConsoleTag)
 BF2_CONSOLE_PROPERTY_FN(flyKey, int, true, g_flyKey, g_flyKey =, kViewToolConsoleTag)
 
 std::list<ConsoleObject*>& viewToolConsoleObjects()

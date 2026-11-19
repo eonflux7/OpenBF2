@@ -248,6 +248,8 @@ void BF2::handleInGameWinMessages()
         deviceMask = static_cast<unsigned int>(-2);                          // every device but bit 0 while a menu is up
     if (uiWantsMouse())                                                      // [UI] so is the fork's menu or console (docs/eon64/ui.md)
         deviceMask = static_cast<unsigned int>(-2);
+    if (g_viewToolFlying)                                                    // [TOOLS] free fly reads the cursor
+        deviceMask = static_cast<unsigned int>(-2);
     // [TEMP] [CHOSEN, not recovered] One BF2_INPUT_SCRIPT tick per pump; nothing without the variable.
     if (inputscript::winInputScriptActive() && m_engine && m_engine->getWindow())
         inputscript::winInputScriptPump(m_engine->getWindow()->getHwnd(), menuLogic != 0);
@@ -769,6 +771,12 @@ static int bf2MessageHandler(HWND /*hwnd*/, UINT message, WPARAM wParam, LPARAM 
             return 0;
         pushMenuKey(127);                           // DEL reaches the menu as 127
         return 0;
+
+#if !DEDICATED
+    case WM_MOUSEWHEEL:                             // [TOOLS] the FOV during free fly
+        viewToolMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+        return 0;
+#endif
 
     case WM_CHAR:                                   // 0x102
         if (!settings)
