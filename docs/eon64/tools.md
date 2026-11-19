@@ -65,8 +65,8 @@ once per frame, not the player input: the spawn screen's control map has mouse l
 movement, and player input arrives at tick rate. W A S D move, E or Space up, Q or C down, Shift
 5x, Ctrl 0.2x; the mouse looks (`tools.flyMouse`, degrees per pixel, default 0.15) with the
 DirectInput mouse released and the cursor re-centred; the wheel changes the FOV by 2 degrees.
-Input is read only while the game window is in front, and the game's player input is cleared
-meanwhile. `tools.flySpeed` is metres per second (default 20). Free fly started from the game's
+Input is read only while the game window is in front and neither the debug menu nor the console
+window is shown (the cursor shows for them), and the game's player input is cleared meanwhile. `tools.flySpeed` is metres per second (default 20). Free fly started from the game's
 camera hands it back when it stops (`view.fly 0`, F8); started from a view, it stops in place and
 keeps the camera there, ready for `view.save`. `view.leave` always hands the camera back and
 restores `renderer.drawHud`.

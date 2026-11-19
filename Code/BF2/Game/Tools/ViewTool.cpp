@@ -11,7 +11,8 @@
 // released) and the cursor is hidden and re-centred each frame: its offset is the mouse look. The
 // game's player input is cleared in BF2Engine's filter, so neither a soldier nor the spawn menu
 // reacts. Keys: W A S D, E or Space up, Q or C down, Shift faster, Ctrl slower; the mouse wheel
-// changes the FOV. Input is read only while the game window is in the foreground. The HUD and spawn
+// changes the FOV. Input is read only while the game window is in the foreground and neither the
+// debug menu nor the console window is shown; meanwhile the cursor shows. The HUD and spawn
 // menu are hidden through renderer.drawHud while the tool is active.
 //
 // Views (task 3): each map's view file, <GSModDirectory>/settings/eon64-views/<map>.txt (ViewFile),
@@ -54,6 +55,7 @@ namespace dice {
 namespace hfe {
 
 namespace io { extern IBase* inputDeviceManager; }   // Core/Globals.cpp
+bool uiWantsMouse();    // BF2Engine.cpp: the debug menu or the console window is shown
 
 bool g_viewToolActive = false;
 bool g_viewToolFlying = false;
@@ -80,6 +82,7 @@ struct State
     bool  seedFromGame;     // take the game's camera at the next apply
     bool  seedFovFromGame;  // take only the game's FOV at the next apply (a view without fov=)
     bool  recentre;         // the next frame only centres the cursor
+    bool  cursorHidden;
     Camera camera;
     std::string savedDrawHud;
     int   wheel;            // wheel notches since the last frame
@@ -89,7 +92,7 @@ struct State
     std::vector<std::pair<std::string, std::string> > restores;  // variable, value before the view
 };
 
-State g_state = { false, false, false, false, { 0, 0, 0, 0, 0, 60.0f }, std::string(), 0, {}, false,
+State g_state = { false, false, false, false, false, { 0, 0, 0, 0, 0, 60.0f }, std::string(), 0, {}, false,
                   std::string(), std::vector<std::pair<std::string, std::string> >() };
 
 ViewFile g_views;
@@ -192,7 +195,15 @@ void startFlying()
         static_cast<io::IInputDeviceManager*>(io::inputDeviceManager)->getInputDevice(io::IDFMouse);
     if (mouse)
         mouse->deActivate();
-    ShowCursor(FALSE);
+}
+
+// The cursor is hidden while free fly reads the mouse, and shown for the menu or the console.
+void showCursor(bool show)
+{
+    if (show == !g_state.cursorHidden)
+        return;
+    g_state.cursorHidden = !show;
+    ShowCursor(show ? TRUE : FALSE);
 }
 
 void stopFlying()
@@ -201,7 +212,7 @@ void stopFlying()
         return;
     g_state.fly = false;
     g_viewToolFlying = false;
-    ShowCursor(TRUE);
+    showCursor(true);
 }
 
 void enter()
@@ -439,7 +450,9 @@ void flyStep()
     if (c.fov < kMinFov) c.fov = kMinFov;
     if (c.fov > kMaxFov) c.fov = kMaxFov;
 
-    HWND window = gameWindow();
+    // The keys and the mouse belong to the debug menu or the console while either is shown.
+    HWND window = uiWantsMouse() ? 0 : gameWindow();
+    showCursor(!window);
     if (!window)
     {
         g_state.recentre = true;
@@ -521,7 +534,7 @@ bool viewToolFilterPlayerInput(io::PlayerInput& input)
 
 void viewToolMouseWheel(int delta)
 {
-    if (g_state.fly)
+    if (g_state.fly && !uiWantsMouse())    // the menu scrolls with it
         g_state.wheel += delta / WHEEL_DELTA;
 }
 
