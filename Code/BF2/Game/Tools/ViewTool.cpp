@@ -52,17 +52,29 @@ struct Camera
     float fov;          // vertical, degrees
 };
 
+// The latest player input sample, held until the next one.
+struct FlyInput
+{
+    float lookX, lookY, forward, strafe, up;
+    bool  fast, slow;
+    bool  valid;
+    std::chrono::steady_clock::time_point received;
+};
+
 struct State
 {
     bool  fly;
     bool  seedFromGame;     // take the game's camera at the next apply
     Camera camera;
     std::string savedDrawHud;
-    std::chrono::steady_clock::time_point lastInput;
-    bool  haveLastInput;
+    FlyInput input;
+    std::chrono::steady_clock::time_point lastStep;
+    bool  haveLastStep;
 };
 
-State g_state = { false, false, { 0, 0, 0, 0, 0, 60.0f }, std::string(), {}, false };
+State g_state = { false, false, { 0, 0, 0, 0, 0, 60.0f }, std::string(), {}, {}, false };
+
+const float kInputExpiry = 0.25f;     // seconds without a sample before the held input is dropped
 
 // tools.* variables
 float g_flySpeed = 20.0f;   // metres per second
@@ -104,7 +116,8 @@ void leave()
         return;
     g_viewToolActive = false;
     g_state.fly = false;
-    g_state.haveLastInput = false;
+    g_state.haveLastStep = false;
+    g_state.input.valid = false;
     restoreHud();
 }
 
@@ -135,7 +148,8 @@ void setFly(int on)
         if (!g_viewToolActive)
             g_state.seedFromGame = true;
         g_state.fly = true;
-        g_state.haveLastInput = false;
+        g_state.haveLastStep = false;
+    g_state.input.valid = false;
         enter();
     }
     else
@@ -159,6 +173,51 @@ inline float axis(const io::PlayerInput& input, io::PlayerInputMap index)
     return (input.mappingFlags & (1ULL << index)) ? input.inputs[index] : 0.0f;
 }
 
+// One frame of free fly: the held input applied over the wall-clock time since the last frame.
+void flyStep()
+{
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    float dt = 0.0f;
+    if (g_state.haveLastStep)
+        dt = std::chrono::duration<float>(now - g_state.lastStep).count();
+    g_state.lastStep = now;
+    g_state.haveLastStep = true;
+    if (dt > 0.1f)
+        dt = 0.1f;
+
+    FlyInput& in = g_state.input;
+    if (!in.valid)
+        return;
+    if (std::chrono::duration<float>(now - in.received).count() > kInputExpiry)
+    {
+        in.valid = false;
+        return;
+    }
+
+    Camera& c = g_state.camera;
+    c.yaw   -= in.lookX * dt * kLookRate;
+    c.pitch -= in.lookY * dt * kLookRate;
+    if (c.pitch > 89.0f)  c.pitch = 89.0f;
+    if (c.pitch < -89.0f) c.pitch = -89.0f;
+    while (c.yaw > 180.0f)   c.yaw -= 360.0f;
+    while (c.yaw <= -180.0f) c.yaw += 360.0f;
+
+    float speed = g_flySpeed;
+    if (in.fast)
+        speed *= 5.0f;
+    else if (in.slow)
+        speed *= 0.2f;
+    const float step = speed * dt;
+
+    Mat4 m;
+    cameraToMatrix(c, m);
+    const float forward = in.forward * step;
+    const float strafe  = in.strafe * step;
+    c.x += m.m[8] * forward + m.m[0] * strafe;
+    c.y += m.m[9] * forward + m.m[1] * strafe + in.up * step;
+    c.z += m.m[10] * forward + m.m[2] * strafe;
+}
+
 } // namespace
 
 void viewToolApplyCamera(dx9rend::IRenderView* view)
@@ -170,58 +229,38 @@ void viewToolApplyCamera(dx9rend::IRenderView* view)
         cameraFromView(view, g_state.camera);
         g_state.seedFromGame = false;
     }
+    if (g_state.fly)
+        flyStep();
     Mat4 m;
     cameraToMatrix(g_state.camera, m);
     view->setFov(g_state.camera.fov * kDegToRad);
     view->setViewMatrix(m.m);
 }
 
+// The player input arrives once per game tick, slower than frames. The filter keeps the latest
+// sample's axes and buttons, and flyStep moves the camera by them every frame (wall-clock time), so
+// the camera moves as smoothly as the frame rate. Only the wheel's FOV step is taken per sample.
 bool viewToolFilterPlayerInput(io::PlayerInput& input)
 {
     if (!g_state.fly)
         return true;
 
-    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-    float dt = 0.0f;
-    if (g_state.haveLastInput)
-        dt = std::chrono::duration<float>(now - g_state.lastInput).count();
-    g_state.lastInput = now;
-    g_state.haveLastInput = true;
-    if (dt > 0.1f)
-        dt = 0.1f;
+    FlyInput& in = g_state.input;
+    in.lookX    = axis(input, io::PIMouseLookX);
+    in.lookY    = axis(input, io::PIMouseLookY);
+    in.forward  = axis(input, io::PIThrottle);
+    in.strafe   = axis(input, io::PIYaw);
+    in.up       = pressed(input, io::PILie) ? 1.0f : (pressed(input, io::PICrouch) ? -1.0f : 0.0f);
+    in.fast     = pressed(input, io::PISprint);
+    in.slow     = pressed(input, io::PIAltSprint);
+    in.received = std::chrono::steady_clock::now();
+    in.valid    = true;
 
     Camera& c = g_state.camera;
-
-    c.yaw   += axis(input, io::PIMouseLookX) * dt * kLookRate;
-    c.pitch -= axis(input, io::PIMouseLookY) * dt * kLookRate;
-    if (c.pitch > 89.0f)  c.pitch = 89.0f;
-    if (c.pitch < -89.0f) c.pitch = -89.0f;
-    while (c.yaw > 180.0f)   c.yaw -= 360.0f;
-    while (c.yaw <= -180.0f) c.yaw += 360.0f;
-
     if (pressed(input, io::PINextItem)) c.fov -= kFovStep;
     if (pressed(input, io::PIPrevItem)) c.fov += kFovStep;
     if (c.fov < kMinFov) c.fov = kMinFov;
     if (c.fov > kMaxFov) c.fov = kMaxFov;
-
-    float speed = g_flySpeed;
-    if (pressed(input, io::PISprint))
-        speed *= 5.0f;
-    else if (pressed(input, io::PIAltSprint))
-        speed *= 0.2f;
-    const float step = speed * dt;
-
-    Mat4 m;
-    cameraToMatrix(c, m);
-    const float forward = axis(input, io::PIThrottle) * step;
-    const float strafe  = axis(input, io::PIYaw) * step;
-    c.x += m.m[8] * forward + m.m[0] * strafe;
-    c.y += m.m[9] * forward + m.m[1] * strafe;
-    c.z += m.m[10] * forward + m.m[2] * strafe;
-    if (pressed(input, io::PILie))
-        c.y += step;
-    else if (pressed(input, io::PICrouch))
-        c.y -= step;
 
     std::memset(input.inputs, 0, sizeof(input.inputs));
     return false;
