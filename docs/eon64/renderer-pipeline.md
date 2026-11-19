@@ -374,6 +374,22 @@ consecutive materials as one range when none is alpha tested and they share the 
 declaration and the vertex buffers (`depthRunLength`). The run's later materials upload none of
 their parameters: the depth techniques read the material only for alpha.
 
+Effect programs: terrain (`terrainshader.fx`: lit, detail, prepass, caster and surrounding passes)
+and undergrowth (`undergrowth.fx`) draw through the engine's `Effect` wrapper, which they opt in
+(`effectEnableSubmit`). An opted-in effect's `beginPass` binds the program of the current
+technique's pass (any pass of a technique of several), built on first use as above with the same
+recording, and with two checks a Ra program does not need: every constant register D3DX uploads at
+`BeginPass` must lie in a parameter's targets (a preshader's output would not), and the pass's fixed
+states must not change when every numeric parameter changes. A pass failing either, or with
+`renderer.submit 0`, draws through D3DX, begun lazily for it. The effect's parameter writes
+(`FXParameter`) go to a value store in the submission layer instead of D3DX: each entry holds the
+parameter's value (a reference on its texture), read from D3DX when first written, and a write
+during a program's pass is uploaded straight into that program's registers and samplers. The store
+is written to D3DX before a D3DX pass (during which writes go to both), before the effect is rebound
+(its values carried to the reloaded effect) and on device loss, where it is dropped with the
+programs and read back afterwards. As with D3DX's `Begin` under flags 7, a pass saves and restores
+no state.
+
 ## Effect cache
 
 Ra effects are cached as `.cfx` files per mod (`Documents/Battlefield 2/mods/<mod>/cache`;

@@ -235,7 +235,23 @@ View shots, 1 against 0: Muttrah `high` 19 and `market` 580 pixels of 1.44 M (wi
 Fallujah `city1` 8072, `city2` 491, `city3` 15273 (drifting smoke and palms only); Saaremaa
 `forest1` 2242, `forest2` 8323 (7957 between two shots at 1: wind in the foliage), `runway` 3028.
 
-## Plan
+## Render milestone 9, task 7
+
+Terrain and undergrowth through effect programs. 1920x1080 from here on (earlier sections are
+1600x900), 4x MSAA. Same-session pairs, 3 runs each, `renderer.submit` 1 against 0 (0 puts every
+pass back on D3DX), engine `965bb8bf`, 2026-11-19:
+
+| Path | 1 | 0 | Gain |
+|---|---|---|---|
+| Muttrah City `bench1` | 9.53 ms, 1 % low 13.04 | 10.69 ms, 14.44 | 10.9 % |
+| Fallujah West `bench` | 18.34 ms, 25.59 | 21.42 ms, 31.85 | 14.4 % |
+| Saaremaa `bench1` | 6.71 ms, 10.64 | 7.09 ms, 20.86 | 5.4 % |
+
+Saaremaa ran while the host built packages: its pair is not clean (spread between runs at 0:
+7.1 % average, 105 % 1 % low). Terrain is about 330 draws a frame and undergrowth about 10, so
+most of each gain is task 5 and 6's; this task moves the remaining per-draw D3DX calls of these two
+effects out of the frame.
+
 
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
 after render milestone 9, which takes items 1 and 3.

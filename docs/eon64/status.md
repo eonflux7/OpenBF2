@@ -160,11 +160,23 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks
    differ only in wind and smoke; same-session pairs, 1 against 0, Muttrah City `bench1` 10.46 /
    11.78 ms, Fallujah West `bench` 18.39 / 20.26 ms, Saaremaa `bench1` 8.27 / 8.70 ms
    ([perf-frame.md](perf-frame.md#render-milestone-9-task-6)). Not yet seen by the owner.
-7. Terrain, overgrowth and undergrowth on packets.
+7. Terrain, overgrowth and undergrowth on packets. Done (`965bb8bf`): terrain and undergrowth
+   draw through their engine `Effect`, which they opt in to effect programs (one per pass of a
+   technique, [Submission](renderer-pipeline.md#submission)); their parameter writes go to the
+   submission layer's value store. Overgrowth was already there: far cells are Ra queue entries
+   (task 6), near instances static meshes. Every terrain pass (lit 0, 3, 4, 5, 14, prepass,
+   casters, surrounding) and undergrowth `t0_l0` built, none refused. From here on at 1920x1080
+   (owner, 2026-11-19). Loaded by an agent, 2026-11-19: view shots with `submit` 1 and 0 differ
+   only in wind and water (Muttrah `high` 27, `market` 715; Saaremaa `forest1` 1935, `forest2`
+   9460, `runway` 3436 pixels of 2.07 M); same-session pairs, 1 against 0, Muttrah City `bench1`
+   9.53 / 10.69 ms, Fallujah West `bench` 18.34 / 21.42 ms, Saaremaa `bench1` 6.71 / 7.09 ms
+   (Saaremaa with package builds running on the host: 1 % low spread 105 % at 0)
+   ([perf-frame.md](perf-frame.md#render-milestone-9-task-7)). Not yet seen by the owner.
 8. Instancing (stream frequency) for overgrowth and repeated static meshes.
 9. Contribution culling: below a projected size (`renderer.*` variable) an object is not drawn,
    faded out over the LOD dither band.
-10. Acceptance: the benchmark paths against the baselines above, view shots matching the D3DX
+10. Acceptance: the benchmark paths against the baselines above (re-taken at 1920x1080 on a quiet
+    host first; the baselines above are 1600x900), view shots matching the D3DX
     path, then the D3DX path and the A/B variable deleted.
 
 Open from milestone 8:
