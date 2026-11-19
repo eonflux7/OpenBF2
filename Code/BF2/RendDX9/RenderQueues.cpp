@@ -1821,6 +1821,11 @@ void RenderQueue::drawWalkNear()
                     stateManagerSetPrepassedDraw(renderQueuesIsPrepassed(e));   // [RENDER] milestone 8
                     renderEntryBindLodDither(e);                   // [RENDER] milestone 8
                     shader->draw(e);                               // +0x18
+                    if (program && drawStatsOn())   // [DEV] BF2_DRAW_STATS
+                    {
+                        const LitDrawStat d = { shader, 0u, material };   // one technique a walk
+                        g_litDrawStats.push_back(d);
+                    }
                 }
             }
         }
@@ -1834,6 +1839,8 @@ void RenderQueue::drawWalkNear()
     }
 done:
     stateManagerSetPrepassedDraw(false);                           // [RENDER] milestone 8
+    if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+        litDrawStatsFlush();
     if (program)
     {
         submitEnd(program);
