@@ -41,8 +41,9 @@ owner, 2026-11-19, Muttrah City):
    depth prepass (6.2 ms), world opaque (4.8) and sun cascade 3 (3.7), CPU submission included.
    Muttrah City, `bench1`: 13.37 ms (75 fps), 1 % low 18.48 ms, CPU bound, spread 1.16 % /
    1.83 % (within target); depth prepass 3.2 ms, world opaque 3.0, sun cascade 3 1.2.
-   Draws read 146 (Saaremaa), 313 (Fallujah) and 377 (Muttrah City) per frame, which look too
-   low to be the whole frame; not checked.
+   Those draw counts (146, 313, 377) left out every queued mesh; counted since `52868e8c`:
+   Muttrah City `bench1` 8927 draws a frame (1 run, 14.00 ms, 2026-11-19); the other maps'
+   counts are retaken with milestone 9's task 1.
 
 ## Paused: `tools` milestone 1, views
 
@@ -81,12 +82,40 @@ tried on Muttrah City by an agent: a view shot before the HUD and one with `tool
 ## Next: `render` milestone 9, draw submission (after the benchmark path)
 
 Plan: [renderer.md](renderer.md#9-draw-submission): frame module, submission layer, instancing and
-contribution culling, caster culling, contract version. Tasks: not yet broken down.
+contribution culling, caster culling, contract version.
+
+Measuring: the benchmark paths give the frame time and its spread (before and after, the
+acceptance number); the breakdown that steers the work is taken at fixed views, where the frame
+holds still: CPU samples by subsystem ([perf-frame.md](perf-frame.md#measuring)), GPU spans and
+draws per technique and pass.
+
+Tasks (owner breakdown pending, 2026-11-19):
+1. Breakdown at fixed views: one view each on Muttrah City and Fallujah West (the dense ones),
+   CPU samples by subsystem, GPU spans, draws per pass (`BF2_DRAW_STATS`), and the same with the
+   sun cascades off, for the caster pass's whole cost. Recorded in perf-frame.md; it orders
+   tasks 4–9 if they need reordering.
+2. Contract version: `RA_CONTRACT` passed to every effect compiled; the shaders `#error` when it
+   is older than they need. First, since the later tasks change the contract.
+3. Frame module: the pass sequence moves out of `BF2Render.cpp`'s `renderFrame` into its own
+   module. No change in what is drawn: view shots before and after match.
+4. Caster culling: the sun caster pass takes the camera's object culling instead of culling again
+   over the cascades' light volume.
+5. Submission layer and its A/B variable: the packet (shaders, constants, buffers, states), shaders
+   and constant layout taken from the effect files once, constants uploaded by the layer. First
+   consumers the depth prepass and the sun casters (one technique each, most of the draws).
+6. Static meshes in the lit passes on packets, then bundled and skinned meshes (bone constants).
+7. Terrain, overgrowth and undergrowth on packets.
+8. Instancing (stream frequency) for overgrowth and repeated static meshes.
+9. Contribution culling: below a projected size (`renderer.*` variable) an object is not drawn,
+   faded out over the LOD dither band.
+10. Acceptance: the benchmark paths against the baselines above, view shots matching the D3DX
+    path, then the D3DX path and the A/B variable deleted.
 
 Open from milestone 8:
-- Crash in the first frame after a device reset (`renderer.vsync` toggled, here by `bench.run`):
-  a null read in d3dx9 from `renderQueuesDrawShadowCasters` in `rendererSunShadowsRender`. Once
-  in four resets, Muttrah City, 2026-11-19.
+- Crash in the first frame after a device reset: fixed in `717b2671` (a stale RaShadowViewProj
+  handle cached by effect pointer). Tried by an agent, Muttrah City, 2026-11-19: 24 resets
+  (`renderer.vsync` toggled at a view with the sun cascades drawing) and one `bench.run`, no
+  crash; before, about one reset in four crashed. Not yet seen by the owner.
 - Frame rate: about 20 % lower on Muttrah City after milestone 8's LOD work (owner), perhaps lower
   again after the overgrowth crossfade (Saaremaa, not measured). CPU-bound; measurements and leads
   in [perf-frame.md](perf-frame.md#after-render-milestone-8). Milestone 9's target.
