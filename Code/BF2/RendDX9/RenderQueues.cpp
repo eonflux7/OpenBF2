@@ -13,6 +13,7 @@
 #include "QueueProfiler.h"
 #include "Ra/RaShader.h"
 #include "Submit.h"                     // [RENDER] milestone 9
+#include "DrawStats.h"                  // [DEV] BF2_DRAW_STATS
 #include "../RendMisc/IRenderer.h"
 #include "../RendMisc/IRenderView.h"      // [RENDER] rendererSubmitCullFrustum
 #include "../GeomMisc/DebugMeshCommon.h"   // geom::debugmesh::equalVector, PE 0x10037DC0
@@ -26,6 +27,7 @@
 #include <cstdint>
 #include <set>
 #include <stdexcept>
+#include <utility>
 #include <stddef.h>
 #include <stdlib.h>
 #if !defined(_WIN32)
@@ -2520,6 +2522,28 @@ void sortDepthEntries(std::vector<RenderQueueEntry*>& list)
         list[i] = g_depthKeys[i].entry;
 }
 
+// [DEV] BF2_DRAW_STATS: the depth draws without alpha test, and how many (mesh instance, effect)
+// groups they form, the draws one draw per mesh would leave (counter rows "depth opaque draws",
+// "depth opaque meshes").
+std::vector<std::pair<const void*, const void*> > g_depthMeshStats;
+
+void depthMeshStatsAdd(const RenderQueueEntry* e)
+{
+    if (!stateManagerWantedRenderState(15u))   // ALPHATESTENABLE
+        g_depthMeshStats.push_back(std::make_pair(e->objectParameters,
+                                                  static_cast<const void*>(e->shader)));
+}
+
+void depthMeshStatsFlush()
+{
+    std::sort(g_depthMeshStats.begin(), g_depthMeshStats.end());
+    const unsigned int groups = static_cast<unsigned int>(
+        std::unique(g_depthMeshStats.begin(), g_depthMeshStats.end()) - g_depthMeshStats.begin());
+    drawStatsCount("depth opaque draws", static_cast<unsigned int>(g_depthMeshStats.size()));
+    drawStatsCount("depth opaque meshes", groups);
+    g_depthMeshStats.clear();
+}
+
 // [RENDER] milestone 9: drawDepthEntries through the submission layer (Submit.h), one program per
 // effect; renderer.submit 0 keeps the D3DX walk below.
 void drawDepthEntriesSubmit(std::vector<RenderQueueEntry*>& list, unsigned int key, bool prepass)
@@ -2569,6 +2593,8 @@ void drawDepthEntriesSubmit(std::vector<RenderQueueEntry*>& list, unsigned int k
         const bool writesDepth = submitEntry(active, e);
         if (prepass && !writesDepth)
             continue;
+        if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+            depthMeshStatsAdd(e);
         renderEntryBindLodDither(e);
         shader->draw(e);
         if (prepass)
@@ -2576,6 +2602,8 @@ void drawDepthEntriesSubmit(std::vector<RenderQueueEntry*>& list, unsigned int k
     }
     if (active)
         submitEnd(active);
+    if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+        depthMeshStatsFlush();
 }
 
 // Draws `list` with technique `key`, near bands first (DepthEntryKey), without consuming the
@@ -2888,11 +2916,15 @@ void drawShadowCastersSubmit(unsigned int key, const float* viewProjection,
         if (!streamsBound)
             continue;
         submitEntry(active, e);
+        if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+            depthMeshStatsAdd(e);
         renderEntryBindLodDither(e);
         shader->draw(e);
     }
     if (active)
         submitEnd(active);
+    if (drawStatsOn())   // [DEV] BF2_DRAW_STATS
+        depthMeshStatsFlush();
 }
 }
 
