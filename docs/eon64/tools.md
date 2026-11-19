@@ -66,8 +66,10 @@ movement, and player input arrives at tick rate. W A S D move, E or Space up, Q 
 5x, Ctrl 0.2x; the mouse looks (`tools.flyMouse`, degrees per pixel, default 0.15) with the
 DirectInput mouse released and the cursor re-centred; the wheel changes the FOV by 2 degrees.
 Input is read only while the game window is in front, and the game's player input is cleared
-meanwhile. `tools.flySpeed` is metres per second (default 20). `view.fly 0` or `view.leave` hands
-the camera back and restores `renderer.drawHud`.
+meanwhile. `tools.flySpeed` is metres per second (default 20). Free fly started from the game's
+camera hands it back when it stops (`view.fly 0`, F8); started from a view, it stops in place and
+keeps the camera there, ready for `view.save`. `view.leave` always hands the camera back and
+restores `renderer.drawHud`.
 
 **A view** is a name, position, yaw, pitch, FOV, and options:
 - `run` lines, executed on entering the view (debug mode, a forced cascade, a time of day). Before
@@ -104,6 +106,19 @@ keeping comments, order and blank lines. `view.reload` (Reload in the tab) rerea
 
 **Commands:** `view.go NAME`, `view.save NAME [note]` (the current camera), `view.delete NAME`,
 `view.leave`, `view.list`, `view.reload`, `view.fly 0|1`, `view.shot [NAME]`.
+
+As built (`Game/Tools/ViewFile.cpp`, `ViewTool.cpp`): the file is reread whenever it differs on
+disk from the last read, so the next view command after a hand edit sees it; `view.reload` forces
+it and reports the counts. An edit changes only the lines of its view or set: `view.save` on an
+existing view rewrites its `view` line (camera fields replaced, unknown fields and the note kept
+unless a new note is given) and leaves its `run` lines; a new view goes after the last view.
+`view.delete` removes the view's lines and drops it from every set, removing a set left empty. Line
+endings are kept. Lines that do not parse are kept and listed by `view.list` and `view.reload`.
+`view.save` needs a camera held by the tool (free fly or a view). A note with spaces is quoted:
+`view.save market "rooftop alpha fences"`. A `run` line counts as setting a variable when its first
+word names a console property and a value follows; the first such line per variable records the
+old value, and `view.leave` or the next `view.go` restores them, last first. Commands are marked
+"not undone" in `view.list`. A view without `fov=` takes the game's FOV.
 
 **Views tab:** the list with Go, Update (to the current camera), Delete and reordering; set editing;
 Save current view; the note and run lines of the selected view.
