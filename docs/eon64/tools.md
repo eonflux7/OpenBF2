@@ -228,6 +228,20 @@ indented `key TIME pos=… yaw=… pitch=… fov=…` lines. `path.key NAME TIME
 current camera; otherwise the file is edited by hand. Paths play in real time: `path.play NAME`,
 `path.stop`.
 
+As built (`ViewFile.cpp`, `ViewTool.cpp`): `key` lines belong to the `path` line above them (as `run`
+lines to their view) and must rise in time; a key that does not is listed as a problem and skipped.
+`path` takes an optional `| note`. `path.key NAME [TIME]` needs a held camera (free fly or a view);
+without TIME the key goes at 0 for a new path and 5 s after the last key otherwise; a key at the
+same time (to 0.01 s) is replaced, another goes where its time puts it. A new path goes after the
+last path, else after the last view. `path.list` prints the paths and their keys; `view.reload`
+counts them. `path.play NAME` needs two keys; time runs from the first frame rendered after the
+command. Position, yaw, pitch and FOV follow one cubic Hermite curve through the keys, tangents
+`(p[i+1] - p[i-1]) / (t[i+1] - t[i-1])` (Catmull-Rom for uneven key times), one-sided at the ends;
+yaw is unwrapped to take the short way between keys. A key without `fov=` takes the previous key's;
+with none in the path, the game's FOV. The HUD is hidden while it plays. At the end, or on
+`path.stop`, `view.leave` or `view.go`, the camera goes back to the game; free fly (F8) stops the
+path and flies on from where it was.
+
 **Benchmark.** `bench.run PATH [runs] [label]` plays the path in real time, after one warm-up pass,
 the given number of times (default 3). It turns vsync off and `game.lockFps` to 0 for the
 benchmark and restores both afterwards. It writes a per-frame CSV (frame, CPU frame time, GPU busy

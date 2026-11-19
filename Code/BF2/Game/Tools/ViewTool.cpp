@@ -561,7 +561,10 @@ std::string pathKey(const std::string& name, const std::string& timeText = std::
             return "path.key: TIME is seconds from the path's start, 0 or more";
     }
     const Camera& c = g_state.camera;
-    g_views.saveKey(name, time, c.x, c.y, c.z, c.yaw, c.pitch, c.fov);
+    // Right after view.go to a view without fov=, the game's FOV is not read until the next frame;
+    // the key then goes without fov= and takes the previous key's when played.
+    g_views.saveKey(name, time, c.x, c.y, c.z, c.yaw, c.pitch,
+                    g_state.seedFovFromGame ? 0.0f : c.fov);
     CreateDirectoryA(g_views.path().substr(0, g_views.path().find_last_of('/')).c_str(), 0);
     error = writeViews();
     if (!error.empty())

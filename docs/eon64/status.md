@@ -22,7 +22,8 @@ culling), so a repeatable camera path with a frame-time CSV comes next, then ren
 Plan: [tools.md](tools.md#3-benchmark-path). Left for later: milestone 1 tasks 6–8, milestone 2,
 and milestone 3's history file and acceptance check (the spread between runs is still reported).
 
-Tasks:
+Tasks (1–2 built; tried on Muttrah City by an agent, 2026-11-19: two keys recorded from views,
+played, camera handed back at the end; not yet seen by the owner):
 1. Paths in the view file: `path NAME` with indented `key TIME pos=… yaw=… pitch=… fov=…` lines,
    parsed and written like views; `path.key NAME TIME` appends a keyframe at the current camera.
 2. Playback: `path.play NAME`, `path.stop`; real time, Catmull-Rom position, smoothed angles and FOV.

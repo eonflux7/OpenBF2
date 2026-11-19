@@ -103,7 +103,7 @@ public:
 
     // Adds a keyframe at time to the path, creating the path (after the last path, else after the
     // last view) when there is none. A key at the same time is replaced; otherwise the key line
-    // goes where its time puts it among the path's keys.
+    // goes where its time puts it among the path's keys. fov <= 0 writes the key without fov=.
     void saveKey(const std::string& path, float time, float x, float y, float z, float yaw,
                  float pitch, float fov);
 

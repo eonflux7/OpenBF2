@@ -565,7 +565,8 @@ void ViewFile::saveKey(const std::string& path, float time, float x, float y, fl
 {
     const std::string line = "  key " + formatNumber(time, 2) + " pos=" + formatNumber(x, 2) + ","
         + formatNumber(y, 2) + "," + formatNumber(z, 2) + " yaw=" + formatNumber(yaw, 2)
-        + " pitch=" + formatNumber(pitch, 2) + " fov=" + formatNumber(fov, 1);
+        + " pitch=" + formatNumber(pitch, 2)
+        + (fov > 0.0f ? " fov=" + formatNumber(fov, 1) : std::string());
     const ViewPath* existing = findPath(path);
     if (existing)
     {
