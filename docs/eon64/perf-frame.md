@@ -157,6 +157,17 @@ go through the state manager, so both gain. Same-session pairs, 3 runs each, ski
 | Muttrah City `bench1` | 10.86 ms (12.03 before) | 11.73 ms (13.07) | 7.4 % |
 | Fallujah West `bench` | 19.40 ms (21.52) | 20.78 ms (23.43) | 6.6 % |
 
+Then the coming draws' parameter blocks prefetched (`85cf4ae4`: the entry eight draws ahead, its
+object and material blocks four ahead) and the depth order sorted on keys read once per entry.
+At Muttrah `high` the holder calls into the sink go from 5.4 % to 3.0 % of the main thread, but the
+prefetch itself takes 1.1 %: the stall moves more than it goes. The depth sort goes from 2.5 % to
+0.9 %. `bench1`, 3 runs each: 10.90 ms with programs (10.86 before, spread 2.4 %), 11.57 ms through
+D3DX (11.73): within the runs' spread.
+
+At the same view, with `BF2_DRAW_STATS`: the depth passes (prepass and cascades) draw 7390 entries
+without alpha test a frame, in 5069 (mesh instance, effect) groups; one draw per mesh would remove
+at most 2321 of the frame's 10541 draws.
+
 ## Plan
 
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
