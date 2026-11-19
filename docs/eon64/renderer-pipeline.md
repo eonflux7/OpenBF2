@@ -410,12 +410,16 @@ and caster walks leave its entries to the submission walk.
   `INDEXEDDATA` times the group's size, the record stream `INSTANCEDATA`.
 - A group: entries with the same program and material (in the depth passes the same material run
   of one draw per mesh, then drawn as one range) whose instance parameters and LOD dither hash
-  alike (64 bits over the values the program's instance holders give); clip-planed entries stay
-  alone. The lit per-material walk sorts each material's entries by prepass state and hash; the
-  depth walks (prepass, named depth passes, each cascade's casters: `drawDepthPassSubmit`) sort
-  the instanced runs by effect, material, run length and hash, after them the other runs in the
-  pass's order. An alpha-tested run of several materials draws material by material, each a
-  group. Sorted queues (`drawWalkDefault`) keep their order: groups of one.
+  alike (64 bits; clip-planed entries stay alone). The hash reads the object and lighting blocks'
+  plain holders (floats, vectors, matrices, texture pointers) in place, counts the material block
+  by its address (a material's entries share it), leaves out the global block (one value per
+  pass), and captures the rest through the sink; each program splits its parameters this way once.
+  Groups are formed through a hash table, not a sort (`groupFirstSeen`), in the order first met: the
+  lit per-material walk on prepass state and hash; the depth walks (prepass, named depth passes,
+  each cascade's casters: `drawDepthPassSubmit`) on effect, material, run length and hash, a
+  program's groups together. A group's members keep the pass's order. An alpha-tested run of
+  several materials draws material by material, each a group. Sorted queues (`drawWalkDefault`)
+  keep their order: groups of one.
 - Effect-wide for an instanced program: the sun's world direction and the static sun colour
   (`RaSunDirection`, `RaSunColor`). `ViewProjection` is an instance parameter that static meshes
   fill with their view's, so it joins the group key.

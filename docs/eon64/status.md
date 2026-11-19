@@ -197,9 +197,13 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks
    `trunkog` are ~100 draws and stay): Saaremaa `forest1` 4157 to 2132 draws (cascades 1583 to
    298); shots match task 8's; separate launches, old shaders against new, Saaremaa `bench1`
    6.50 / 5.96 ms, Fallujah West 16.48 / 16.30, Muttrah City 8.82 / 8.81 (prshaders `d6db632`,
-   [perf-frame.md](perf-frame.md#render-milestone-9-task-8)). Not yet seen by the owner. Left:
-   the depth runs' sort and the instance hash (3.5 and 3.3 % of the main thread at Fallujah
-   `city1`).
+   [perf-frame.md](perf-frame.md#render-milestone-9-task-8)). Not yet seen by the owner. Then
+   groups formed through a hash table instead of a sort, and the instance key read in place
+   (`3c745649`, `67d04f51`): the depth runs' sort (3.5 % of the main thread at Fallujah `city1`)
+   gone, the hash 3.3 to 3.0 % (memory reads, not calls). Loaded by an agent, 2026-11-19: shot
+   `city1` differs only on smoke and palms; separate launches, Fallujah West `bench` 16.30 to
+   14.79 ms, Muttrah City `bench1` 8.81 to 7.85, Saaremaa `bench1` 5.96 to 5.22. Not yet seen by
+   the owner.
 9. Contribution culling: below a projected size (`renderer.*` variable) an object is not drawn,
    faded out over the LOD dither band.
 10. Acceptance: the benchmark paths against the baselines above (re-taken at 1920x1080 on a quiet

@@ -303,6 +303,23 @@ swapped in a running game do not reload (no `.cfx` written), so the pairs are se
 | Fallujah West `bench` | 16.48 ms, 21.09 | 16.30 ms, 20.86 |
 | Muttrah City `bench1` | 8.82 ms, 12.11 | 8.81 ms, 12.47 |
 
+Then the grouping without a sort and the instance key read in place (`3c745649`, `67d04f51`;
+[Instancing](renderer-pipeline.md#instancing)). Main thread at Fallujah `city1`
+(`runs/perf/t8e-city1`): the depth runs' sort (3.5 %) gone, `drawDepthPassSubmit` 4.6 to 3.4 %;
+the hash 3.3 to 3.0 %, so its cost is reading each entry's object and lighting blocks, not the
+sink calls it no longer makes. Shot `city1` against `t8-city1`: 8792 pixels of 2.07 M (3 % fuzz),
+all on smoke and wind-blown palms; 4886 draws (4980). Separate launches against the near-trees
+column above, 3 runs each:
+
+| Path | Before | After | Spread (average / 1 % low) |
+|---|---|---|---|
+| Fallujah West `bench` | 16.30 ms, 1 % low 20.86 | 14.79 ms, 18.68 | 0.14 / 1.53 % |
+| Muttrah City `bench1` | 8.81 ms, 12.47 | 7.85 ms, 11.02 | 3.23 / 7.39 % |
+| Saaremaa `bench1` | 5.96 ms, 9.35 | 5.22 ms, 8.03 | 0.52 / 5.34 % |
+
+The gain is larger than the profile's share (about 2 % of the main thread); part of it may be
+the host between launches. A same-session pair needs a switch this change does not have.
+
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
 after render milestone 9, which takes items 1 and 3.
 
