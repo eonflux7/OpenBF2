@@ -22,6 +22,7 @@
 #include "../Geom/Terrain.h"              // the water properties' target, geom::terrain() (dword_1024B930)
 #include "../Geom/BundledMeshStateManager.h"
 #include "../GeomMisc/FSQuadDrawer.h"
+#include "Submit.h"                          // [RENDER] renderer.submit
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -1354,6 +1355,11 @@ bool getSunShadows() { return sunShadowSettings().enabled; }
 void setSunShadows(bool value) { sunShadowSettings().enabled = value; }
 BF2_CONSOLE_PROPERTY_FN(sunShadows, bool, true, getSunShadows(), setSunShadows, kRendererConsoleTag)
 
+// [RENDER] Draw submission A/B (milestone 9, Submit.h): 1 programs, 0 the D3DX effect path.
+bool getSubmit() { return submitEnabled(); }
+void setSubmit(bool value) { submitSetEnabled(value); }
+BF2_CONSOLE_PROPERTY_FN(submit, bool, true, getSubmit(), setSubmit, kRendererConsoleTag)
+
 // Texels per cascade side: the nearest power of two in 512..4096.
 int getSunShadowResolution() { return static_cast<int>(sunShadowSettings().resolution); }
 void setSunShadowResolution(int value)
@@ -1392,6 +1398,7 @@ const char* rendererVariableHelp(const char* name)
         { "sunShadowCascadeBlend", "Part of the next slice each cascade also covers and blends over" },
         { "sunShadowNormalOffset", "Receiver offset along its normal, in cascade texels (against acne)" },
         { "sunShadowDepthBias", "Receiver offset toward the sun, in cascade texels (against acne)" },
+        { "submit", "Depth prepass and sun casters drawn by the submission layer; off, through D3DX effects (milestone 9 A/B)" },
         { "softParticleDistance", "Depth over which particles fade out in front of the scene, in metres" },
         { "uiMenuKey", "Win32 virtual-key code that opens and closes this menu (45 = Insert)" },
         { "uiOverlay", "Performance overlay, top right; kept between sessions" },

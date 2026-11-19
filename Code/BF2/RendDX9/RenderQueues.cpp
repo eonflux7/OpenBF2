@@ -12,6 +12,7 @@
 #include "Texture.h"
 #include "QueueProfiler.h"
 #include "Ra/RaShader.h"
+#include "Submit.h"                     // [RENDER] milestone 9
 #include "../RendMisc/IRenderer.h"
 #include "../RendMisc/IRenderView.h"      // [RENDER] rendererSubmitCullFrustum
 #include "../GeomMisc/DebugMeshCommon.h"   // geom::debugmesh::equalVector, PE 0x10037DC0
@@ -2471,14 +2472,105 @@ std::vector<const RenderQueueEntry*> g_prepassed;
 }
 
 namespace {
-// Draws `list` with technique `key`, nearest first, without consuming the queues. A prepass
-// (`prepass`) draws only entries that write the scene depth and records them, so their lit pass
-// tests EQUAL; otherwise each entry keeps its technique's own depth states (water: test, no write).
+// [RENDER] milestone 9: the depth passes' order. Near to far by distance band (powers of two in
+// metres), and within a band by effect and material, so a run of draws shares one program and its
+// streams instead of switching at almost every draw; early depth rejection still works band by
+// band. The depth the pass writes does not depend on the order.
+inline int depthBand(const RenderQueueEntry* e)
+{
+    const float d = entryCameraDistance(e);
+    if (!(d > 1.0f))
+        return 0;
+    int exponent = 0;
+    std::frexp(d, &exponent);
+    return exponent;
+}
+
+struct DepthEntryOrder
+{
+    bool operator()(RenderQueueEntry* a, RenderQueueEntry* b) const
+    {
+        const int ba = depthBand(a);
+        const int bb = depthBand(b);
+        if (ba != bb)
+            return ba < bb;
+        if (a->shader != b->shader)
+            return a->shader < b->shader;
+        if (a->material != b->material)
+            return a->material < b->material;
+        return entryCameraDistance(a) < entryCameraDistance(b);
+    }
+};
+
+// [RENDER] milestone 9: drawDepthEntries through the submission layer (Submit.h), one program per
+// effect; renderer.submit 0 keeps the D3DX walk below.
+void drawDepthEntriesSubmit(std::vector<RenderQueueEntry*>& list, unsigned int key, bool prepass)
+{
+    SubmitProgram* active = 0;
+    Ra::RaShader* activeShader = 0;
+    Ra::RaShader* rejected = 0;
+    void* lastMaterial = 0;
+    bool streamsBound = false;
+    for (std::vector<RenderQueueEntry*>::iterator it = list.begin(); it != list.end(); ++it)
+    {
+        RenderQueueEntry* const e = *it;
+        Ra::RaShader* const shader = e->shader;
+        if (!shader || shader == rejected)
+            continue;
+        if (shader != activeShader)
+        {
+            if (active)
+            {
+                submitEnd(active);
+                active = 0;
+                activeShader = 0;
+            }
+            SubmitProgram* const program = submitProgram(shader, key);
+            if (!program)
+            {
+                rejected = shader;
+                continue;
+            }
+            submitBegin(program, e);
+            active = program;
+            activeShader = shader;
+            lastMaterial = 0;
+        }
+        if (e->material != lastMaterial)
+        {
+            lastMaterial = e->material;
+            streamsBound = materialApplyStreams(e->material, shader);
+        }
+        if (!streamsBound)
+            continue;
+        const bool writesDepth = submitEntry(active, e);
+        if (prepass && !writesDepth)
+            continue;
+        renderEntryBindLodDither(e);
+        shader->draw(e);
+        if (prepass)
+            g_prepassed.push_back(e);
+    }
+    if (active)
+        submitEnd(active);
+}
+
+// Draws `list` with technique `key`, near bands first (DepthEntryOrder), without consuming the
+// queues. A prepass (`prepass`) draws only entries that write the scene depth and records them, so
+// their lit pass tests EQUAL; otherwise each entry keeps its technique's own depth states (water:
+// test, no write).
 void drawDepthEntries(std::vector<RenderQueueEntry*>& list, unsigned int key, bool prepass)
 {
     if (list.empty())
         return;
-    std::stable_sort(list.begin(), list.end(), RenderEntryNearerFirst());
+    std::sort(list.begin(), list.end(), DepthEntryOrder());
+    if (submitEnabled())
+    {
+        drawDepthEntriesSubmit(list, key, prepass);
+        if (prepass)
+            std::sort(g_prepassed.begin(), g_prepassed.end());
+        return;
+    }
 
     Ra::RaShader* active = 0;
     Ra::RaShader* rejected = 0;
@@ -2721,9 +2813,69 @@ void rendererSetCasterBounds(size_t first, const float sphere[4])
 
 // Mirrors renderQueuesDepthPrepass over the captured casters: technique `key`, the cascade's
 // view-projection on each effect, the entry's own template and instance parameters.
+// [RENDER] milestone 9: the caster walk through the submission layer (Submit.h).
+namespace {
+void drawShadowCastersSubmit(unsigned int key, const float* viewProjection,
+                             const ShadowCascadeCull& cull)
+{
+    std::vector<ShadowCaster>& casters = g_casterCapture.casters;
+    SubmitProgram* active = 0;
+    Ra::RaShader* activeShader = 0;
+    Ra::RaShader* rejected = 0;
+    void* lastMaterial = 0;
+    bool streamsBound = false;
+    for (size_t i = 0; i < casters.size(); ++i)
+    {
+        if (!casterInCascade(casters[i], cull))
+            continue;
+        RenderQueueEntry* const e = casters[i].entry;
+        Ra::RaShader* const shader = e->shader;
+        if (!shader || shader == rejected)
+            continue;
+        if (shader != activeShader)
+        {
+            if (active)
+            {
+                submitEnd(active);
+                active = 0;
+                activeShader = 0;
+            }
+            SubmitProgram* const program = submitProgram(shader, key);
+            if (!program || !submitHasParameter(program, "RaShadowViewProj"))
+            {
+                rejected = shader;
+                continue;
+            }
+            submitBegin(program, e);
+            submitSetMatrix(program, "RaShadowViewProj", viewProjection);
+            active = program;
+            activeShader = shader;
+            lastMaterial = 0;
+        }
+        if (e->material != lastMaterial)
+        {
+            lastMaterial = e->material;
+            streamsBound = materialApplyStreams(e->material, shader);
+        }
+        if (!streamsBound)
+            continue;
+        submitEntry(active, e);
+        renderEntryBindLodDither(e);
+        shader->draw(e);
+    }
+    if (active)
+        submitEnd(active);
+}
+}
+
 void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection,
                                    const ShadowCascadeCull& cull)
 {
+    if (submitEnabled())
+    {
+        drawShadowCastersSubmit(key, viewProjection, cull);
+        return;
+    }
     std::vector<ShadowCaster>& casters = g_casterCapture.casters;
     Ra::RaShader* active = 0;
     Ra::RaShader* rejected = 0;
@@ -2823,6 +2975,7 @@ void renderQueuesResetEffects()
          node != table->shaders.end(); ++node)
         resetOneHemiMaterialQueue(node->second);
     g_shadowViewProjectionHandles.clear();   // [RENDER] handles of the dropped effects
+    submitReset();                           // [RENDER] programs of the dropped effects
 }
 
 // PE 0x10041C00. Unreachable in 1.50: no code or data references. The same in-order walk over the

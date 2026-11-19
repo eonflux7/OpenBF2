@@ -1619,6 +1619,42 @@ void stateManagerSetVertexShaderConstantF(unsigned int reg, const float* data, u
     smSetVertexShaderConstantF(sm(), reg, data, count);
 }
 
+// [RENDER] The submission layer (Submit.cpp) binds what a D3DX pass would, through the same
+// mirror: textures, sampler states, and the pixel, integer and boolean constants (the pixel
+// constants keep the engine's reserved registers, see smSetPixelShaderConstantF).
+void stateManagerSetTexture(unsigned int stage, IDirect3DBaseTexture9* texture)
+{
+    smSetTexture(sm(), stage, texture);
+}
+
+void stateManagerSetSamplerState(unsigned int stage, unsigned int type, unsigned int value)
+{
+    smSetSamplerState(sm(), stage, type, value);
+}
+
+void stateManagerSetPixelShaderConstantF(unsigned int reg, const float* data, unsigned int count)
+{
+    smSetPixelShaderConstantF(sm(), reg, data, count);
+}
+
+void stateManagerSetShaderConstantI(bool pixel, unsigned int reg, const int* data,
+                                    unsigned int count)
+{
+    if (pixel)
+        smSetPixelShaderConstantI(sm(), reg, data, count);
+    else
+        smSetVertexShaderConstantI(sm(), reg, data, count);
+}
+
+void stateManagerSetShaderConstantB(bool pixel, unsigned int reg, const BOOL* data,
+                                    unsigned int count)
+{
+    if (pixel)
+        smSetPixelShaderConstantB(sm(), reg, data, count);
+    else
+        smSetVertexShaderConstantB(sm(), reg, data, count);
+}
+
 
 // The base renderer's draw wrappers, 0x10005870 (DrawPrimitive) and 0x10005820
 // (DrawIndexedPrimitive). Both live in the base TU in the shipped image but belong to this

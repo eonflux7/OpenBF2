@@ -90,7 +90,7 @@ acceptance number); the breakdown that steers the work is taken at fixed views, 
 holds still: CPU samples by subsystem ([perf-frame.md](perf-frame.md#measuring)), GPU spans and
 draws per technique and pass.
 
-Tasks (owner breakdown pending, 2026-11-19; tasks 1–3 done by an agent, 2026-11-19):
+Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 next, before 4):
 1. Breakdown at fixed views: one view each on Muttrah City and Fallujah West (the dense ones),
    CPU samples by subsystem, GPU spans, draws per pass (`BF2_DRAW_STATS`), and the same with the
    sun cascades off, for the caster pass's whole cost. Recorded in
@@ -119,6 +119,16 @@ Tasks (owner breakdown pending, 2026-11-19; tasks 1–3 done by an agent, 2026-1
 5. Submission layer and its A/B variable: the packet (shaders, constants, buffers, states), shaders
    and constant layout taken from the effect files once, constants uploaded by the layer. First
    consumers the depth prepass and the sun casters (one technique each, most of the draws).
+   Order confirmed by the owner (2026-11-19): 5 before 4. Material depth states by shader contract
+   2 (owner's choice over capturing them per material). Written: `Submit.cpp`
+   ([Submission](renderer-pipeline.md#submission)), `renderer.submit` (default 1), prshaders
+   `83795c6`; the depth passes' order banded by distance, then effect and material (both paths).
+   Loaded by an agent on Muttrah City, 2026-11-19: views `high` and `market` with `submit` 1 and 0
+   differ in 3 and 102 pixels of 1.44 M (wind-blown palms). `bench1`, 3 runs each: 12.44 ms with
+   programs, 12.92 ms through D3DX (13.52 ms before the banded order); profile in
+   [perf-frame.md](perf-frame.md#render-milestone-9-task-5). Not yet seen by the owner. Left: the
+   sink's own cost (holder calls and value conversion, about 8 % of the main thread at `high`),
+   the pre-draw apply (10 %), one draw per mesh in the depth passes.
 6. Static meshes in the lit passes on packets, then bundled and skinned meshes (bone constants).
 7. Terrain, overgrowth and undergrowth on packets.
 8. Instancing (stream frequency) for overgrowth and repeated static meshes.

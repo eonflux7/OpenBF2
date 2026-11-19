@@ -657,6 +657,15 @@ void stateManagerSetVertexDeclaration(IDirect3DVertexDeclaration9* declaration);
 // display-mode render probe sub_10009FF0 (RendDX9Init.cpp), which binds the shaders it assembles.
 void stateManagerSetVertexShader(IDirect3DVertexShader9* shader);
 void stateManagerSetPixelShader(IDirect3DPixelShader9* shader);
+// [RENDER] The submission layer's binds, through the same deferred mirror (StateManager.cpp).
+void stateManagerSetTexture(unsigned int stage, IDirect3DBaseTexture9* texture);
+void stateManagerSetSamplerState(unsigned int stage, unsigned int type, unsigned int value);
+void stateManagerSetVertexShaderConstantF(unsigned int reg, const float* data, unsigned int count);
+void stateManagerSetPixelShaderConstantF(unsigned int reg, const float* data, unsigned int count);
+void stateManagerSetShaderConstantI(bool pixel, unsigned int reg, const int* data,
+                                    unsigned int count);
+void stateManagerSetShaderConstantB(bool pixel, unsigned int reg, const BOOL* data,
+                                    unsigned int count);
 void stateManagerClear(unsigned int flags, unsigned int colour, float depth,
                        unsigned int stencil, unsigned int rectCount = 0, const D3DRECT* rects = 0);
 void flushRenderTargetsSeam();
@@ -790,7 +799,7 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 // needs a newer contract stops with #error instead of running against an engine without it. Raised
 // whenever the engine changes what the shaders may rely on; docs/eon64/renderer-pipeline.md lists
 // what each version adds.
-#define RA_CONTRACT_VERSION 1
+#define RA_CONTRACT_VERSION 2
 #define RA_CONTRACT_TEXT_(v) #v
 #define RA_CONTRACT_TEXT(v) RA_CONTRACT_TEXT_(v)
 

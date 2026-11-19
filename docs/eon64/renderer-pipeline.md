@@ -129,7 +129,8 @@ In draw order, for the main world view:
    see [Sun shadows](#sun-shadows).
 3. **Depth prepass** (`rendererDepthPrepass`), just before the world queues flush, after
    overgrowth has queued. Every opaque world-queue entry whose effect has the technique
-   `RaDepthPrepass`, and whose prepass draw writes depth, draws front to back into the scene depth
+   `RaDepthPrepass`, and whose prepass draw writes depth, draws into the scene depth near to far
+   by distance band (powers of two in metres; within a band by effect and material)
    (the MSAA scene depth when the scene is multisampled), with its linear view depth (`R32F`, 0
    where nothing was drawn) into a target of the same sample count. Terrain's depth is already
    there from its first pass (`Terrain::drawMain`, before the prepass), so its prepass draws only
@@ -280,6 +281,7 @@ and add its row here.
 | Version | Adds |
 |---|---|
 | 1 | The contract as of render milestone 8: everything below |
+| 2 | Material depth states by semantic: `RaAlphaTest`, `RaAlphaRef`, `RaDepthWrite` (render milestone 9, [Submission](#submission)) |
 
 Samplers 13 and 15 are reserved for renderer frame resources, and pixel registers c200–c221 for
 `RASM`. No effect may use them for anything else.
@@ -306,6 +308,13 @@ Techniques the engine looks up by name:
 | `RaDepthPrepass` | Ra mesh effects, terrain | Linear depth to COLOR0 |
 | `RaShadowDepth` | Ra mesh effects, terrain | Light depth into the atlas, with `RaShadowViewProj` |
 
+Passes the submission layer draws (`RaDepthPrepass` and `RaShadowDepth` of the Ra mesh effects)
+take every render and sampler state as a constant, except three a material decides, which follow
+these parameters per draw: `RaAlphaTest` (`bool`, ALPHATESTENABLE), `RaAlphaRef` (`int` 0–255,
+ALPHAREF), `RaDepthWrite` (`bool`, ZWRITEENABLE). A pass that fixes one of them (leaves:
+`AlphaTestEnable = TRUE`) keeps its own value. They set no fixed-function state, and a texture
+reaches them only through a sampler's `Texture = (param)`.
+
 Parameters the engine sets by semantic:
 
 | Semantic | Type | Set on |
@@ -320,6 +329,31 @@ Parameters the engine sets by semantic:
 | `TemplateParameters` `color1.a` (light factor) | `float` | The particle templates, as retail, except a template that sets no light factor: `-1 - Lightmanager.defaultEffectLightAffectionFactor` (`particleTemplateUnsetLightAffection`). The shaders light it fully; thermals read back the level default |
 | `EffectSunColor`, `EffectShadowColor` | `float3` | The particle effects, as retail: read only by the thermals path, which keeps PR's particle formula, and (`EffectSunColor`) as the fill scale of the `ShowFill` techniques |
 | `Lights[0].color` (sun record), `SunColor` (decals) | `float3` | Bundled meshes (cockpits included), skinned meshes, trees and decals: the same one sun, `Lightmanager.staticSunColor`. Retail gave them `Lightmanager.sunColor`, the cockpit gate's colour, `treeSunColor` or the sky light's colour, each authored against a separate ambient (on Kashan the dynamic sun is 0.6 against a static 0.73 doubled). Unscaled: retail also multiplied bundled and skinned meshes' sun by the baked simple shadow map, which the cascades replace and which blacked out meshes under roofs once the sky came from the sun |
+
+## Submission
+
+Render milestone 9 (in development, `renderer.submit`, default 1; 0 draws through D3DX). The depth
+prepass, water's linear depth and the sun casters draw through `Submit.cpp` instead of the D3DX
+effect calls. A **program** is pass 0 of one technique of a Ra effect, built the first time a walk
+reaches it and again when the effect is rebuilt or reset:
+
+- Its shaders and fixed states, recorded from one `BeginPass` through a recording state manager.
+- Where each parameter its shaders read lives: from the vertex and pixel shaders' constant tables
+  (float, int and bool registers, struct members, arrays, either matrix packing), and the sampler
+  stages each texture parameter feeds (each texture parameter holds a distinct marker texture while
+  the pass is recorded).
+- Which of the material states (contract 2) follow their parameter: the pass is recorded again with
+  the parameter changed, and only a state that changes with it is set per draw.
+- The Ra holders it reads, per set (instance, global, template) and block. The other parameters keep
+  the effect's values, uploaded when a run of draws begins.
+
+Drawing a run: a state-manager bracket, the program's shaders and states, its effect-wide (global)
+parameters. Each draw: the material's streams, the template and instance parameters, the clip
+planes, the material states, the LOD dither, then `RaShader::draw` (pre-draw apply and the indexed
+draw). The holders apply into a sink with the `ID3DXEffect` shape that turns each value into
+register writes in the state manager's mirror, so every holder kind works unchanged and D3DX is not
+called while drawing. Constants in the engine's pixel registers (c200 on) keep the engine's values,
+as through D3DX.
 
 ## Effect cache
 

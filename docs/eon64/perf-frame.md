@@ -115,6 +115,25 @@ Read:
   contribution culling applied to casters by their size in cascade texels would remove much of
   cascade c3's small draws.
 
+## Render milestone 9, task 5
+
+Main thread at Muttrah `high`, 10 s samples, engine with task 5, 2026-11-19. Shares of the main
+thread, programs (`renderer.submit 1`) / D3DX (`0`), both with the banded depth order:
+
+| | Programs | D3DX |
+|---|---|---|
+| d3dx9_25.dll | 5.5 % | 15.7 % |
+| RaShader.cpp | 2.3 % | 6.8 % |
+| Submit.cpp | 12.6 % | — |
+| StateManager.cpp (pre-draw apply 10.1 / 9.7) | 14.0 % | 12.8 % |
+| d3d9.dll (DXVK) | 12.8 % | 13.0 % |
+
+Submit.cpp's largest parts: the holder calls into the sink (`applyUsed` 3.8 %), matrix and vector
+conversion (`setMatrices` 2.5, `setVectors` 1.6), register writes (`emitTarget` 1.6). The first
+version (strict near-to-far order, a conversion per component) spent 16.9 %: the order switched
+program at almost every prepass draw, each switch binding the program's states, defaults and global
+parameters again. `bench1`: 12.44 ms programs, 12.92 ms D3DX; before the banded order 13.46 / 13.52.
+
 ## Plan
 
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
