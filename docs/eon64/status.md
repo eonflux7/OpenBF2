@@ -33,7 +33,10 @@ owner, 2026-11-19, Muttrah City):
    `<tools.outputDir>/<map>/bench/`. Tried: path `new` (10 s), 3 runs at 11.57 ms (86 fps), spread
    0.84 % on average and 18 % on 1 % low, every frame CPU bound, no GPU result dropped; vsync
    restored; the cap bypassed (`game.lockFps 50` ran at 75 fps); `bench.stop` writes nothing.
-4. One path each on Muttrah City and Saaremaa.
+4. One path each on Muttrah City and Saaremaa: `bench1` on both (20 s, recorded by the owner,
+   2026-11-19, Conquest 64). Saaremaa baseline, 3 runs: 8.12 ms (123 fps), 1 % low 11.75 ms,
+   CPU bound, spread 5.26 % on average and 9.14 % on 1 % low (above the 2 % / 5 % target).
+   Draws read 146 per frame, which looks too low to be the whole frame; not checked.
 
 ## Paused: `tools` milestone 1, views
 
