@@ -90,7 +90,7 @@ acceptance number); the breakdown that steers the work is taken at fixed views, 
 holds still: CPU samples by subsystem ([perf-frame.md](perf-frame.md#measuring)), GPU spans and
 draws per technique and pass.
 
-Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks 4 and 6 loaded by an agent):
+Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks 4, 6, 7 and 8 loaded by an agent):
 1. Breakdown at fixed views: one view each on Muttrah City and Fallujah West (the dense ones),
    CPU samples by subsystem, GPU spans, draws per pass (`BF2_DRAW_STATS`), and the same with the
    sun cascades off, for the caster pass's whole cost. Recorded in
@@ -185,6 +185,17 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks
    parameters in place of the per-instance `WorldViewProjection` and object-space `Lights`; every
    other instance parameter a program reads must be equal across a group (the lightmap texture,
    point lights, transparency). `renderer.instancing` (A/B) 0 draws each instance on its own.
+   Static meshes done ([Instancing](renderer-pipeline.md#instancing), prshaders contract 3).
+   Loaded by an agent, 2026-11-19: view shots against task 7's within the noise (Muttrah `high`
+   59, `market` 916 pixels of 2.07 M; Saaremaa `forest1` 3121, `forest2` 12783, `runway` 4410,
+   as task 7's own pairs); Fallujah West `city1` looked at only (no 1920x1080 shot to compare).
+   Frame draws: Muttrah `high` 8831 to 3723, Fallujah `city1` 17515 to 4980, Saaremaa `forest1`
+   4984 to 4179. Same-session pairs, 1 against 0: Muttrah City `bench1` 8.94 / 10.45 ms,
+   Fallujah West `bench` 15.99 / 19.08 ms, Saaremaa `bench1` 6.05 / 6.45 ms (task 7: 9.53,
+   18.34, 6.71 ms) ([perf-frame.md](perf-frame.md#render-milestone-9-task-8)). Not yet seen by
+   the owner. Left: overgrowth's near trunks and leaves (`trunkog`, `leafog`: per-instance wind
+   and object-space sun) on the contract; the depth runs' sort and the instance hash (3.5 and
+   3.3 % of the main thread at Fallujah `city1`).
 9. Contribution culling: below a projected size (`renderer.*` variable) an object is not drawn,
    faded out over the LOD dither band.
 10. Acceptance: the benchmark paths against the baselines above (re-taken at 1920x1080 on a quiet

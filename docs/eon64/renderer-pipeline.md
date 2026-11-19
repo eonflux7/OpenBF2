@@ -289,6 +289,7 @@ and add its row here.
 |---|---|
 | 1 | The contract as of render milestone 8: everything below |
 | 2 | Material depth states by semantic: `RaAlphaTest`, `RaAlphaRef`, `RaDepthWrite` (render milestone 9, [Submission](#submission)) |
+| 3 | Instanced static meshes: a vertex shader input `TEXCOORD8`–`TEXCOORD11` is the instance record (the world transform's three columns, the lightmap offset); positions from the instance parameter `ViewProjection`; the sun in world space by semantic `RaSunDirection`, `RaSunColor` ([Instancing](#instancing)) |
 
 Samplers 13 and 15 are reserved for renderer frame resources, and pixel registers c200–c221 for
 `RASM`. No effect may use them for anything else.
@@ -389,6 +390,35 @@ is written to D3DX before a D3DX pass (during which writes go to both), before t
 (its values carried to the reloaded effect) and on device loss, where it is dropped with the
 programs and read back afterwards. As with D3DX's `Begin` under flags 7, a pass saves and restores
 no state.
+
+### Instancing
+
+Render milestone 9 task 8 (in development, `renderer.instancing`, default 1; 0 draws each instance
+on its own through the same shaders). A Ra program whose vertex shader declares the input
+`TEXCOORD8` (read from its bytecode) is instanced (contract 3): every entry it draws is an
+instance, groups of one included, so the depth prepass and the lit pass place a vertex alike. Such
+a program is used whatever `renderer.submit` says, as D3DX cannot feed the stream; the D3DX depth
+and caster walks leave its entries to the submission walk.
+
+- The record (64 bytes): the `World` holder's columns and the `LightMapOffset` holder's value, read
+  from the entry's parameter blocks in place; the program's shaders do not read either parameter.
+  The records of a frame go to one dynamic vertex buffer, appended without overwrite and discarded
+  when full (released before a device reset).
+- The stream: the one after the last the material's declaration uses (static meshes keep each
+  texture coordinate set in a stream of its own, up to stream 5). The declaration is the material's
+  with the four record elements added, made once per declaration; every geometry stream draws
+  `INDEXEDDATA` times the group's size, the record stream `INSTANCEDATA`.
+- A group: entries with the same program and material (in the depth passes the same material run
+  of one draw per mesh, then drawn as one range) whose instance parameters and LOD dither hash
+  alike (64 bits over the values the program's instance holders give); clip-planed entries stay
+  alone. The lit per-material walk sorts each material's entries by prepass state and hash; the
+  depth walks (prepass, named depth passes, each cascade's casters: `drawDepthPassSubmit`) sort
+  the instanced runs by effect, material, run length and hash, after them the other runs in the
+  pass's order. An alpha-tested run of several materials draws material by material, each a
+  group. Sorted queues (`drawWalkDefault`) keep their order: groups of one.
+- Effect-wide for an instanced program: the sun's world direction and the static sun colour
+  (`RaSunDirection`, `RaSunColor`). `ViewProjection` is an instance parameter that static meshes
+  fill with their view's, so it joins the group key.
 
 ## Effect cache
 

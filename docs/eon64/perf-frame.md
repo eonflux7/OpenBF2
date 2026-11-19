@@ -271,6 +271,23 @@ lightmaps and point lights are not compared.
 | Saaremaa `forest1` | 1512 / 266 | 1680 / 258 | 1654 / 321 | 4984 |
 | Saaremaa `runway` | 1268 / 277 | 1379 / 295 | 1385 / 324 | 4174 |
 
+Built (static meshes on contract 3; overgrowth trunks and leaves not yet), frame draws at the same
+views: Muttrah `high` 3723, `market` 3509; Fallujah `city1` 4980, `city2` 3605, `city3` 4250;
+Saaremaa `forest1` 4179, `forest2` 5448, `runway` 3238. Same-session pairs, 3 runs each,
+`renderer.instancing` 1 against 0, engine of 2026-11-19 20:15:
+
+| Path | 1 | 0 | Gain | Task 7 (`submit 1`) |
+|---|---|---|---|---|
+| Muttrah City `bench1` | 8.94 ms, 1 % low 11.91, 3354 draws | 10.45 ms, 13.79, 7697 draws | 14.4 % | 9.53 ms |
+| Fallujah West `bench` | 15.99 ms, 21.42, 4447 draws | 19.08 ms, 26.40, 14806 draws | 16.2 % | 18.34 ms |
+| Saaremaa `bench1` | 6.05 ms, 8.50, 3548 draws | 6.45 ms, 9.37, 4312 draws | 6.2 % | 6.71 ms |
+
+At 0 every instance still goes through the stream and its record, so 0 is slower than task 7's
+path; against task 7, 6 to 13 %. The grouping first cost about 15 % of the main thread at Fallujah
+`city1` (each entry's parameters captured twice through the holders); with groups joined on the
+hash and records read in place, the submission layer is 13.5 % of it, the instance hash 3.3 % and
+the depth runs' sort about 3.5 % (`runs/perf/t8b-city1-i1`).
+
 Parked on 2026-11-18, when 153 fps left headroom and the renderer roadmap went first. Resume here
 after render milestone 9, which takes items 1 and 3.
 
