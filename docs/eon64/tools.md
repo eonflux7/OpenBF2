@@ -126,6 +126,14 @@ condition here.
 GPU pass timings, draw calls and primitives for that view, then a report. `BF2_VIEWRUN=<set>[:label]`
 does the same right after autohost and quits when done, so one launch line runs a set unattended.
 
+**Measurement**, the milestone's first task. The GPU pass timers and draw counters (`GpuTimers.cpp`,
+`DrawStats.cpp`, today the `dev` flags `BF2_GPU_TIMERS` and `BF2_DRAW_STATS`) become this lane's
+(owner, 2026-11-19). Both switch on at run time while a run, a benchmark or the overlay needs them,
+and cost nothing while off; draw stats gain the live switch the GPU timers already have. A per-view
+snapshot feeds the reports, and milestone 4's draw breakdown builds on the same counters. The TSV
+files become `tools.gpuTimersFile` and `tools.drawStatsFile` (a path turns that file on, empty turns
+it off), and both environment flags are deleted in the same change.
+
 **Errors.** A set that names a missing view, a map without a view file, or a `run` line that fails
 is recorded in the report as an error for that view; the run continues with the next view. The run
 fails if any view has an error.
