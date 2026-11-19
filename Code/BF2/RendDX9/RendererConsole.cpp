@@ -1360,6 +1360,12 @@ bool getSubmit() { return submitEnabled(); }
 void setSubmit(bool value) { submitSetEnabled(value); }
 BF2_CONSOLE_PROPERTY_FN(submit, bool, true, getSubmit(), setSubmit, kRendererConsoleTag)
 
+// [RENDER] Caster culling A/B (milestone 9): 1 casters culled to the shadow range at the gather,
+// 0 every object in the cascades' light volume brought up to date and submitted.
+bool getCasterCull() { return sunShadowSettings().casterCull; }
+void setCasterCull(bool value) { sunShadowSettings().casterCull = value; }
+BF2_CONSOLE_PROPERTY_FN(casterCull, bool, true, getCasterCull(), setCasterCull, kRendererConsoleTag)
+
 // Texels per cascade side: the nearest power of two in 512..4096.
 int getSunShadowResolution() { return static_cast<int>(sunShadowSettings().resolution); }
 void setSunShadowResolution(int value)
@@ -1399,6 +1405,7 @@ const char* rendererVariableHelp(const char* name)
         { "sunShadowNormalOffset", "Receiver offset along its normal, in cascade texels (against acne)" },
         { "sunShadowDepthBias", "Receiver offset toward the sun, in cascade texels (against acne)" },
         { "submit", "Depth prepass and sun casters drawn by the submission layer; off, through D3DX effects (milestone 9 A/B)" },
+        { "casterCull", "Sun casters culled to the shadow range swept toward the sun before any work on them; off, every object in the cascades' light volume (milestone 9 A/B)" },
         { "softParticleDistance", "Depth over which particles fade out in front of the scene, in metres" },
         { "uiMenuKey", "Win32 virtual-key code that opens and closes this menu (45 = Insert)" },
         { "uiOverlay", "Performance overlay, top right; kept between sessions" },

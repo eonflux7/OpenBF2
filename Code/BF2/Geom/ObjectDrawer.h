@@ -18,6 +18,7 @@ namespace hfe {
 
 // Only a pointer to it is stored; Game/Objects/IObject.h is included by the .cpp.
 namespace world { class IObject; }
+namespace dx9rend { struct ShadowCascadeCull; }
 struct LocalBoundingBox;   // isBoundsOccluded's argument (Math/LocalBoundingBox.h, included by the .cpp)
 
 namespace geom {
@@ -91,12 +92,15 @@ public:
     // each with the cell's bounds. It refreshes the box's derived data in place (the bounds are
     // not const).
     bool  isBoundsOccluded(LocalBoundingBox* bounds);
-    // [RENDER] Shadow casters: queries both object grids with `volume` (a Frustum),
-    // brings objects the camera did not see up to date as the camera pass does (visual update,
-    // geometry update), then submits every geometry under the renderer's caster capture and tags
-    // its captured entries with the geometry's world bounding sphere. Requires an active capture
-    // (dx9rend::rendererBeginCasterCapture) and a completed camera updateVisible/draw.
-    void  submitShadowCasters(const void* volume, float time);
+    // [RENDER] Shadow casters: queries both object grids with `volume` (a Frustum), keeps the
+    // objects whose visual bounding sphere touches `range` (the shadow range swept toward the sun;
+    // null keeps them all), brings those the camera did not see up to date as the camera pass does
+    // (visual update, geometry update), then submits every geometry under the renderer's caster
+    // capture and tags its captured entries with the geometry's world bounding sphere. Requires an
+    // active capture (dx9rend::rendererBeginCasterCapture) and a completed camera
+    // updateVisible/draw.
+    void  submitShadowCasters(const void* volume, const dx9rend::ShadowCascadeCull* range,
+                              float time);
 
     // Offset comments identify retail x86 positions; native builds access named members.
     void* const*           m_vptr;                  // +0x00  ObjectDrawer's primary table
@@ -141,7 +145,8 @@ public:
 IBase* __fastcall createObjectDrawer(unsigned int iid, IBase* outer);
 
 // [RENDER] The published ObjectDrawer's submitShadowCasters; no-op without one.
-void objectDrawerSubmitShadowCasters(const void* volume, float time);
+void objectDrawerSubmitShadowCasters(const void* volume,
+                                     const dx9rend::ShadowCascadeCull* range, float time);
 
 } // namespace geom
 } // namespace hfe

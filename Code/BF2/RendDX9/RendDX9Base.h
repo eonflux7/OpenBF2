@@ -840,6 +840,7 @@ struct SunShadowSettings
     float cascadeBlend;           // the part of each next slice a cascade also covers and blends over
     float normalOffset;           // cascade texels: receivers move along their normal
     float depthBias;              // cascade texels: receivers move toward the sun in depth
+    bool casterCull;              // milestone 9 A/B: casters culled to the shadow range at the gather
 };
 SunShadowSettings& sunShadowSettings();
 unsigned int sunShadowCascadeDraws(unsigned int cascade);   // draw calls, last frame rendered

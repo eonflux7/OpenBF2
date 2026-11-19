@@ -822,13 +822,128 @@ void objectDrawerAddDescendants(ObjectDrawerSet& set)
              child = child->getSibling())
             set.push_back(child);
 }
+
+// An open-addressed set of object pointers, cleared and reused every frame: the casters' dedupe
+// and the camera sets' membership test without sorting either.
+class ObjectPointerSet
+{
+public:
+    void reset(size_t count)
+    {
+        size_t capacity = 64;
+        while (capacity < 2 * count)
+            capacity *= 2;
+        m_slots.assign(capacity, static_cast<world::IObject*>(0));
+        m_mask = capacity - 1;
+    }
+    // True when the object was not in the set yet.
+    bool insert(world::IObject* object)
+    {
+        for (size_t i = hash(object);; i = (i + 1) & m_mask)
+        {
+            if (m_slots[i] == object)
+                return false;
+            if (!m_slots[i])
+            {
+                m_slots[i] = object;
+                return true;
+            }
+        }
+    }
+    bool contains(world::IObject* object) const
+    {
+        for (size_t i = hash(object);; i = (i + 1) & m_mask)
+        {
+            if (m_slots[i] == object)
+                return true;
+            if (!m_slots[i])
+                return false;
+        }
+    }
+
+private:
+    size_t hash(world::IObject* object) const
+    {
+        const unsigned long long v = reinterpret_cast<size_t>(object) >> 4;
+        return static_cast<size_t>((v * 0x9E3779B97F4A7C15ull) >> 32) & m_mask;
+    }
+    std::vector<world::IObject*> m_slots;
+    size_t m_mask = 0;
+};
 }
 
-void ObjectDrawer::submitShadowCasters(const void* volume, float time)
+namespace {
+typedef const MeshBounds* (__thiscall* ObjectDrawerBoundsFn)(void*);
+typedef const Mat4* (__thiscall* ObjectDrawerTransformFn)(void*);
+
+// The geometry's world bounding sphere: its local box's centre through the world transform (+0x48),
+// and half the box's diagonal scaled by the transform's largest scale (the longest row or column,
+// so it holds for scale applied before or after the rotation). False, with `sphere` untouched,
+// when the geometry has no box (+0x40), no transform, or an empty one.
+bool objectDrawerGeometrySphere(void* geometry, float sphere[4])
+{
+    void** const vtbl = objectDrawerGeometryTable(geometry);
+    const MeshBounds* const box = reinterpret_cast<ObjectDrawerBoundsFn>(vtbl[0x40 / 4])(geometry);
+    const Mat4* const world = reinterpret_cast<ObjectDrawerTransformFn>(vtbl[0x48 / 4])(geometry);
+    if (!box || !world)
+        return false;
+    const float* const w = world->m;
+    const float c[3] = { 0.5f * (box->min.x + box->max.x), 0.5f * (box->min.y + box->max.y),
+                         0.5f * (box->min.z + box->max.z) };
+    const float e[3] = { box->max.x - box->min.x, box->max.y - box->min.y,
+                         box->max.z - box->min.z };
+    float scale2 = 0.0f;
+    for (int i = 0; i < 3; ++i)
+    {
+        const float row = w[4 * i] * w[4 * i] + w[4 * i + 1] * w[4 * i + 1] + w[4 * i + 2] * w[4 * i + 2];
+        const float column = w[i] * w[i] + w[4 + i] * w[4 + i] + w[8 + i] * w[8 + i];
+        scale2 = row > scale2 ? row : scale2;
+        scale2 = column > scale2 ? column : scale2;
+    }
+    const float radius = 0.5f * ::sqrtf((e[0] * e[0] + e[1] * e[1] + e[2] * e[2]) * scale2);
+    if (!(radius > 0.0f && radius < 1e6f))
+        return false;
+    sphere[0] = c[0] * w[0] + c[1] * w[4] + c[2] * w[8] + w[12];
+    sphere[1] = c[0] * w[1] + c[1] * w[5] + c[2] * w[9] + w[13];
+    sphere[2] = c[0] * w[2] + c[1] * w[6] + c[2] * w[10] + w[14];
+    sphere[3] = radius;
+    return true;
+}
+
+// Whether the object can cast into the shadow range: its visual bounding sphere (the one the grid
+// query and the camera's frustum test use) or any of its geometries' spheres touches it. The
+// geometry spheres are the ones the cascades cull the captured casters with; the visual sphere
+// covers an object the camera did not see, whose geometry transform is only brought up to date
+// after this test. Either one unknown keeps the object.
+bool objectDrawerCastsInto(world::IObject* object, const dx9rend::ShadowCascadeCull& range)
+{
+    const float radius = object->getVisualBoundingRadius();
+    if (!(radius > 0.0f))
+        return true;
+    const Vec3& p = object->getAbsolutePosition();
+    const float visual[4] = { p.x, p.y, p.z, radius };
+    if (dx9rend::rendererShadowCascadeTouches(range, visual))
+        return true;
+    typedef void* (__thiscall* NextFn)(void*);
+    for (void* geometry = world::object_detail::LayoutAccess::geometry(object); geometry;
+         geometry = reinterpret_cast<NextFn>(objectDrawerGeometryTable(geometry)[0xCC / 4])(geometry))
+    {
+        float sphere[4];
+        if (!objectDrawerGeometrySphere(geometry, sphere)
+            || dx9rend::rendererShadowCascadeTouches(range, sphere))
+            return true;
+    }
+    return false;
+}
+}
+
+void ObjectDrawer::submitShadowCasters(const void* volume, const dx9rend::ShadowCascadeCull* range,
+                                       float time)
 {
     static ObjectDrawerSet candidates;
     static ObjectDrawerSet noCollision;
-    static std::vector<world::IObject*> seen;
+    static ObjectPointerSet unique;
+    static ObjectPointerSet seen;
 
     objectDrawerClear(candidates);
     objectDrawerClear(noCollision);
@@ -837,12 +952,15 @@ void ObjectDrawer::submitShadowCasters(const void* volume, float time)
     objectDrawerQueryGrid<0x4C>(volume, noCollision, &predicator, time);
     candidates.insert(candidates.end(), noCollision.begin(), noCollision.end());
     objectDrawerAddDescendants(candidates);
-    std::sort(candidates.begin(), candidates.end());
-    candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
 
-    seen.assign(m_visibleSet.begin(), m_visibleSet.end());
-    seen.insert(seen.end(), m_drawSet.begin(), m_drawSet.end());
-    std::sort(seen.begin(), seen.end());
+    seen.reset(m_visibleSet.size() + m_drawSet.size());
+    for (size_t i = 0; i < m_visibleSet.size(); ++i)
+        if (m_visibleSet[i])
+            seen.insert(m_visibleSet[i]);
+    for (size_t i = 0; i < m_drawSet.size(); ++i)
+        if (m_drawSet[i])
+            seen.insert(m_drawSet[i]);
+    unique.reset(candidates.size());
 
     dx9rend::IRenderView* const view = static_cast<dx9rend::IRenderView*>(m_renderView);
     const float* const camera = view->getViewMatrixPtr()->m;
@@ -850,13 +968,17 @@ void ObjectDrawer::submitShadowCasters(const void* volume, float time)
     for (size_t i = 0; i < candidates.size(); ++i)
     {
         world::IObject* const object = candidates[i];
-        if (!object)
+        if (!object || !unique.insert(object))
             continue;
         const unsigned int flags = object->getFlags();
         if ((flags & world::IObject::OFIsDisabled) != 0 || (flags & world::IObject::OFIsVisible) == 0)
             continue;
 
-        if (!std::binary_search(seen.begin(), seen.end(), object))
+        // The shadow range swept toward the sun, before any work on the object.
+        if (range && !objectDrawerCastsInto(object, *range))
+            continue;
+
+        if (!seen.contains(object))
         {
             // The camera pass's visual update and geometry update, for an object it did not see.
             if ((flags & 0x00001000u) != 0)
@@ -875,8 +997,6 @@ void ObjectDrawer::submitShadowCasters(const void* volume, float time)
         {
             typedef void  (__thiscall* PassFn)(void*, void*, void*, int);
             typedef void* (__thiscall* NextFn)(void*);
-            typedef const MeshBounds* (__thiscall* BoundsFn)(void*);
-            typedef const Mat4* (__thiscall* TransformFn)(void*);
             void** const vtbl = objectDrawerGeometryTable(geometry);
 
             const size_t first = dx9rend::rendererShadowCasters().size();
@@ -884,40 +1004,8 @@ void ObjectDrawer::submitShadowCasters(const void* volume, float time)
 
             if (dx9rend::rendererShadowCasters().size() != first)
             {
-                float sphere[4] = { 0.0f, 0.0f, 0.0f, -1.0f };
-                const MeshBounds* const box =
-                    reinterpret_cast<BoundsFn>(vtbl[0x40 / 4])(geometry);
-                const Mat4* const world = reinterpret_cast<TransformFn>(vtbl[0x48 / 4])(geometry);
-                if (box && world)
-                {
-                    float lo[3] = { 1e30f, 1e30f, 1e30f };
-                    float hi[3] = { -1e30f, -1e30f, -1e30f };
-                    const float* const w = world->m;
-                    for (int c = 0; c < 8; ++c)
-                    {
-                        const float x = (c & 1) ? box->max.x : box->min.x;
-                        const float y = (c & 2) ? box->max.y : box->min.y;
-                        const float z = (c & 4) ? box->max.z : box->min.z;
-                        const float p[3] = { x * w[0] + y * w[4] + z * w[8] + w[12],
-                                             x * w[1] + y * w[5] + z * w[9] + w[13],
-                                             x * w[2] + y * w[6] + z * w[10] + w[14] };
-                        for (int k = 0; k < 3; ++k)
-                        {
-                            lo[k] = p[k] < lo[k] ? p[k] : lo[k];
-                            hi[k] = p[k] > hi[k] ? p[k] : hi[k];
-                        }
-                    }
-                    const float e[3] = { hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] };
-                    const float radius = 0.5f * ::sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
-                    // An empty box says nothing about the geometry: leave it unbounded.
-                    if (radius > 0.0f && radius < 1e6f)
-                    {
-                        sphere[0] = 0.5f * (lo[0] + hi[0]);
-                        sphere[1] = 0.5f * (lo[1] + hi[1]);
-                        sphere[2] = 0.5f * (lo[2] + hi[2]);
-                        sphere[3] = radius;
-                    }
-                }
+                float sphere[4] = { 0.0f, 0.0f, 0.0f, -1.0f };   // stays unbounded without a box
+                objectDrawerGeometrySphere(geometry, sphere);
                 dx9rend::rendererSetCasterBounds(first, sphere);
             }
             geometry = reinterpret_cast<NextFn>(vtbl[0xCC / 4])(geometry);
@@ -925,10 +1013,12 @@ void ObjectDrawer::submitShadowCasters(const void* volume, float time)
     }
 }
 
-void objectDrawerSubmitShadowCasters(const void* volume, float time)
+void objectDrawerSubmitShadowCasters(const void* volume, const dx9rend::ShadowCascadeCull* range,
+                                     float time)
 {
     if (dx9rend::g_ObjectDrawer)
-        reinterpret_cast<ObjectDrawer*>(dx9rend::g_ObjectDrawer)->submitShadowCasters(volume, time);
+        reinterpret_cast<ObjectDrawer*>(dx9rend::g_ObjectDrawer)
+            ->submitShadowCasters(volume, range, time);
 }
 
 // PE 0x100F8C00. The first tree is walked forward, the second backward (rbegin to rend), each

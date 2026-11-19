@@ -51,7 +51,7 @@ IDirect3DTexture9* g_atlas = 0;          // R32F, 2 x 2 cascades
 IDirect3DSurface9* g_atlasDepth = 0;     // D24S8, standard (not reversed) depth
 unsigned int g_cascadeSize = 0;
 
-SunShadowSettings g_settings = { true, 400.0f, 2048u, 500.0f, 0.75f, 0.2f, 1.5f, 1.0f };
+SunShadowSettings g_settings = { true, 400.0f, 2048u, 500.0f, 0.75f, 0.2f, 1.5f, 1.0f, true };
 unsigned int g_cascadeDraws[kCascades] = {};   // draw calls per cascade, last frame rendered
 
 // The renderer's running count of this frame's draw calls (indexed and not).
@@ -335,9 +335,21 @@ bool rendererSunShadowsRender(float time, float* constants)
     Frustum volume;
     volume.setOrtho(maxX - minX, maxY - minY, minZ, maxZ, basis);
 
+    // The whole shadow range swept toward the sun: the hull of the slice every cascade lies in,
+    // from the nearest cascade's sun-side bound, with the widest cascade's margin. It holds every
+    // cascade's own cull, so an object outside it reaches no cascade; the object grid query only
+    // takes boxes, so the gather tests each object against it before any work on the object.
+    Cascade whole = cascades[kCascades - 1];
+    whole.splitNear = nearDist;
+    for (unsigned int i = 0; i < kCascades; ++i)
+        whole.nearZ = std::fmin(whole.nearZ, cascades[i].nearZ);
+    const ShadowCascadeCull range = cascadeCull(whole, right, up, forward, cameraPos, cameraRight,
+                                                cameraUp, cameraFwd, tanX, tanY,
+                                                2.0f * whole.radius / static_cast<float>(size));
+
     // Casters: the scene's own submission against the volume, then the terrain's nodes.
     rendererBeginCasterCapture(&volume);
-    geom::objectDrawerSubmitShadowCasters(&volume, time);
+    geom::objectDrawerSubmitShadowCasters(&volume, g_settings.casterCull ? &range : 0, time);
     if (g_OverGrowth)
         static_cast<geom::OverGrowth*>(g_OverGrowth)->submitShadowCasters(view, volume);
     rendererEndCasterCapture();
