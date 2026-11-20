@@ -298,6 +298,7 @@ and add its row here.
 | 1 | The contract as of render milestone 8: everything below |
 | 2 | Material depth states by semantic: `RaAlphaTest`, `RaAlphaRef`, `RaDepthWrite` (render milestone 9, [Submission](#submission)) |
 | 3 | Instanced static meshes: a vertex shader input `TEXCOORD8`–`TEXCOORD11` is the instance record (the world transform's three columns, the lightmap offset); positions from the instance parameter `ViewProjection`; the sun in world space by semantic `RaSunDirection`, `RaSunColor` ([Instancing](#instancing)) |
+| 4 | Terrain lit passes (render milestone 10, in development): `RaTerrainDirectLight` (`bool`, `renderer.terrainOnePass`): `TEXLAYER1` is the patch lightmap, read at the colormap's UV, instead of the accumulation target; the point lights reaching the patch in `RaTerrainLightPos` (`float4[4]`, position and 1 / range²), `RaTerrainLightCol` (`float4[4]`, authored colour), `RaTerrainLightCount` (`int`) |
 
 Samplers 13 and 15 are reserved for renderer frame resources, and pixel registers c200–c221 for
 `RASM`. No effect may use them for anything else.

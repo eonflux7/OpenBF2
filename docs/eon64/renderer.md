@@ -143,6 +143,16 @@ Samplers for the one pass: up to three detail atlases (side textures are entries
 layer's atlas index is a constant, a uniform branch picks the sampler), the lightmap atlas, two
 weight maps, colormap, low-detail texture, s13 cascades and s15 linear depth: at most ten fixed.
 
+Direct terrain light (task 3, 2026-11-20; `renderer.terrainOnePass`, contract 4): `drawFinal`
+binds each patch's lightmap on `TEXLAYER1` in place of the accumulation target, and the lit
+passes (3, 4, 5, 11) unpack it at the colormap's UV (centroid lookup, mip from the plain UV) with
+`Ra_GetTerrainLight`, the same function undergrowth uses; sun cascades and thermals read its raw
+sun term as before. Point lights: `drawMain`'s light passes, still drawn into the target for roads
+until task 5, also collect each gathered light per patch, and the lit passes add up to four
+(`RaTerrainLightPos`/`Col`, nearest the patch centre). Their irradiance no longer scales with the
+sun's luminance (the packed target stored it relative to the sun); it is absolute, as on
+undergrowth. Muttrah City at view `high`: the same image within the old target's 8-bit steps.
+
 ### 11. Atmosphere, sky IBL, water reflections
 
 - One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial
