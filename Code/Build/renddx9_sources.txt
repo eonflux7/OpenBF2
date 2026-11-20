@@ -92,6 +92,7 @@ BF2/Geom/QuadPatch.cpp
 BF2/Geom/RaQuadPatchAdapter.cpp
 BF2/Geom/SurroundingPatch.cpp
 BF2/Geom/TerrainDraw.cpp
+BF2/Geom/TerrainAtlas.cpp
 BF2/Geom/TerrainEditable.cpp
 BF2/Geom/TerrainEditableGetSets.cpp
 BF2/Geom/QuadPatchEditable.cpp

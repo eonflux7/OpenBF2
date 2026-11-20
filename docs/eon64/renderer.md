@@ -117,6 +117,32 @@ What this decides:
 - Weight maps have one mip and two formats; low-detail mode 3 (Fallujah West) is a different
   low-detail layout to carry.
 
+Atlases (task 2, 2026-11-20; `Geom/TerrainAtlas.cpp`, console `terrain.atlasDump` writes them as
+`.dds` under `eon64-runs/terrain-atlas/` and logs each record's entry):
+- Detail atlases: the records' top and side textures, deduplicated, one atlas per (format, size).
+  Each entry's cell is twice the texture and holds it 2x2, shifted half a tile, so the tile sits in
+  the middle with half a tile of its own wrapped content around it at every mip; the copy is per
+  DXT block, so formats and mips stay exact. The last level keeps an 8-texel tile. The shader wraps
+  and samples with the unwrapped gradients: `atlasUv = frac(uv) * scale + offset`,
+  `tex2Dgrad(atlas, atlasUv, ddx(uv) * scale, ddy(uv) * scale)`, one `float4` per layer.
+  Footprints up to half a tile stay in the cell (16x anisotropic at the 8-texel level reaches the
+  neighbour, far enough out that the colormap blend dominates).
+- Lightmap atlas: the patches' lightmaps in one texture, column = patch x, row = patch z (patch
+  index order), all levels down to 4 texels a cell; smaller lightmaps (Saaremaa's 8x8 sea dummies)
+  scaled up by block. Seen continuous across cells on the three maps.
+- Built on the terrain's first `update` after a load, because the texture manager creates the
+  textures in its post-load sweep, after `Terrain::load`; managed pool, released with the terrain.
+
+| | Muttrah City | Fallujah West | Saaremaa |
+|---|---|---|---|
+| Detail atlases | DXT5 2048², DXT1 2048² (3 + 3) | DXT1 2048², DXT5 2048² (3 + 3) | DXT1 2048² (3), DXT5 1024² (1), DXT3 2048x1024 (2) |
+| Lightmap atlas | DXT1 8192², 9 mips, 44.7 MB | DXT1 4096², 11.2 MB | DXT1 8192², 32 cells scaled up |
+| Build time | 11.7 ms | 5.0 ms | 29.9 ms |
+
+Samplers for the one pass: up to three detail atlases (side textures are entries in them; the
+layer's atlas index is a constant, a uniform branch picks the sampler), the lightmap atlas, two
+weight maps, colormap, low-detail texture, s13 cascades and s15 linear depth: at most ten fixed.
+
 ### 11. Atmosphere, sky IBL, water reflections
 
 - One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial

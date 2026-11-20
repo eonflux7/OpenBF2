@@ -14,6 +14,7 @@
 #include <string>
 #include "Terrain.h"
 #include "QuadPatch.h"
+#include "TerrainAtlas.h"
 #include "XpLightManager.h"
 #include "StaticMesh.h"
 #include "../Game/Objects/Visual/LightSource.h"   // the mask-light pass's lights
@@ -198,6 +199,7 @@ void Terrain::update()
 {
     m_culler->update();
     updateWaterConstants();                                               // vslot +0xE0
+    terrainAtlasUpdate();                                                 // [RENDER] TerrainAtlas.h, once after a load
 }
 
 // the first arm: push, update, the constants, the main draw, the water, pop.

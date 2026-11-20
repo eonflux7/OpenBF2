@@ -28,6 +28,7 @@
 #include "../RendDX9/Ra/RaStreamDataEditable.h"
 #include "../IO/Tokenizer.h"
 #include "../RendMisc/IRenderView.h"
+#include "TerrainAtlas.h"   // [RENDER] milestone 10 atlases
 
 #include <cfloat>
 #include <cmath>
@@ -974,6 +975,7 @@ void Terrain::load(const std::string& path)
     }
 
     setupWater();                                                                 // vslot +0xD4
+    terrainAtlasLoad(this);    // [RENDER] the one-pass terrain's atlases, built on the first update (TerrainAtlas.h)
 
     if (!m_indexBuffer)
     {
@@ -2334,6 +2336,7 @@ Terrain::~Terrain()
 {
     // (1) The water resources - slot +0xDC, called directly (call 0x100DA120).
     Terrain::releaseWater();
+    terrainAtlasRelease();     // [RENDER] TerrainAtlas.h
 
     // Destroy the water-parameter array in reverse order, then free its allocation header.
     // The member remains unchanged.

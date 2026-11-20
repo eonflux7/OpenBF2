@@ -15,6 +15,7 @@
 #include "../Core/ConsoleObjectMacro.h"
 #include "../Core/ConsoleObjects.h"
 #include "../Math/Vec3.h"
+#include "TerrainAtlas.h"
 
 #include <cstring>
 #include <string>
@@ -46,6 +47,12 @@ void consoleLoadTerrain(const std::string& path)
 void consoleSurveyTerrain()
 {
     terrain()->survey();
+}
+
+// [DEV] atlasDump: the one-pass terrain's atlases to eon64-runs/terrain-atlas (TerrainAtlas.h).
+void consoleDumpTerrainAtlas()
+{
+    terrainAtlasDump("eon64-runs/terrain-atlas");
 }
 
 // forceRenderStyle - ctor 0x100B502C, executor get slot +0x24, set slot +0x20.
@@ -264,6 +271,8 @@ BF2_CONSOLE_PROPERTY_FN(waterAlphaAdd, float, terrain() != 0,
                         getWaterAlphaAdd(), setWaterAlphaAdd, kTerrainConsoleTag)
 // [DEV] survey: the terrain's layers, textures and lights to the log (Terrain::survey).
 BF2_CONSOLE_METHOD_0_STATIC_ACTIVE(survey, consoleSurveyTerrain, terrain() != 0, kTerrainConsoleTag)
+// [DEV] atlasDump: the terrain atlases as .dds files and their entries to the log.
+BF2_CONSOLE_METHOD_0_STATIC_ACTIVE(atlasDump, consoleDumpTerrainAtlas, terrain() != 0, kTerrainConsoleTag)
 // PE 0x100B5E1E
 BF2_CONSOLE_PROPERTY_FN(waterTransparency, float, terrain() != 0,
                         getWaterTransparency(), setWaterTransparency, kTerrainConsoleTag)

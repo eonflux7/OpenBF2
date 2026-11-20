@@ -86,13 +86,16 @@ Plan: [renderer.md](renderer.md#10-terrain-in-one-pass), with what the current p
 constraints found while planning. A/B switch while in development: `renderer.terrainOnePass`
 (new path on by default once task 4 draws; deleted on acceptance with the old path).
 
-Tasks (planned 2026-11-20; 1 done):
+Tasks (planned 2026-11-20; 1 and 2 done):
 1. Done 2026-11-20, results in renderer.md (no point lights or environment-mapped layers on terrain;
    layer 6 folded in). Survey on the three maps: patches by detail-layer count, planar, environment-mapped and layer-6
    (underwater) layers; detail texture sizes and formats; which point-light path runs (pass 16 is
    past the technique's last pass) and how many lights reach terrain; terrain's GPU span and draws
    at the reference views and on the benchmark paths (the baseline). Recorded in renderer.md.
-2. Sampler layout (left to the agent by the owner, 2026-11-20): per-level detail and side texture
+2. Done 2026-11-20, results in renderer.md (one detail atlas per format, 2x2 wrapped cells; one
+   lightmap atlas by patch grid; ten samplers fixed; built and dumped on the three maps, nothing
+   samples them yet).
+   Sampler layout (left to the agent by the owner, 2026-11-20): per-level detail and side texture
    atlases built at load (same format and size per atlas, wrap in the shader with `tex2Dgrad` for
    the mips, padded), leaving about 11 samplers fixed; the survey only sizes them. One terrain
    lightmap atlas the same way, so roads look up by world position across patches.
