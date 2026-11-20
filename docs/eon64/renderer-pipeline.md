@@ -340,8 +340,11 @@ Parameters the engine sets by semantic:
 
 ## Submission
 
-Render milestone 9 (in development, `renderer.submit`, default 1; 0 draws through D3DX). The depth
-prepass, water's linear depth, the sun casters and the render queues' walks (every lit mesh pass:
+Render milestone 9 (accepted by the owner, 2026-11-20). Frame time on the benchmark paths against
+the D3DX path it replaced (same build and session, 1920x1080 4x, 3 runs each): Muttrah City
+`bench1` 11.36 to 7.93 ms (draws 7713 to 3383), Fallujah West `bench` 20.66 to 14.11 ms (14848 to
+4418), Saaremaa `bench1` 6.24 to 5.04 ms (4318 to 1644); view shots matched but for wind, smoke and
+water. The depth prepass, water's linear depth, the sun casters and the render queues' walks (every lit mesh pass:
 static, bundled and skinned meshes, roads, leaves, water, first person) draw through `Submit.cpp`
 instead of the D3DX effect calls. A **program** is the one pass of one technique of a Ra effect,
 built the first time a walk reaches it and again when the effect is rebuilt or reset; a technique
@@ -381,8 +384,8 @@ and undergrowth (`undergrowth.fx`) draw through the engine's `Effect` wrapper, w
 technique's pass (any pass of a technique of several), built on first use as above with the same
 recording, and with two checks a Ra program does not need: every constant register D3DX uploads at
 `BeginPass` must lie in a parameter's targets (a preshader's output would not), and the pass's fixed
-states must not change when every numeric parameter changes. A pass failing either, or with
-`renderer.submit 0`, draws through D3DX, begun lazily for it. The effect's parameter writes
+states must not change when every numeric parameter changes. A pass failing either draws through
+D3DX, begun lazily for it. The effect's parameter writes
 (`FXParameter`) go to a value store in the submission layer instead of D3DX: each entry holds the
 parameter's value (a reference on its texture), read from D3DX when first written, and a write
 during a program's pass is uploaded straight into that program's registers and samplers. The store
@@ -393,12 +396,9 @@ no state.
 
 ### Instancing
 
-Render milestone 9 task 8 (in development, `renderer.instancing`, default 1; 0 draws each instance
-on its own through the same shaders). A Ra program whose vertex shader declares the input
-`TEXCOORD8` (read from its bytecode) is instanced (contract 3): every entry it draws is an
-instance, groups of one included, so the depth prepass and the lit pass place a vertex alike. Such
-a program is used whatever `renderer.submit` says, as D3DX cannot feed the stream; the D3DX depth
-and caster walks leave its entries to the submission walk.
+A Ra program whose vertex shader declares the input `TEXCOORD8` (read from its bytecode) is
+instanced (contract 3): every entry it draws is an instance, groups of one included, so the depth
+prepass and the lit pass place a vertex alike.
 
 - The record (64 bytes): the `World` holder's columns and the `LightMapOffset` holder's value, read
   from the entry's parameter blocks in place; the program's shaders do not read either parameter.

@@ -51,7 +51,7 @@ IDirect3DTexture9* g_atlas = 0;          // R32F, 2 x 2 cascades
 IDirect3DSurface9* g_atlasDepth = 0;     // D24S8, standard (not reversed) depth
 unsigned int g_cascadeSize = 0;
 
-SunShadowSettings g_settings = { true, 400.0f, 2048u, 500.0f, 0.75f, 0.2f, 1.5f, 1.0f, true };
+SunShadowSettings g_settings = { true, 400.0f, 2048u, 500.0f, 0.75f, 0.2f, 1.5f, 1.0f };
 unsigned int g_cascadeDraws[kCascades] = {};   // draw calls per cascade, last frame rendered
 
 // The renderer's running count of this frame's draw calls (indexed and not).
@@ -349,7 +349,7 @@ bool rendererSunShadowsRender(float time, float* constants)
 
     // Casters: the scene's own submission against the volume, then the terrain's nodes.
     rendererBeginCasterCapture(&volume);
-    geom::objectDrawerSubmitShadowCasters(&volume, g_settings.casterCull ? &range : 0, time);
+    geom::objectDrawerSubmitShadowCasters(&volume, range, time);
     if (g_OverGrowth)
         static_cast<geom::OverGrowth*>(g_OverGrowth)->submitShadowCasters(view, volume);
     rendererEndCasterCapture();

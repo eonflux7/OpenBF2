@@ -328,7 +328,7 @@ after render milestone 9, which takes items 1 and 3.
 2. Object culling (17 %): the object manager's grid and cull fade, the object drawer's box tests.
 3. Per-draw cost: D3DX effect calls (15 %) and Ra parameter apply. Replacing D3DX's per-draw
    parameter and pass handling with the renderer's own constant uploads is `render` work: render
-   milestone 9 ([renderer.md](renderer.md#9-draw-submission)), which also takes the sun caster
+   milestone 9 ([Submission](renderer-pipeline.md#submission)), which also takes the sun caster
    culling of item 1.
 
 Open:

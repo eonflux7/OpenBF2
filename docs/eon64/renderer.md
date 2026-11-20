@@ -24,8 +24,8 @@ is in [renderer-pipeline.md](renderer-pipeline.md).
 | 6. Shader audit and cleanup | Accepted | `ee33008f`, `7f05cc77`, `88d3b7f1`, `52af0169`, `f6fb255a`, `e7623d07`, `dc97ef7b` |
 | 7. Particle lighting | Accepted | `b1549478`, `25319adf`, `7fcdc848`, `423ac5e0`, `0bffa203`; fix `6eb1a727` |
 | 8. Anti-aliasing | Accepted | `28487a35`, `65760125`, `f11bdfe3`, `b47ac87f`, `0f10eb41`, `f9086318`, `ee0e7ed8`, `98165f0b`, `b3e44a8d`, `a7d9e0e1`, `1e7a1c89`, `680d8890` |
-| 9. Draw submission | Next | — |
-| 10. Terrain in one pass | Not started | — |
+| 9. Draw submission | Accepted | `2eb902ce`, `0a623df8`, `e87543df`, `f3515fb4`, `7bdd3a77`, `4bc56ff8`, `e9b6a8a4`, `965bb8bf`, `c2f7ef33`, `3c745649`, `2002788d` |
+| 10. Terrain in one pass | Next | — |
 | 11. Atmosphere, sky IBL, water reflections | Not started | — |
 | 12. HDR bloom + auto-exposure | Not started | — |
 | 13. GTAO + lightmap channel ownership | Not started | — |
@@ -45,35 +45,6 @@ layers need them sooner.
 
 Not planned: converting the assets to a PBR material set. The existing maps are interpreted as PBR
 inputs (milestone 11) instead.
-
-### 9. Draw submission
-
-The frame is CPU-bound ([perf-frame.md](perf-frame.md)): the D3DX effect framework's per-draw
-parameter, pass and commit calls take about 15 % of the main thread, Ra parameter apply and mesh
-draws about 14 %, and DXVK's own per-draw work 13 %; milestone 8's LOD policy raised the draw count.
-This milestone makes each draw cheaper, issues fewer of them, and gives the renderer code of its own
-in place of patches spread through the retail renderer. Decided by the owner, 2026-11-19:
-
-- **Frame module.** A new module owns the pass sequence ([Frame](renderer-pipeline.md#frame)) in
-  one place; `BF2Render.cpp`'s retail-shaped frame function calls into it instead of carrying the
-  passes inline.
-- **Submission layer.** Mesh, terrain and overgrowth code fills draw packets (technique, constants,
-  vertex and index buffers, states) instead of calling D3DX per draw. The layer uploads constants and
-  binds shaders itself, keeping the effect files as the shader source. Packets name no D3D9 type
-  beyond their resources, so a later Vulkan backend consumes the same packets.
-- **Fewer draws.** Hardware instancing (D3D9 stream frequency) for overgrowth and repeated static
-  meshes. Contribution culling in place of the distance cull milestone 8 removed: an object whose
-  projected size is below a pixel threshold (a `renderer.*` variable) is not drawn, fading out over
-  the LOD dither band rather than popping, so the cull follows resolution and field of view rather
-  than raw distance.
-- **Caster culling.** The sun caster pass does no work on objects that cannot reach a cascade
-  (about 7 % of the main thread went to the caster pass's culling and gather). Reusing the camera's
-  culled sets alone would lose the shadows of casters it does not see, so the gather tests each
-  object against the shadow range swept toward the sun first (owner, 2026-11-19).
-- **Contract version.** The engine passes `RA_CONTRACT` (a number) as a define to every effect it
-  compiles, and the shaders `#error` when it is older than they need, so a shader set never runs on
-  an engine without its contract. The load gate (`tools` milestone 2) reports the failure.
-- **A/B.** A temporary console variable selects the D3DX path while the milestone is developed.
 
 ### 10. Terrain in one pass
 

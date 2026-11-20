@@ -1574,8 +1574,8 @@ void RenderQueue::flushWithArg(unsigned char runDraws)
 // Ends only passes and effects successfully begun.
 // PE 0x1003ADC0 (table 0x101E1848 slot +0x18).
 // [RENDER] milestone 9: a run of one effect and technique draws through its program (Submit.h)
-// when renderer.submit is on and the technique has one; otherwise, and for techniques of more than
-// one pass, through D3DX as before.
+// when the technique has one; techniques of more than one pass or with fixed-function state draw
+// through D3DX.
 namespace {
 // [DEV] BF2_DRAW_STATS: a lit walk's draws through programs and how many (effect, technique,
 // material) groups they form (counter rows "lit draws", "lit instance groups"). An upper bound for
@@ -1668,8 +1668,7 @@ unsigned int groupFirstSeen(unsigned int count, unsigned int* groupOf, HashOf ha
 // [RENDER] milestone 9, instancing: one material's entries in a lit walk, drawn in groups of
 // entries that share the prepass state and every instance parameter (Submit.h). Grouped on the
 // prepass state and the parameters' hash (groupFirstSeen) so the entries of a group meet, groups
-// in the order first met and a group's entries in the walk's order; with renderer.instancing 0
-// every entry is a group of its own.
+// in the order first met and a group's entries in the walk's order.
 struct InstanceCandidate
 {
     RenderQueueEntry* entry;
@@ -1710,7 +1709,7 @@ void drawInstanceCandidates(SubmitProgram* program, Ra::RaShader* shader)
     std::vector<InstanceCandidate>& list = g_instanceCandidates;
     if (list.empty())
         return;
-    const bool grouping = submitInstancingEnabled() && list.size() > 1;
+    const bool grouping = list.size() > 1;
     if (grouping)
     {
         for (size_t k = 0; k < list.size(); ++k)
@@ -1787,7 +1786,7 @@ void RenderQueue::drawWalkDefault()
             lastKey = e->techniqueKey;
             shader->m_queueProfiler = &profiler;
             shaderChanged = true;
-            program = submitProgramForWalk(shader, lastKey, true);
+            program = submitProgram(shader, lastKey, true);
             if (program)
             {
                 submitBegin(program, e);
@@ -1900,8 +1899,7 @@ void RenderQueue::drawEntryStates(RenderQueueEntry* e)
 // Draws first-person entries with the first entry's shader and pass 0, grouped by material.
 // Consumes drawn entries; failed stream bindings requeue entries on the default shader.
 // PE 0x1003AFC0
-// [RENDER] milestone 9: through the first entry's program when renderer.submit is on and its
-// technique has one.
+// [RENDER] milestone 9: through the first entry's program when its technique has one.
 void RenderQueue::drawWalkNear()
 {
     if (!enabled)
@@ -1914,7 +1912,7 @@ void RenderQueue::drawWalkNear()
     RenderQueueEntry** items = &entries[0];
     Ra::RaShader* const shader = items[0]->shader;
     shader->m_queueProfiler = &profiler;
-    SubmitProgram* const program = submitProgramForWalk(shader, items[0]->techniqueKey, true);
+    SubmitProgram* const program = submitProgram(shader, items[0]->techniqueKey, true);
     const bool instanced = submitInstanced(program);
     if (program)
         submitBegin(program, items[0]);
@@ -2882,7 +2880,7 @@ size_t depthRunShape(RenderQueueEntry* const* list, size_t available, Ra::RaShad
 
 // [RENDER] milestone 9: a depth pass through the submission layer (Submit.h). The pass's entries
 // form runs (depthRunShape); an instanced program's runs that share effect, material, length and
-// instance parameters draw as one instanced draw (renderer.instancing). Runs are grouped, not
+// instance parameters draw as one instanced draw. Runs are grouped, not
 // sorted (groupFirstSeen): a program's groups follow each other, programs and groups in the order
 // first met, so near bands still come first; a group's runs keep the pass's order.
 struct DepthRun
@@ -3023,14 +3021,13 @@ void drawDepthGroup(SubmitProgram* program, Ra::RaShader* shader,
 // Draws `list` (a depth pass's entries in its order) with technique `key`. `shadowViewProjection`:
 // a sun cascade's, set on each program (one without RaShadowViewProj is not drawn); null for the
 // prepass and the named depth passes. `prepass`: only entries that write the scene depth, recorded.
-// `onlyInstanced`: renderer.submit 0, where D3DX draws every effect but the instanced ones.
+// An entry whose technique has no program (more than one pass, fixed-function state) is not drawn.
 void drawDepthPassSubmit(std::vector<RenderQueueEntry*>& list, unsigned int key, bool prepass,
-                         const float* shadowViewProjection, bool onlyInstanced)
+                         const float* shadowViewProjection)
 {
     const size_t count = list.size();
     if (!count)
         return;
-    const bool grouping = submitInstancingEnabled();
 
     // The runs, each with its program.
     g_depthRuns.clear();
@@ -3048,10 +3045,9 @@ void drawDepthPassSubmit(std::vector<RenderQueueEntry*>& list, unsigned int key,
         if (shader != lastShader)
         {
             lastShader = shader;
-            lastProgram = submitProgramForWalk(shader, key);
-            if (lastProgram && ((onlyInstanced && !submitInstanced(lastProgram))
-                                || (shadowViewProjection
-                                    && !submitHasParameter(lastProgram, "RaShadowViewProj"))))
+            lastProgram = submitProgram(shader, key);
+            if (lastProgram && shadowViewProjection
+                && !submitHasParameter(lastProgram, "RaShadowViewProj"))
                 lastProgram = 0;
         }
         if (!lastProgram)
@@ -3065,14 +3061,13 @@ void drawDepthPassSubmit(std::vector<RenderQueueEntry*>& list, unsigned int key,
         r.shader = shader;
         r.material = e->material;
         r.instanced = submitInstanced(lastProgram);
-        r.hash = r.instanced && grouping ? submitInstanceKeyHash(lastProgram, e) : 0;
+        r.hash = r.instanced ? submitInstanceKeyHash(lastProgram, e) : 0;
         r.first = static_cast<unsigned int>(i);
         r.length = static_cast<unsigned int>(length);
         g_depthRuns.push_back(r);
         i += length;
     }
-    if (grouping)
-        groupDepthRuns();
+    groupDepthRuns();
 
     SubmitProgram* active = 0;
     void* lastMaterial = 0;
@@ -3085,9 +3080,8 @@ void drawDepthPassSubmit(std::vector<RenderQueueEntry*>& list, unsigned int key,
         RenderQueueEntry* const e = entries[0];
         Ra::RaShader* const shader = e->shader;
         size_t end = r + 1;
-        if (grouping)
-            while (end < runCount && run.sameGroup(g_depthRuns[end]))
-                ++end;
+        while (end < runCount && run.sameGroup(g_depthRuns[end]))
+            ++end;
         if (run.program != active)
         {
             if (active)
@@ -3172,80 +3166,7 @@ void drawDepthEntries(std::vector<RenderQueueEntry*>& list, unsigned int key, bo
     if (list.empty())
         return;
     sortDepthEntries(list);
-    if (submitEnabled())
-    {
-        drawDepthPassSubmit(list, key, prepass, 0, false);
-        if (prepass)
-            std::sort(g_prepassed.begin(), g_prepassed.end());
-        return;
-    }
-
-    Ra::RaShader* active = 0;
-    Ra::RaShader* rejected = 0;
-    void* lastMaterial = 0;
-    bool streamsBound = false;
-    for (std::vector<RenderQueueEntry*>::iterator it = list.begin(); it != list.end(); ++it)
-    {
-        RenderQueueEntry* const e = *it;
-        Ra::RaShader* const shader = e->shader;
-        if (!shader || shader == rejected)
-            continue;
-        if (shader != active)
-        {
-            if (active)
-            {
-                active->endPass();
-                active->end();
-                active = 0;
-            }
-            if ((!shader->m_built && !shader->slot04()) || !shader->m_effect
-                || submitInstanced(submitProgram(shader, key))   // drawn below
-                || !shader->selectTechnique(key))
-            {
-                rejected = shader;
-                continue;
-            }
-            const unsigned int savedKey = e->techniqueKey;
-            e->techniqueKey = key;
-            const unsigned int passes = shader->begin(e);
-            e->techniqueKey = savedKey;
-            if (!passes)
-            {
-                shader->end();
-                rejected = shader;
-                continue;
-            }
-            shader->beginPass(0);
-            active = shader;
-            lastMaterial = 0;
-        }
-        if (e->material != lastMaterial)
-        {
-            lastMaterial = e->material;
-            streamsBound = materialApplyStreams(e->material, shader);
-        }
-        if (!streamsBound)
-            continue;
-        shader->applyTemplateParameters(e);
-        shader->applyInstanceParameters(e);
-        // The pass states may follow the parameters just set (ZWriteEnable = (DepthWrite)):
-        // commit them, then prepass only a draw that writes the scene depth. One that does not
-        // keeps its own depth test in the world pass.
-        shaderManagerCommitCurrentEffects();
-        if (prepass
-            && (!stateManagerWantedRenderState(7u) || !stateManagerWantedRenderState(14u)))
-            continue;                                  // D3DRS_ZENABLE, D3DRS_ZWRITEENABLE
-        renderEntryBindLodDither(e);
-        shader->draw(e);
-        if (prepass)
-            g_prepassed.push_back(e);
-    }
-    if (active)
-    {
-        active->endPass();
-        active->end();
-    }
-    drawDepthPassSubmit(list, key, prepass, 0, true);   // the instanced effects (contract 3)
+    drawDepthPassSubmit(list, key, prepass, 0);
     if (prepass)
         std::sort(g_prepassed.begin(), g_prepassed.end());
 }
@@ -3440,101 +3361,22 @@ void rendererSetCasterBounds(size_t first, const float sphere[4])
         std::memcpy(casters[i].sphere, sphere, sizeof(casters[i].sphere));
 }
 
-// Mirrors renderQueuesDepthPrepass over the captured casters: technique `key`, the cascade's
-// view-projection on each effect, the entry's own template and instance parameters.
-// [RENDER] milestone 9: the casters in this cascade, in capture order, through the submission
-// layer's depth walk (drawDepthPassSubmit).
+// Mirrors renderQueuesDepthPrepass over the captured casters: the casters in this cascade, in
+// capture order, through the submission layer's depth walk (drawDepthPassSubmit) with technique
+// `key` and the cascade's view-projection on each program.
 namespace {
 std::vector<RenderQueueEntry*> g_cascadeCasters;
+}
 
-void drawShadowCastersSubmit(unsigned int key, const float* viewProjection,
-                             const ShadowCascadeCull& cull, bool onlyInstanced)
+void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection,
+                                   const ShadowCascadeCull& cull)
 {
     std::vector<ShadowCaster>& casters = g_casterCapture.casters;
     g_cascadeCasters.clear();
     for (size_t i = 0; i < casters.size(); ++i)
         if (casterInCascade(casters[i], cull))
             g_cascadeCasters.push_back(casters[i].entry);
-    drawDepthPassSubmit(g_cascadeCasters, key, false, viewProjection, onlyInstanced);
-}
-}
-
-void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection,
-                                   const ShadowCascadeCull& cull)
-{
-    if (submitEnabled())
-    {
-        drawShadowCastersSubmit(key, viewProjection, cull, false);
-        return;
-    }
-    std::vector<ShadowCaster>& casters = g_casterCapture.casters;
-    Ra::RaShader* active = 0;
-    Ra::RaShader* rejected = 0;
-    void* lastMaterial = 0;
-    bool streamsBound = false;
-    for (size_t i = 0; i < casters.size(); ++i)
-    {
-        if (!casterInCascade(casters[i], cull))
-            continue;
-        RenderQueueEntry* const e = casters[i].entry;
-        Ra::RaShader* const shader = e->shader;
-        if (!shader || shader == rejected)
-            continue;
-        if (shader != active)
-        {
-            if (active)
-            {
-                active->endPass();
-                active->end();
-                active = 0;
-            }
-            if ((!shader->m_built && !shader->slot04()) || !shader->m_effect
-                || submitInstanced(submitProgram(shader, key))   // drawn below
-                || !shader->selectTechnique(key))
-            {
-                rejected = shader;
-                continue;
-            }
-            ID3DXEffect* const effect = static_cast<ID3DXEffect*>(shader->m_effect);
-            const D3DXHANDLE handle = shadowViewProjectionHandle(effect);
-            if (!handle)
-            {
-                rejected = shader;
-                continue;
-            }
-            const unsigned int savedKey = e->techniqueKey;
-            e->techniqueKey = key;
-            const unsigned int passes = shader->begin(e);
-            e->techniqueKey = savedKey;
-            if (!passes)
-            {
-                shader->end();
-                rejected = shader;
-                continue;
-            }
-            effect->SetMatrix(handle, reinterpret_cast<const D3DXMATRIX*>(viewProjection));
-            shader->beginPass(0);
-            active = shader;
-            lastMaterial = 0;
-        }
-        if (e->material != lastMaterial)
-        {
-            lastMaterial = e->material;
-            streamsBound = materialApplyStreams(e->material, shader);
-        }
-        if (!streamsBound)
-            continue;
-        shader->applyTemplateParameters(e);
-        shader->applyInstanceParameters(e);
-        renderEntryBindLodDither(e);
-        shader->draw(e);
-    }
-    if (active)
-    {
-        active->endPass();
-        active->end();
-    }
-    drawShadowCastersSubmit(key, viewProjection, cull, true);   // the instanced effects (contract 3)
+    drawDepthPassSubmit(g_cascadeCasters, key, false, viewProjection);
 }
 
 namespace {

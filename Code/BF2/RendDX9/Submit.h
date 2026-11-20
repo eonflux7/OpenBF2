@@ -27,11 +27,6 @@ namespace Ra { class RaShader; }
 struct RenderQueueEntry;
 struct SubmitProgram;
 
-// renderer.submit: 1 draws the depth prepass, the sun casters and the queue walks (the lit mesh
-// passes) through programs, 0 through D3DX (the A/B switch while milestone 9 is developed).
-bool submitEnabled();
-void submitSetEnabled(bool on);
-
 // The program for `shader`'s technique `key`, built on first use; null when the effect has no
 // such technique or it cannot be drawn here: more than one pass, or fixed-function state (logged
 // once). Key 0, or with `orDefault` a key the effect lacks, takes the effect's default technique,
@@ -57,16 +52,8 @@ void submitReset();
 
 // Instancing (shader contract 3): a program whose vertex shader reads the instance stream draws
 // every entry as an instance, in groups of entries that share the material (or a material run),
-// LOD dither and every instance parameter the program reads; a group of one included. Such a
-// program is used whatever renderer.submit says: D3DX cannot feed the stream.
+// LOD dither and every instance parameter the program reads; a group of one included.
 bool submitInstanced(const SubmitProgram* program);
-// renderer.instancing: 0 draws each instance on its own (the A/B switch while milestone 9 is
-// developed); the shaders and the stream stay the same.
-bool submitInstancingEnabled();
-void submitSetInstancingEnabled(bool on);
-// The program for the walks: submitProgram when renderer.submit is on or the program is
-// instanced, else null (the walk draws through D3DX).
-SubmitProgram* submitProgramForWalk(Ra::RaShader* shader, unsigned int key, bool orDefault = false);
 // A group: begun at an entry submitEntry has uploaded, joined by later entries that can share its
 // draw (each records its instance), bound before the one draw (the instance records on the stream after the material's last,
 // the bound declaration merged with the instance elements, the stream frequencies) and ended after
@@ -89,7 +76,7 @@ void submitInstancesRelease();
 // While opted in, the effect's parameter writes go to a value store (submitEffectParameterTarget
 // answers the sink in place of the D3DX effect), uploaded straight into the registers of the
 // active program; the store is written to D3DX only before a pass that still draws through D3DX
-// (renderer.submit 0, or a pass refused here), during which writes also go to D3DX.
+// (a pass refused here), during which writes also go to D3DX.
 struct SubmitEffect;
 SubmitEffect* submitEffectCreate(void* d3dxEffect, const std::string& name);
 void submitEffectDestroy(SubmitEffect* effect);
@@ -99,7 +86,7 @@ void submitEffectFlush(SubmitEffect* effect);
 // same one before a device loss, so the store holds no texture through the reset).
 void submitEffectRebind(SubmitEffect* effect, void* d3dxEffect);
 // Binds the program of `technique`'s pass `pass` (a D3DX technique handle) and uploads the
-// store's values into it; false when renderer.submit is 0 or the pass cannot be drawn here.
+// store's values into it; false when the pass cannot be drawn here.
 bool submitEffectBeginPass(SubmitEffect* effect, void* technique, unsigned int pass);
 // The caller begins a D3DX pass instead: the store is flushed and writes go to D3DX too.
 void submitEffectBeginD3dxPass(SubmitEffect* effect);

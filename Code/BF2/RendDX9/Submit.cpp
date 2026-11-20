@@ -36,7 +36,6 @@ extern void* g_raShaderConstants;
 
 namespace {
 
-bool g_enabled = true;
 
 // The render states a material decides (contract 2), by the semantic of their parameter.
 enum StateSlot { kAlphaTest, kAlphaRef, kDepthWrite, kStateSlots };
@@ -1244,8 +1243,6 @@ void applySet(SubmitProgram* program, unsigned int set, RenderQueueEntry* entry)
 
 } // namespace
 
-bool submitEnabled() { return g_enabled; }
-void submitSetEnabled(bool on) { g_enabled = on; }
 
 namespace {
 
@@ -1292,12 +1289,6 @@ void setSun(SubmitProgram* program)
 }
 
 } // namespace
-
-SubmitProgram* submitProgramForWalk(Ra::RaShader* shader, unsigned int key, bool orDefault)
-{
-    SubmitProgram* const program = submitProgram(shader, key, orDefault);
-    return program && (g_enabled || program->instanced) ? program : 0;
-}
 
 SubmitProgram* submitProgram(Ra::RaShader* shader, unsigned int key, bool orDefault)
 {
@@ -1401,8 +1392,6 @@ bool submitEntry(SubmitProgram* program, RenderQueueEntry* entry)
 // ---- Instancing (contract 3) ----
 
 namespace {
-
-bool g_instancing = true;
 
 // One record per instance: the world transform's three columns, the lightmap offset.
 const unsigned int kRecordFloats = 16;
@@ -1571,9 +1560,6 @@ bool ensureInstanceBuffer(IDirect3DDevice9* device)
 
 } // namespace
 
-bool submitInstancingEnabled() { return g_instancing; }
-void submitSetInstancingEnabled(bool on) { g_instancing = on; }
-
 bool submitInstanced(const SubmitProgram* program)
 {
     return program && program->instanced;
@@ -1591,7 +1577,7 @@ bool submitGroupJoin(RenderQueueEntry* entry)
 {
     SubmitProgram* const program = g_groupProgram;
     const RenderQueueEntry* const first = g_groupFirst;
-    if (!g_instancing || !program || !first
+    if (!program || !first
         || g_groupRecords.size() >= kInstanceBufferRecords * kRecordFloats
         || entry->lodDither[0] != first->lodDither[0] || entry->lodDither[1] != first->lodDither[1]
         || entry->lighting.tail10C || !entry->lighting.tail0FC.empty()
@@ -2049,7 +2035,7 @@ bool submitEffectBeginPass(SubmitEffect* e, void* technique, unsigned int pass)
 {
     e->active = 0;
     e->d3dxPass = false;
-    if (!submitEnabled() || !e->fx || !technique)
+    if (!e->fx || !technique)
         return false;
     const D3DXHANDLE handle = ::renddx9abi::d3dxHandle(technique);
     std::unique_ptr<SubmitProgram>& slot = e->programs[std::make_pair(handle, pass)];

@@ -937,7 +937,7 @@ bool objectDrawerCastsInto(world::IObject* object, const dx9rend::ShadowCascadeC
 }
 }
 
-void ObjectDrawer::submitShadowCasters(const void* volume, const dx9rend::ShadowCascadeCull* range,
+void ObjectDrawer::submitShadowCasters(const void* volume, const dx9rend::ShadowCascadeCull& range,
                                        float time)
 {
     static ObjectDrawerSet candidates;
@@ -975,7 +975,7 @@ void ObjectDrawer::submitShadowCasters(const void* volume, const dx9rend::Shadow
             continue;
 
         // The shadow range swept toward the sun, before any work on the object.
-        if (range && !objectDrawerCastsInto(object, *range))
+        if (!objectDrawerCastsInto(object, range))
             continue;
 
         if (!seen.contains(object))
@@ -1013,7 +1013,7 @@ void ObjectDrawer::submitShadowCasters(const void* volume, const dx9rend::Shadow
     }
 }
 
-void objectDrawerSubmitShadowCasters(const void* volume, const dx9rend::ShadowCascadeCull* range,
+void objectDrawerSubmitShadowCasters(const void* volume, const dx9rend::ShadowCascadeCull& range,
                                      float time)
 {
     if (dx9rend::g_ObjectDrawer)
