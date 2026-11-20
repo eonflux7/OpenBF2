@@ -42,6 +42,12 @@ void consoleLoadTerrain(const std::string& path)
     terrain()->load(std::string(path));
 }
 
+// [DEV] survey (no retail counterpart).
+void consoleSurveyTerrain()
+{
+    terrain()->survey();
+}
+
 // forceRenderStyle - ctor 0x100B502C, executor get slot +0x24, set slot +0x20.
 int  getForceRenderStyle() { return terrain()->getRenderStyle(); }
 void setForceRenderStyle(int style) { terrain()->setRenderStyle(style); }
@@ -256,6 +262,8 @@ BF2_CONSOLE_PROPERTY_FN(waterAlphaHeightMul, float, terrain() != 0,
 // PE 0x100B5CA9, 0x100B5D1A
 BF2_CONSOLE_PROPERTY_FN(waterAlphaAdd, float, terrain() != 0,
                         getWaterAlphaAdd(), setWaterAlphaAdd, kTerrainConsoleTag)
+// [DEV] survey: the terrain's layers, textures and lights to the log (Terrain::survey).
+BF2_CONSOLE_METHOD_0_STATIC_ACTIVE(survey, consoleSurveyTerrain, terrain() != 0, kTerrainConsoleTag)
 // PE 0x100B5E1E
 BF2_CONSOLE_PROPERTY_FN(waterTransparency, float, terrain() != 0,
                         getWaterTransparency(), setWaterTransparency, kTerrainConsoleTag)

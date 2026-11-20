@@ -476,6 +476,9 @@ public:
     void  drawMaskLights();                                          // sub_100DE5B0  the point-light pass over getVisibleLightsByMask(2313) - LightManager +0x18, the frame's visible lights
     void  drawFinal();                                               // sub_100DB680  the +0xBC arm's diffuse passes
     void  drawSurrounding();                                         // sub_100E0F80  Shared_SurroundingTerrain over the ring
+    // [DEV] Console `terrain.survey`: the loaded terrain's detail layers, textures and the last
+    // frame's terrain lights, written to the log (render milestone 10, task 1).
+    void  survey();
     void  drawWaterRa(float seaLevel);                               // sub_100DBF50  the ShaderVersion-1 Ra water over the gathered nodes
     void  drawWaterGrid(float seaLevel);                             // sub_100DCA50  the 65x65-grid water, one cell per patch-sized square
     void  drawWaterCell(float x0, float z0, float x1, float z1, void* lightmap);

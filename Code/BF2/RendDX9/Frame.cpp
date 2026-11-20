@@ -367,9 +367,11 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     // Terrain's depth is in already: its linear depth draws over it with EQUAL and no depth write.
     if (drawTerrain && geom::g_Terrain)
     {
+        gpuTimerMark("terrain depth");   // [DEV] BF2_GPU_TIMERS
         stateManagerSetPrepassedDraw(true);
         static_cast<geom::Terrain*>(geom::g_Terrain)->drawDepthPrepass();
         stateManagerSetPrepassedDraw(false);
+        gpuTimerMark("depth prepass");   // [DEV] BF2_GPU_TIMERS
     }
     static const unsigned int key = raHashString(std::string("RaDepthPrepass"));
     // Alpha-to-coverage: alpha-tested draws turn their alpha into a sample mask here, and their
@@ -755,7 +757,9 @@ bool frameRender(const FrameInputs& in, IDirect3DSurface9*& overlayDepthStencil)
     IBase* terrain = geom::g_Terrain;
     if (in.terrain && terrain)
     {
+        gpuTimerMark("terrain lightmap");                               // [DEV] BF2_GPU_TIMERS
         static_cast<geom::Terrain*>(terrain)->renderWorldPassBegin();   // +0xB8
+        gpuTimerMark("pre-world");                                      // [DEV] BF2_GPU_TIMERS
         terrain = geom::g_Terrain;
     }
 
@@ -831,8 +835,12 @@ bool frameRender(const FrameInputs& in, IDirect3DSurface9*& overlayDepthStencil)
 
     // PE 0x100303A7..0x100303BC mirrors the pre-detail Terrain arm at +0xBC.
     if (in.terrain && terrain)
+    {
+        gpuTimerMark("terrain detail");                                 // [DEV] BF2_GPU_TIMERS
         static_cast<geom::Terrain*>(terrain)->renderWorldPassEnd();     // +0xBC
+    }
 
+    gpuTimerMark("roads");                                              // [DEV] BF2_GPU_TIMERS
     if (in.roads)
         frameRoadPass(in);
     if (in.roads)
@@ -853,6 +861,7 @@ bool frameRender(const FrameInputs& in, IDirect3DSurface9*& overlayDepthStencil)
         }
     }
 
+    gpuTimerMark("sky");                                                // [DEV] BF2_GPU_TIMERS
     if (in.sky)
     {
         if (geom::g_SkyDome)

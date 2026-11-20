@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <new>
 #include <cstdint>
@@ -804,6 +805,12 @@ void Terrain::drawTechniquePass(Frustum* source, int pass, int preserveColorMask
 // pass 7 for the gathered ranges, pass 0 per visible node, the light pass, the target restore.
 
 // PE 0x100E0940.
+// [DEV] terrain.survey: the last frame's point-light pass (0 none, 1 drawDetailPass, 2
+// drawMaskLights), the lights it drew and their gathered nodes.
+static int g_surveyLightPath = 0;
+static unsigned int g_surveyLights = 0;
+static unsigned int g_surveyLightNodes = 0;
+
 void Terrain::drawMain()
 {
     std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
@@ -841,6 +848,9 @@ void Terrain::drawMain()
         (*it)->patch->draw(it);                                           // sub_1018BE20, advances `it`
         ++terrainRendererStat(612);
     }
+    g_surveyLightPath = 0;                                                // [DEV] terrain.survey
+    g_surveyLights = 0;
+    g_surveyLightNodes = 0;
     if (dx9rend::rendererGetHemiRenderMode() != 4)                        // sub_10009F00, base +0x20
     {
         if (m_effect && *dx9rend::effectShaderVersion(m_effect) == 1)
@@ -1023,6 +1033,9 @@ void Terrain::drawDetailPass()
         param(m_hPointLight)->setValue(&point, 0);
         m_culler->gatherVisibleSphere(&source->getAbsolutePosition().x, xpLightRadius(wrapper));
         std::vector<TerrainCullerNode*>* const gathered = m_culler->gatheredPatches();
+        g_surveyLightPath = 1;                                            // [DEV] terrain.survey
+        ++g_surveyLights;
+        g_surveyLightNodes += static_cast<unsigned int>(gathered->size());
         param(terrainShadowArrayParameter(3))->setInt(0);
         TerrainCullerNode** first = gathered->data();
         TerrainCullerNode** const end = gathered->data() + gathered->size();
@@ -1064,6 +1077,9 @@ void Terrain::drawMaskLights()
         const float radius = light->getVisualBoundingRadius();           // PE +0x90 - asked first
         m_culler->gatherVisibleSphere(&light->getAbsolutePosition().x, radius);
         std::vector<TerrainCullerNode*>* const list = m_culler->gatheredPatches();
+        g_surveyLightPath = 2;                                            // [DEV] terrain.survey
+        ++g_surveyLights;
+        g_surveyLightNodes += static_cast<unsigned int>(list->size());
         TerrainCullerNode** it = list->data();
         while (it != list->data() + list->size())
             (*it)->patch->drawPointLight(it);                            // sub_1018C7F0, advances `it`
@@ -1431,6 +1447,144 @@ void Terrain::drawWaterCell(float x0, float z0, float x1, float z1, void* lightm
         record[8] = colour[2];
     }
     dx9rend::renderQueueAddToSlot(9u, entry);                             // raShaderServer->m_specialManagers[RSMTWater]->+0x04
+}
+
+// [DEV] terrain.survey (render milestone 10, task 1): what the one-pass terrain has to cover on
+// the loaded level, one "[terrain.survey]" log line per fact. Draws per pass come from
+// BF2_DRAW_STATS and GPU time from the timers' terrain spans; this adds what neither records.
+namespace {
+
+std::string surveyFormat(unsigned int format)
+{
+    if (format > 0xFFu)
+    {
+        char fourcc[5] = { static_cast<char>(format & 0xFFu), static_cast<char>((format >> 8) & 0xFFu),
+                           static_cast<char>((format >> 16) & 0xFFu), static_cast<char>(format >> 24), 0 };
+        return fourcc;
+    }
+    char text[16];
+    ::sprintf_s(text, "fmt%u", format);
+    return text;
+}
+
+std::string surveyTexture(const void* texture)
+{
+    if (!texture)
+        return "-";
+    const dx9rend::EngineTexture* const t = static_cast<const dx9rend::EngineTexture*>(texture);
+    char text[64];
+    ::sprintf_s(text, "%ux%u %s m%u", t->width, t->height, surveyFormat(t->format).c_str(),
+                t->mipLevels);
+    return text;
+}
+
+// Distinct "WxH fmt mips" descriptions with how many textures have each.
+void surveyTally(std::vector<std::pair<std::string, int> >& tally, const void* texture)
+{
+    const std::string key = surveyTexture(texture);
+    for (std::size_t i = 0; i != tally.size(); ++i)
+        if (tally[i].first == key) { ++tally[i].second; return; }
+    tally.push_back(std::make_pair(key, 1));
+}
+
+void surveyLogTally(const char* what, const std::vector<std::pair<std::string, int> >& tally)
+{
+    for (std::size_t i = 0; i != tally.size(); ++i)
+        ::renddx9abi::logf("[terrain.survey] %s: %d x %s", what, tally[i].second, tally[i].first.c_str());
+}
+
+} // namespace
+
+void Terrain::survey()
+{
+    const int records = static_cast<int>(m_detailTextures.size());
+    ::renddx9abi::logf("[terrain.survey] patchSize %d, patches %dx%d, detail textures %d (file %d), "
+                       "low-detail mode %d %s",
+                       m_patchSize, m_patchCount, m_patchCount, records, m_detailTextureCount,
+                       m_lowDetailTextureMode, surveyTexture(m_lowDetailTexture).c_str());
+    for (int i = 0; i != records; ++i)
+    {
+        TerrainDetailTexture* const r = m_detailTextures[i];
+        if (!r)
+            continue;
+        const std::string name = r->getName();
+        ::renddx9abi::logf("[terrain.survey] detail %d '%s': %s normal %s side %s%s sideNormal %s "
+                           "planar %d env %d topTiling %g sideTiling %g %g yOffset %g",
+                           i, name.c_str(), surveyTexture(r->texture).c_str(),
+                           surveyTexture(r->normalTexture).c_str(), surveyTexture(r->sideTexture).c_str(),
+                           r->sideTexture == r->texture ? " (same)" : "",
+                           surveyTexture(r->sideNormalTexture).c_str(), r->planeMap, r->envMap,
+                           r->topTiling, r->sideTiling.x, r->sideTiling.y, r->yOffset);
+    }
+
+    // Patches: layer counts, the special layers, and the per-patch textures.
+    int byCount[9] = {};
+    int withPlanar = 0, withEnv = 0, withLayer6 = 0, patches = 0;
+    std::vector<int> detailUse(records > 0 ? records : 0, 0);
+    std::vector<std::pair<std::string, int> > detailMaps, colormaps, lightmaps, lowDetailmaps;
+    const int total = m_patchCount * m_patchCount;
+    for (int p = 0; m_patches && p != total; ++p)
+    {
+        QuadPatch* const patch = m_patches[p];
+        if (!patch)
+            continue;
+        ++patches;
+        int layers = 0;
+        bool planar = false, env = false;
+        for (std::size_t l = 0; l != patch->detailLayers.size(); ++l)
+        {
+            QuadPatchDetailLayer* const layer = patch->detailLayers[l];
+            if (!layer)
+                continue;
+            ++layers;
+            if (l == 6)
+                ++withLayer6;
+            const int index = layer->detailIndex;
+            if (index >= 0 && index < records)
+            {
+                ++detailUse[index];
+                if (m_detailTextures[index] && m_detailTextures[index]->planeMap)
+                    planar = true;
+                else if (m_detailTextures[index] && m_detailTextures[index]->envMap)
+                    env = true;
+            }
+        }
+        ++byCount[layers < 8 ? layers : 8];
+        withPlanar += planar ? 1 : 0;
+        withEnv += env ? 1 : 0;
+        surveyTally(detailMaps, patch->detailMap[0]);
+        if (patch->detailMap[1])
+            surveyTally(detailMaps, patch->detailMap[1]);
+        surveyTally(colormaps, patch->colormap);
+        surveyTally(lightmaps, patch->lightmap);
+        surveyTally(lowDetailmaps, patch->lowDetailmap);
+    }
+    ::renddx9abi::logf("[terrain.survey] patches %d; by layer count 0:%d 1:%d 2:%d 3:%d 4:%d 5:%d 6:%d 7:%d; "
+                       "with a planar layer %d, an env-mapped layer %d, layer 6 %d",
+                       patches, byCount[0], byCount[1], byCount[2], byCount[3], byCount[4], byCount[5],
+                       byCount[6], byCount[7], withPlanar, withEnv, withLayer6);
+    for (int i = 0; i != records; ++i)
+        ::renddx9abi::logf("[terrain.survey] detail %d used by %d patches", i, detailUse[i]);
+    surveyLogTally("detailmap", detailMaps);
+    surveyLogTally("colormap", colormaps);
+    surveyLogTally("lightmap", lightmaps);
+    surveyLogTally("lowDetailmap", lowDetailmaps);
+    const Rend::EnvMapManager* const envMaps =
+        static_cast<const Rend::EnvMapManager*>(terrainEnvMapManager());
+    ::renddx9abi::logf("[terrain.survey] env map %s",
+                       surveyTexture(envMaps ? envMaps->m_currentTexture : 0).c_str());
+
+    // The last frame: visible nodes, how many shade near, and the point-light pass.
+    std::vector<TerrainCullerNode*>* const visible = m_culler->visiblePatches();
+    unsigned int nearNodes = 0;
+    for (std::size_t i = 0; i != visible->size(); ++i)
+        nearNodes += (*visible)[i]->detailNear ? 1u : 0u;
+    static const char* const kPaths[] = { "none", "drawDetailPass (pass 16)", "drawMaskLights (passes 13/1)" };
+    ::renddx9abi::logf("[terrain.survey] frame: visible nodes %u (detailNear %u), detailDistance %d; "
+                       "shader version %d; lights %s, %u lights over %u gathered nodes",
+                       static_cast<unsigned int>(visible->size()), nearNodes, m_culler->detailDistance,
+                       m_effect ? *dx9rend::effectShaderVersion(m_effect) : -1,
+                       kPaths[g_surveyLightPath], g_surveyLights, g_surveyLightNodes);
 }
 
 } // namespace geom
