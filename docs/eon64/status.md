@@ -107,8 +107,10 @@ Tasks (1 under way: survey tool and surveys done, reference views and baseline s
    views.
    Done 2026-11-20: `tools.survey` (`tools(survey)` commit, in game) run on the three maps, the night layer and
    test_bootcamp; findings in [renderer.md](renderer.md#11-atmosphere-sky-ibl-water-reflections).
-   Left: the reference views (saved with `view.save`; glossy vehicles and glass on test_bootcamp,
-   which holds most vehicles, owner 2026-11-20; water on Saaremaa) and their baseline shots.
+   Reference views (placed by the owner with `view.save`; baseline shots `m10-<view>` by `view.shot`):
+   test_bootcamp done 2026-11-20 on `gpm_cq 16` (China vs Russia, modern vehicles): `gloss`, `gloss2`,
+   `glass`. Left: Muttrah City, Saaremaa (with water), Fallujah West: `sun`, `antisun`, `ridges`,
+   `valley`, `street`. A view facing the sun has yaw = the survey's sun azimuth + 180°.
 2. Atmosphere model (contract 6): the two layers and the fit at load as in the plan; the
    transmittance, multiple-scattering and sky-view tables at load and after a device reset, the
    aerial-perspective atlas per frame, all pixel passes; the atlas format checked for vertex
