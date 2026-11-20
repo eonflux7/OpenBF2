@@ -71,35 +71,91 @@ path, measured with `GPU=1`.
 
 ### 11. Atmosphere, sky IBL, water reflections
 
-- One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial
-  perspective, so sky, sun near the horizon and haze agree.
-- A sky cubemap prefiltered per level at load (one mip per roughness) gives ambient specular to
-  glossy surfaces. Every receiver occludes it: statics and terrain with the lightmap sky visibility,
-  vehicles and soldiers with the hemi map, first-person models with the sky visibility under the
-  camera. Bundled meshes (vehicles, first-person models) and static meshes come first.
-- Material interpretation without new assets: gloss maps become roughness, and each material
-  class (paint, glass, metal, fabric) gets its own F0 and roughness range. Vehicle environment
-  maps stop being blended into albedo and become specular.
-- Specular anti-aliasing in the shared lighting model: roughness widens with the screen-space rate
-  of change of the normal, and normal-map mips shorten the normal, which is read back as extra
-  roughness (Toksvig). MSAA shades once per pixel, so without this glossy surfaces sparkle.
-- Water: screen-space reflections. The opaque scene is resolved to a texture before water draws
-  (also the source for refraction); water marches against the prepass depth and falls back to the
-  prefiltered sky where the ray leaves the screen.
+The goal is a visibly more realistic outdoor image. Sky, sun and haze coming from one model is the
+means, not the goal. The owner judges every A/B by eye in game, against milestone 10 at the
+reference views. What should change on screen, and so what to look at:
+
+- **Distance.** Far terrain and buildings lose contrast and take on the sky's colour with distance,
+  so ridges separate into layers. Valleys hold more haze than ridgelines; the haze is brighter and
+  warmer toward the sun, bluer away from it. Retail fog is one colour by distance.
+- **Sky.** The dome's horizon comes from the model and meets the haze over the terrain without a
+  seam. The sun has a disc and a forward-scattering glow from the same model.
+- **Sky light.** Surfaces are lit by the sky from its direction: blue from above, darker and
+  ground-tinted from below, brighter toward the sun, instead of one flat colour.
+- **Materials.** Glossy surfaces reflect the sky, most at grazing angles, each material class in its
+  own way: paint and glass sharp, metal tinted, fabric and concrete matte. A surface's sun highlight
+  and its sky reflection agree, since both come from one roughness and F0. Glossy edges do not
+  sparkle in motion.
+- **Light shafts.** Sunlight in the haze is shadowed by the cascades, so shafts show between
+  buildings and through trees.
+- **Water.** It reflects the buildings, terrain and sky around it, and the sky where a reflected ray
+  leaves the screen.
+
+Design:
+
+- **Two layers.** A sky atmosphere (Rayleigh and Mie, Earth's scale heights) drives the sky, the
+  sun disc and the sky cube. A ground haze layer (density falling exponentially with height) drives
+  aerial perspective. One atmosphere dense enough to reach full haze at PR's fog end (0.5–2 km)
+  would turn the whole sky into haze, so they cannot be one.
+- **Fit at load, in order.** (1) Sunlight above the atmosphere = authored sun / transmittance at the
+  sun's elevation, the transmittance clamped to at least 0.1 per channel (low suns, night layers).
+  (2) The sky's Rayleigh tint and scale and its Mie density, fitted to the dome's zenith colour and
+  the authored fog colour at the horizon. (1) and (2) repeat a fixed three times, since the
+  transmittance depends on the fit. (3) The haze layer: density from fog end, albedo from the
+  authored fog colour, one height falloff for all levels, tuned at the aerial-perspective A/B.
+- **Haze curve.** Exponential in optical depth, steepened only over the last stretch before fog end
+  so it reaches full haze there. Retail's fog start is not used: the exponential curve keeps the
+  near range clear.
+- **Tables.** Transmittance, multiple scattering and sky view at load and after a device reset (the
+  sun does not move; the sky view is taken at the terrain's mean height). Per frame only the
+  aerial-perspective atlas, with cascade shadowing per slice for the shafts.
+- **Sky cube.** Upper half: the dome and the atmosphere. Lower half: the ground, the terrain
+  colormap's mean colour lit by the authored sun and sky, under the haze at the horizon (sky alone
+  below the horizon makes every glossy surface look chrome). Prefiltered GGX, one mip per
+  roughness; its irradiance as 9 spherical-harmonic coefficients, taken at load.
+- **Sky light.** Every receiver's sky term is the irradiance at its normal times its occlusion:
+  statics and terrain the lightmap's sky visibility, vehicles and soldiers the hemi map,
+  first-person models the sky visibility under the camera. The irradiance is scaled so its upward
+  value keeps the luminance of the authored sky colour: each level keeps its balance, and only the
+  direction and colour change.
+- **Lighting model.** Direct sun specular and ambient specular from the same roughness and F0 (GGX,
+  split sum). Material interpretation without new assets: gloss maps become roughness, and each
+  class (paint, glass, metal, fabric) has its own F0 and roughness range. The engine holds the class
+  index and the table's format; the mapping from PR materials to classes lives with the shaders,
+  outside this tree. Vehicle environment maps stop being blended into albedo and become specular.
+- **Specular anti-aliasing.** Roughness widens with the screen-space rate of change of the normal,
+  and normal-map mips shorten the normal, which is read back as extra roughness (Toksvig). MSAA
+  shades once per pixel, so without this glossy surfaces sparkle.
+- **Water.** Screen-space reflections. The scene is resolved to a texture just before water draws,
+  after the sky, the fog pass, decals and the particles drawn before water (also the source for
+  refraction); water marches against the linear depth and falls back to the prefiltered sky where
+  the ray leaves the screen. No reflections from under the surface: seen from underwater, water
+  stays as it is.
+- **Thermals.** Thermal vision keeps its own formula and takes none of this.
+- **Budget.** Target for the whole milestone: at most 1 ms on the benchmark paths at 1920x1080
+  (atlas 32x32 with 32 slices, sky view 192x108, cube 128 per face), measured at acceptance. Above
+  it the regression rule applies.
 
 Decisions (owner, 2026-11-20):
-- The painted dome and its cloud layers stay. The atmosphere is fitted to them at load: the dome's
-  horizon and zenith colours and the authored fog colour set its density and tint, and the dome's
-  horizon blends into the model's haze so terrain meets the sky.
+- The painted dome's texture and cloud layers stay, and its zenith colour is a fitting input. Below
+  about 20° above the horizon its colour blends into the model's sky, fully the model at the
+  horizon, so terrain meets the sky without a seam. (Delegated by the owner to the agent,
+  2026-11-20; the first decision kept the dome's colour authored down to the horizon.)
 - The authored sun colour (`Lightmanager.staticSunColor`) stays the sunlight at the ground, and lit
   surfaces keep using it. The model works backwards from it to the sunlight above the atmosphere,
   so the sky, the sun disc and the haze agree with it.
 - The authored fog end stays the visibility limit (PR's view distance; the far plane and culling
   follow it): aerial perspective reaches full haze there.
+- Bloom stays in milestone 12. The sun's glow and specular glints read fully only then, and are
+  judged here knowing that. (Delegated, 2026-11-20.)
 
 D3D9 limits: there is no compute and no rendering into volume textures, so the lookup tables are
-pixel passes and the aerial-perspective volume is a 2D atlas of depth slices. The new frame
-resources need reserved samplers like s13 and s15; task 1 finds which slots no effect uses.
+pixel passes. The aerial-perspective volume is a 2D atlas of depth slices, blended between
+neighbouring slices by hand; particles read it per vertex, so its format must allow vertex texture
+fetch (checked in task 2). Frame resources read by every lit shader get reserved samplers like s13
+and s15: the atlas, the sky cube, and the split-sum BRDF table if task 1 finds a third free slot
+(otherwise an analytic fit). The water scene texture and the sky's transmittance table are effect
+parameters. Each task that adds to what the shaders may rely on raises the contract version (6 on).
 
 ### 12. HDR bloom + auto-exposure
 

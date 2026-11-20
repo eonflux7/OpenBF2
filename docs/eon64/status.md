@@ -82,51 +82,72 @@ tried on Muttrah City by an agent: a view shot before the HUD and one with `tool
 
 ## Current: `render` milestone 11, atmosphere, sky IBL, water reflections
 
-Plan and the owner's decisions (painted dome kept, the atmosphere fitted to it; authored sun colour
-kept; fog end stays the visibility limit):
+The goal is a visibly more realistic image; plan, design and decisions (dome texture and clouds
+kept, its horizon from the model; authored sun colour kept; fog end stays the visibility limit):
 [renderer.md](renderer.md#11-atmosphere-sky-ibl-water-reflections). One A/B console variable per
-part while in development (`renderer.atmosphere`, `renderer.skyIbl`, `renderer.waterSsr`); old
-paths and the variables are deleted at acceptance. Intermediate tasks: one map, visual A/B at the
-reference views, no `GPU=1` runs.
+part while in development (`renderer.atmosphere`, `renderer.lightShafts`, `renderer.skyIbl`,
+`renderer.waterSsr`); old paths and the variables are deleted at acceptance. Intermediate tasks:
+one map, A/B shots at the reference views, no `GPU=1` runs. The owner judges each A/B by eye in
+game, on the plan's list of what should change; a task that works but does not look better is not
+done. Every task that adds a frame resource is tried across device resets (`renderer.vsync`
+toggled while it draws).
 
 Tasks (none done):
-1. Survey, three maps (console `atmosphere.survey`): sky dome technique and textures (how much is
-   painted into the dome; its horizon and zenith colours against the fog colour), fog colour and
-   range, sun and sky colours, sun elevation; water effects in use and their area on screen;
-   retail environment maps (the level's `Envmaps/EnvMap0`, the `EnvMapManager` maps: which
-   templates, how many, when generated, who samples them); material flags that can sort bundled and
-   static materials into paint, glass, metal, fabric (env map, alpha, gloss source, technique);
-   the highest sampler each effect uses, to reserve slots for the frame resources. Reference views
-   per map: horizon and haze, a glossy vehicle, glass, water. Baseline: milestone 10's benches.
-2. Atmosphere model (engine, contract 6): transmittance and multiple-scattering lookup tables at
-   load, the sky-view table and the aerial-perspective atlas per frame, all pixel passes.
-   Parameters fitted at load from task 1's colours; sunlight above the atmosphere = authored sun /
-   transmittance at the sun's elevation. Tables on the debug overlay; `renderer.atmosphere`.
-3. Sky and sun: the dome keeps its texture and clouds; its horizon blends into the model's haze;
-   the sun disc from the model, the flare's occlusion test kept. The dim dome (open since milestone
-   2) set against the model here.
+1. Survey, three maps and one night layer (The Falklands, `gpm_cq 32`), by a `tools` console command
+   `tools.survey` (its own commit): sky dome technique and textures (how much is painted into the
+   dome; its horizon and zenith colours against the fog colour), fog colour, start and end, sun and
+   sky colours, sun elevation; the terrain colormap's mean colour; water effects in use and their
+   area on screen; retail environment maps (the level's `Envmaps/EnvMap0`, the `EnvMapManager`
+   maps: which templates, how many, when generated, who samples them); material flags that can sort
+   bundled and static materials into paint, glass, metal, fabric (env map, alpha, gloss source,
+   technique); whether normal-map mips were renormalized (Toksvig needs their shortened normals);
+   the highest sampler each effect uses, to find three free slots. Reference views per map: the
+   horizon toward and away from the sun, ridges and a valley at range, a glossy vehicle, glass,
+   water, a street with sun between buildings. Baseline: milestone 10's benches and shots of those
+   views.
+2. Atmosphere model (contract 6): the two layers and the fit at load as in the plan; the
+   transmittance, multiple-scattering and sky-view tables at load and after a device reset, the
+   aerial-perspective atlas per frame, all pixel passes; the atlas format checked for vertex
+   texture fetch. Tables on the debug overlay; `renderer.atmosphere`.
+3. Sky and sun: the dome keeps its texture and clouds, its colour blending into the model's sky
+   below about 20°; the sun disc and its forward-scattering glow from the model, the flare's
+   occlusion test kept. The dim dome (open since milestone 2) settled against the model here. Look
+   for: no seam where terrain meets the sky; the horizon brighter and warmer toward the sun.
 4. Aerial perspective: `Ra_ApplyFog` replaced by one function (transmittance and in-scatter from the
-   atlas by direction and distance) in every effect that fogs (19 files), particles per vertex;
-   full haze at fog end; the two fog queues (`RSMTFogPass`, `RSMTFogTransparentPass`) checked.
-   Underwater fog and the thermal heat haze unchanged.
-5. Sky cubemap: at load and after a device reset, the dome and atmosphere rendered into a cube
-   (sky only), prefiltered GGX one mip per roughness, and the split-sum BRDF table; bound on
-   reserved samplers. Retail environment maps it replaces are deleted at acceptance where task 1
-   finds no other reader.
-6. Shared lighting model: ambient specular (split sum) with an occlusion input; gloss to roughness;
-   a material class table (F0, roughness range); specular anti-aliasing (roughness widened by the
+   atlas by direction and distance) in the 18 effects that fog; particles per vertex, blending
+   neighbouring slices by hand; the exponential haze curve, full haze at fog end, fog start unused.
+   The two fog queues (`RSMTFogPass`, `RSMTFogTransparentPass`): deleted if every entry now fogs in
+   its own shader, else kept with the reason recorded. Underwater fog and the thermal heat haze
+   unchanged. Look for: ridges in layers, valleys hazier than ridgelines, haze warmer toward the sun.
+5. Light shafts: the atlas's in-scatter shadowed per slice by the cascades;
+   `renderer.lightShafts`. Look for: shafts in the street view and through trees. Dropped at
+   acceptance if they do not pay for their cost.
+6. Sky cube: at load and after a device reset, the dome and atmosphere above the horizon, the
+   ground term below it, prefiltered GGX one mip per roughness; its irradiance as 9 spherical-harmonic
+   coefficients; the split-sum BRDF table (or the analytic fit if task 1 finds no third slot); the
+   atlas and cube on reserved samplers. Retail environment maps it replaces are deleted at
+   acceptance where task 1 finds no other reader.
+7. Shared lighting model: direct and ambient specular from one roughness and F0 (GGX, split sum),
+   with an occlusion input; sky light as the irradiance at the normal times occlusion, scaled to the
+   authored sky colour's luminance; gloss to roughness; the material class table (F0, roughness
+   range; the PR mapping outside this tree); specular anti-aliasing (roughness widened by the
    normal's screen-space derivatives, Toksvig from the mipped normal's length). `renderer.skyIbl`.
-7. Bundled meshes: vehicles, cockpits and first-person models; the env map leaves albedo and becomes
+8. Bundled meshes: vehicles, cockpits and first-person models; the env map leaves albedo and becomes
    specular; class per material; occlusion by the hemi map, first-person models by the sky
-   visibility under the camera (an engine constant read from the terrain lightmap there).
-8. Static meshes (gloss map, occluded by the lightmap's sky visibility), then soldiers (hemi map),
-   decals and terrain.
-9. Water: the opaque scene resolved to a texture before water (also the refraction source; depth is
-   s15); a screen-space march against the linear depth, falling back to the prefiltered sky; replaces
-   water's `CubeMap`. `renderer.waterSsr`.
-10. Acceptance: reference views and benches on the three maps against milestone 10 (8.39–8.48,
-    15.34, 5.22 ms), GPU pass times, old paths and variables deleted, as-built moved to
-    renderer-pipeline.md.
+   visibility under the camera (the terrain lightmap's sky channel copied to memory at load, read
+   under the camera, smoothed over about 0.3 s). Look for: paint and glass reflecting the sky,
+   strongest at grazing angles; vehicles lit from above and darker beneath; no edge sparkle.
+9. Static meshes: gloss map, occluded by the lightmap's sky visibility. Look for: glass and metal on
+   buildings reflecting the sky; walls lit by the sky from its direction.
+10. Soldiers (hemi map), decals and terrain.
+11. Water: the scene resolved to a texture just before water, after the sky, the fog pass, decals
+    and the particles drawn before water (also the refraction source; depth is s15); a screen-space
+    march against the linear depth, falling back to the prefiltered sky; replaces water's
+    `CubeMap`; none from underwater. `renderer.waterSsr`. Look for: buildings and shore reflected.
+12. Acceptance: the owner's look at the reference views on the three maps against milestone 10;
+    the night layer loads and looks no worse; benches against milestone 10 (8.39–8.48, 15.34,
+    5.22 ms) within the plan's 1 ms budget or the regression accepted by the owner; GPU pass
+    times; old paths and variables deleted; as-built moved to renderer-pipeline.md.
 
 Milestone 10 (terrain in one pass) accepted by the owner, 2026-11-20 (benches on the three maps and
 a visual check in game); the old terrain passes, `renderer.terrainOnePass`, the accumulation
