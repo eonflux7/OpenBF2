@@ -84,9 +84,7 @@ const unsigned int kMultiScatterSize = 32;
 const unsigned int kSkyViewW = 192, kSkyViewH = 108;
 const unsigned int kApTiles = 32, kApSlices = 32;
 
-// The sky dome (task 3). Below this elevation the dome's texture blends into the model's sky,
-// fully the model at the horizon.
-const double kSkyBlendElevation = 20.0;     // degrees
+// The sky dome (task 3): the model's sky under the level's cloud layers, and the sun disc.
 const double kSunAngularRadius = 0.27;      // degrees, the real sun's
 const double kSunDiscEdge = 0.15;           // the disc's soft edge, as a share of its radius
 const double kSunDiscMaxLuminance = 100.0;  // scene units (the physical disc is ~46000x the sun colour)
@@ -1065,7 +1063,6 @@ void rendererAtmosphereBindSky(void* effect, const float* domeToWorld)
         if (lum > kSunDiscMaxLuminance)
             disc = disc * (kSunDiscMaxLuminance / lum);
         sky[0][0] = 1.0f;
-        sky[0][1] = static_cast<float>(std::sin(kSkyBlendElevation * kPi / 180.0));
         sky[0][2] = static_cast<float>(std::cos(radius));
         sky[0][3] = static_cast<float>(std::cos(radius * (1.0 + kSunDiscEdge)));
         sky[1][0] = static_cast<float>(disc.x);

@@ -78,7 +78,7 @@ reference views. What should change on screen, and so what to look at:
 - **Distance.** Far terrain and buildings lose contrast and take on the sky's colour with distance,
   so ridges separate into layers. Valleys hold more haze than ridgelines; the haze is brighter and
   warmer toward the sun, bluer away from it. Retail fog is one colour by distance.
-- **Sky.** The dome's horizon comes from the model and meets the haze over the terrain without a
+- **Sky.** The sky comes from the model, under the level's clouds, and its horizon meets the haze over the terrain without a
   seam. The sun has a disc and a forward-scattering glow from the same model.
 - **Sky light.** Surfaces are lit by the sky from its direction: blue from above, darker and
   ground-tinted from below, brighter toward the sun, instead of one flat colour.
@@ -114,7 +114,7 @@ Design:
   the terrain's mean height) built on the CPU with the fit (the sun does not move), by the same
   code the fit evaluates, into managed textures that survive device resets. Per frame only the
   aerial-perspective atlas, a pixel pass, with cascade shadowing per slice for the shafts.
-- **Sky cube.** Upper half: the dome and the atmosphere. Lower half: the ground, the terrain
+- **Sky cube.** Upper half: the model's sky and the dome's clouds. Lower half: the ground, the terrain
   colormap's mean colour lit by the authored sun and sky, under the haze at the horizon (sky alone
   below the horizon makes every glossy surface look chrome). Prefiltered GGX, one mip per
   roughness; its irradiance as 9 spherical-harmonic coefficients, taken at load.
@@ -142,10 +142,11 @@ Design:
   it the regression rule applies.
 
 Decisions (owner, 2026-11-20):
-- The painted dome's texture and cloud layers stay, and its zenith colour is a fitting input. Below
-  about 20° above the horizon its colour blends into the model's sky, fully the model at the
-  horizon, so terrain meets the sky without a seam. (Delegated by the owner to the agent,
-  2026-11-20; the first decision kept the dome's colour authored down to the horizon.)
+- The model draws the whole sky; the level's cloud layers stay, drawn over it, and the painted
+  dome's gradient is not shown (owner, 2026-11-20, at task 3: faithfulness to each level is not
+  the goal, its mood is kept by the zenith tint, fog, sun colour and clouds). The dome texture's
+  zenith colour stays a fitting input. Earlier decisions kept the painted dome, first down to the
+  horizon, then above 20°.
 - The authored sun colour (`Lightmanager.staticSunColor`) stays the sunlight at the ground, and lit
   surfaces keep using it. The model works backwards from it to the sunlight above the atmosphere,
   so the sky, the sun disc and the haze agree with it.

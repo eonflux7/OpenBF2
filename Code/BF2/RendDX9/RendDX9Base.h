@@ -829,7 +829,8 @@ float& rendererSkyGainBlend();
 void rendererAtmosphereFrame();
 void rendererAtmosphereRelease();
 // Whether the model draws the sky (renderer.atmosphere on and the sky-view table built). While it
-// does, the sky dome draws the model's sky and sun disc and the retail flare sprite is not drawn
+// does, the sky dome draws the model's sky and sun disc under its clouds (the painted dome is not
+// shown) and the retail flare sprite is not drawn
 // (its occlusion test is kept).
 bool rendererAtmosphereDrawsSky();
 // Sets the sky dome effect's constants (contract 7): RaSky, RaAtmosphere, RaSkyViewTable and
