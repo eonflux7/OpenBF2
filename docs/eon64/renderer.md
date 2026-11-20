@@ -25,7 +25,7 @@ is in [renderer-pipeline.md](renderer-pipeline.md).
 | 7. Particle lighting | Accepted | `b1549478`, `25319adf`, `7fcdc848`, `423ac5e0`, `0bffa203`; fix `6eb1a727` |
 | 8. Anti-aliasing | Accepted | `28487a35`, `65760125`, `f11bdfe3`, `b47ac87f`, `0f10eb41`, `f9086318`, `ee0e7ed8`, `98165f0b`, `b3e44a8d`, `a7d9e0e1`, `1e7a1c89`, `680d8890` |
 | 9. Draw submission | Accepted | `2eb902ce`, `0a623df8`, `e87543df`, `f3515fb4`, `7bdd3a77`, `4bc56ff8`, `e9b6a8a4`, `965bb8bf`, `c2f7ef33`, `3c745649`, `2002788d` |
-| 10. Terrain in one pass | Next | — |
+| 10. Terrain in one pass | Accepted | `2eb4d02d`, `c21a012e`, `0d9e15a6`, `57fa2899`, `3b9da48c`, `6fd523bb`, and the deletion ("milestone 10 accepted") |
 | 11. Atmosphere, sky IBL, water reflections | Not started | — |
 | 12. HDR bloom + auto-exposure | Not started | — |
 | 13. GTAO + lightmap channel ownership | Not started | — |
@@ -48,39 +48,8 @@ inputs (milestone 11) instead.
 
 ### 10. Terrain in one pass
 
-Terrain draws a lightmap accumulation pass, packed to `[0,1]`, and then additive detail passes (0,
-3, 4, 5 and 14 on the maps measured). One pass replaces them: no packing, fog applied once (the
-additive passes fog every pass, so it stacks where they overlap), fewer passes over the largest
-surface on screen. Roads, which blend into the accumulation target, get their own lit path. Deleted
-with it: the always-false `m_lowQuality` branches and the dynamic shadow-range index buffer
-(+0x368), which nothing reads since milestone 6.
-
-Full shading detail at every distance (owner, 2026-11-19): detail layers everywhere and no
-low-detail pass, so the `detailNear` split that milestone 8 left in the culler and `drawFinal` goes,
-and with it `lodSwitchDistance`. Roads draw to the view distance with no fade (owner, 2026-11-20).
-At range the detail textures tile
-visibly, so the one pass blends the low-detail colormap in by distance for variation, not instead of
-the detail layers.
-
-Found while planning (2026-11-20):
-- Today's passes: `drawMain` draws pass 0 (`ZFillLightMap`: depth and the packed lightmap into the
-  accumulation target, `+0x774`) per visible node, then the point lights (`drawDetailPass`, pass 16,
-  when the effect's shader version is 1, which is past the last pass of `Hi_Terrain` (15);
-  otherwise `drawMaskLights`, pass 1). `drawFinal` → `QuadPatch::drawFinal` then draws, per patch,
-  each detail layer on its own index buffer (pass 4, 5 for planar "mounten" layers, 11 with the
-  environment map, 14 for layer 6) on the `detailNear` nodes, and pass 3 (`LowDiffuse`) on the far
-  ones. Each detail pass reads the accumulation target projected (`tex2Dproj`) and fogs.
-- Sampler budget: a detail layer needs its detail texture and, when planar, its side texture; six
-  layers, their two weight maps, the colormap, lightmap, low-detail texture and low-detail weights,
-  the environment cube and the engine's s13 (cascades) and s15 (linear depth) come to more than
-  ps_3_0's 16 samplers. The one pass needs another layout (task 2).
-- Only terrain and roads read the accumulation target: `rashaderroad.fx`, `roadcompiled.fx` and
-  road static meshes (`StaticMesh.cpp`, the `m_isRoad` arm). Once both read lightmaps directly, the
-  target and its constants (`raShaderConstantsSetAccumulationMap`, `Frame.cpp`) go. Lightmaps are
-  per patch, and a road crosses patches.
-
-Survey (task 1, 2026-11-20; console `terrain.survey` writes it to the log, GPU spans `terrain
-lightmap`, `terrain depth`, `terrain detail` and `roads` added in `Frame.cpp`):
+Accepted by the owner, 2026-11-20; as built in [renderer-pipeline.md](renderer-pipeline.md#terrain).
+Survey of the three maps (task 1, 2026-11-20; console `terrain.survey`):
 
 | | Muttrah City | Fallujah West | Saaremaa |
 |---|---|---|---|
@@ -96,97 +65,9 @@ lightmap`, `terrain depth`, `terrain detail` and `roads` added in `Frame.cpp`):
 | GPU: roads | 0.095 ms | 0.102 ms | 0.014 ms |
 | Draws a frame: pass 0 / 3 / 4 / 5 / 14 | 12 / 13 / 18 / 3 / 3 | 9 / 6 / – / 24 / – | 18 / 17 / 2 / 1 / 3 (average) |
 
-Patches with one layer and no colormap are sea or off-map (Saaremaa's 34). Every bench run is CPU
-bound; terrain's three spans come to 0.8–1.3 ms of GPU.
-
-What this decides:
-- No environment-mapped layer and no point light reaches terrain on the three maps: pass 11, the
-  environment cube and the light passes (1, 13, 16) have no user to keep in the one pass. Lights
-  stay planned as a per-patch constant list (task 3) but are not on the critical path.
-- Layer 6 is on most patches of two maps (39 and 56 of 64): it is folded into the one pass, not a
-  second pass.
-- Detail textures are uniform (512², 7 mips) and come in at most three formats a level: one atlas
-  per format, at most 6 entries, plus planar side textures (all share the top texture on these
-  maps, "same").
-- Weight maps have one mip and two formats; low-detail mode 3 (Fallujah West) is a different
-  low-detail layout to carry.
-
-Atlases (task 2, 2026-11-20; `Geom/TerrainAtlas.cpp`, console `terrain.atlasDump` writes them as
-`.dds` under `eon64-runs/terrain-atlas/` and logs each record's entry):
-- Detail atlases: the records' top and side textures, deduplicated, one atlas per (format, size).
-  Each entry's cell is twice the texture and holds it 2x2, shifted half a tile, so the tile sits in
-  the middle with half a tile of its own wrapped content around it at every mip; the copy is per
-  DXT block, so formats and mips stay exact. The last level keeps an 8-texel tile. The shader wraps
-  and samples with the unwrapped gradients: `atlasUv = frac(uv) * scale + offset`,
-  `tex2Dgrad(atlas, atlasUv, ddx(uv) * scale, ddy(uv) * scale)`, one `float4` per layer.
-  Footprints up to half a tile stay in the cell (16x anisotropic at the 8-texel level reaches the
-  neighbour, far enough out that the colormap blend dominates).
-- Lightmap atlas: the patches' lightmaps in one texture, column = patch x, row = patch z (patch
-  index order), all levels down to 4 texels a cell; smaller lightmaps (Saaremaa's 8x8 sea dummies)
-  scaled up by block. Seen continuous across cells on the three maps.
-- Built on the terrain's first `update` after a load, because the texture manager creates the
-  textures in its post-load sweep, after `Terrain::load`; managed pool, released with the terrain.
-
-| | Muttrah City | Fallujah West | Saaremaa |
-|---|---|---|---|
-| Detail atlases | DXT5 2048², DXT1 2048² (3 + 3) | DXT1 2048², DXT5 2048² (3 + 3) | DXT1 2048² (3), DXT5 1024² (1), DXT3 2048x1024 (2) |
-| Lightmap atlas | DXT1 8192², 9 mips, 44.7 MB | DXT1 4096², 11.2 MB | DXT1 8192², 32 cells scaled up |
-| Build time | 11.7 ms | 5.0 ms | 29.9 ms |
-
-Samplers for the one pass: up to three detail atlases (side textures are entries in them; the
-layer's atlas index is a constant, a uniform branch picks the sampler), the lightmap atlas, two
-weight maps, colormap, low-detail texture, s13 cascades and s15 linear depth: at most ten fixed.
-
-Direct terrain light (task 3, 2026-11-20; `renderer.terrainOnePass`, contract 4): `drawFinal`
-binds each patch's lightmap on `TEXLAYER1` in place of the accumulation target, and the lit
-passes (3, 4, 5, 11) unpack it at the colormap's UV (centroid lookup, mip from the plain UV) with
-`Ra_GetTerrainLight`, the same function undergrowth uses; sun cascades and thermals read its raw
-sun term as before. Point lights: `drawMain`'s light passes, still drawn into the target for roads
-until task 5, also collect each gathered light per patch, and the lit passes add up to four
-(`RaTerrainLightPos`/`Col`, nearest the patch centre). Their irradiance no longer scales with the
-sun's luminance (the packed target stored it relative to the sun); it is absolute, as on
-undergrowth. Muttrah City at view `high`: the same image within the old target's 8-bit steps.
-
-One pass (task 4, 2026-11-20; `renderer.terrainOnePass`, contract 5): `drawFinal` →
-`drawOnePass` draws technique `RaTerrain` per patch over its near nodes (`QuadPatch::drawNodes`,
-whole LOD 0 ranges on the LOD index buffer, adjacent ranges merged), then the far nodes with
-`Hi_Terrain` pass 3 until task 6. Per patch (`setOnePassPatch`): up to six layers in layer order,
-each its atlas cells (top, side), tiling, weight-map channel and planar flag; the two weight maps;
-layer 6 as a flag. The shader computes the low-detail modulation once, then per layer with weight
-above zero samples the atlas (`tex2Dgrad` with gradients taken before the loop, so the branch may
-skip samples) and adds the decoded detail times its weight. Fog is applied once to the
-weight-normalised colour, which is then scaled by the weight sum: the same sum the additive passes
-made, including where weights add up to less than 1. Thermals use the weighted albedo (the heat is
-affine in it). Layer 6 blends the water colour by depth over the result, without the old pass's
-alpha-test threshold. The effect compiler in use rejects HLSL flow attributes (`[loop]`,
-`[branch]`), so it chooses the flow. Muttrah City at view `mountain`: the same image as the
-per-layer passes.
-
-Depth and roads (task 5, 2026-11-20; `renderer.terrainOnePass`): terrain's depth is drawn by the
-depth prepass with its `RaDepthPrepass` states (depth write), after the queued entries so the depth
-test drops terrain behind buildings; `RaTerrain` tests EQUAL against it. `drawMain` draws nothing
-on this path: it flushes the aux queues and gathers the point lights for task 3's per-patch list
-(`drawMaskLights(false)`), with no pass 0, light passes or accumulation target. Roads light
-themselves: compiled roads (`roadcompiled.fx`) and road static meshes (`rashaderroad.fx`) sample
-the lightmap atlas by world position (`Ra_SampleTerrainLightAtlas`: grid = world xz / patch width +
-patches / 2, the cell its floor, a patch's edge on its edge texels' centres, gradients from the
-continuous grid) and light with `Ra_GetTerrainLight` and the sun cascades. The atlas now places
-each cell by the patch's grid position. The grid and the GI colour travel in the accumulation
-projection records (Ra names `TerrainLightAtlasGrid`/`TerrainLightAtlasGI`, `.w` 1 selects the
-path; compiled roads get them on `TEXPROJSCALE`/`TEXPROJOFFSET`). Dynamic point lights no longer
-reach roads (none reach terrain on the three maps). Roads have no distance cull
-(`RoadCompiled::updateChunkVisibility`, the renderer's loop) and no fade (`RoadFadeOut` (0, 0)).
-If the prepass does not run (no linear depth target, or the world pass off), terrain has no
-depth and its lit pass draws nothing.
-
-Full detail (task 6, 2026-11-20; `renderer.terrainOnePass`): `drawOnePass` draws `RaTerrain` over
-every visible node; `detailNear` is not read on this path, so no node switches to the low-detail
-pass at the culler's detail distance (75 m at zoom 1, while the shader faded detail out over 300 m:
-the pop). `RaTerrain` keeps the detail layers at every distance; the low-detail map modulates them,
-fading in with distance as before, instead of replacing them past 300 m. Muttrah City A/B at views
-`mountain` and `high`: near terrain the same; far slopes show their detail (the planar side
-textures' strata on the cliffs) where they were flat low-detail colour. GPU cost not measured
-(owner: GPU timers not needed on intermediate tasks).
+Patches with one layer and no colormap are sea or off-map (Saaremaa's 34). No environment-mapped
+layer and no point light reaches terrain on the three maps. The GPU and frame rows are the old
+path, measured with `GPU=1`.
 
 ### 11. Atmosphere, sky IBL, water reflections
 

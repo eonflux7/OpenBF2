@@ -483,8 +483,7 @@ void  raShaderConstantsSetEngineTexture(unsigned int holderOffset,
 // operations retain the texture ownership semantics without exposing the private
 // RaShaderConstants record layout to the renderer; the once-only projection pair stays in
 // renderFrame as its statics, and the projection setter copies the two Vec4s (+0x294, +0x2A8).
-void  raShaderConstantsSetAccumulationMap(EngineTexture* texture);
-void  raShaderConstantsSetAccumulationProjection(const float scale[4], const float offset[4]);
+void  raShaderConstantsSetTerrainLightAtlas(const float grid[4], const float gi[4]);
 void  raShaderConstantsSetHemiMapTexture(EngineTexture* texture);
 void  raShaderConstantsSetHemiMapInfo(const float constants[4]);
 // The fog constants (RenderQueues.cpp). sub_10037F90 stores the FogColor holder (+0xBC..+0xC8)
@@ -779,10 +778,6 @@ bool rendererCasterCaptureActive();   // a shadow pass is capturing (draw() subm
 // in pixels, below which a static mesh is not drawn; 0 turns the cull off.
 float rendererContributionCullPixels();
 void rendererSetContributionCullPixels(float pixels);
-// [RENDER] Render milestone 10's A/B switch while in development (renderer.terrainOnePass): the
-// terrain's lit passes read the patch lightmap and a per-patch point light list instead of the
-// accumulation target. Deleted with the old path on acceptance.
-bool& rendererTerrainOnePass();
 std::vector<ShadowCaster>& rendererShadowCasters();
 // Gives every caster captured from index `first` on the world sphere (centre, radius).
 void rendererSetCasterBounds(size_t first, const float sphere[4]);

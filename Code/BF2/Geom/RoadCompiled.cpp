@@ -531,15 +531,15 @@ void* RoadCompiled::destroy(unsigned int flags)
 }
 
 
-// Updates 1.4+ chunk visibility by distance then frustum; older meshes are always visible.
+// Updates 1.4+ chunk visibility by frustum; older meshes are always visible.
 // Requires terrain and compiled-road renderer singletons. Unordered distances are rejected.
 // PE 0x1015AE70
 void RoadCompiled::updateChunkVisibility(const Frustum* frustum)
 {
 #if defined(BF2_IMAGE_EDITOR) && BF2_IMAGE_EDITOR
     // [CHOSEN, not recovered] editor-only region (agents.md, Editor): over the editor's TerrainEditable,
-    // which never builds a culler (Geom/TerrainEditable.cpp, region 2), no compiled road is visible - the walk
-    // below reads the culler's view distance unguarded, as shipped. The retail editor drew road editables there,
+    // which never builds a culler (Geom/TerrainEditable.cpp, region 2), no compiled road is visible - the shipped
+    // walk read the culler's view distance unguarded. The retail editor drew road editables there,
     // not compiled roads.
     if (!terrain()->m_culler)
     {
@@ -549,41 +549,13 @@ void RoadCompiled::updateChunkVisibility(const Frustum* frustum)
 #endif
     if (m_versionMajor >= 1 && m_versionMinor >= 4)
     {
-        // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): no distance limit, roads draw
-        // to the view distance (the frustum's far plane).
-        const float maxDistance = dx9rend::rendererTerrainOnePass() ? 3.0e38f
-                                : static_cast<float>(terrain()->m_culler->param18)
-                                * roadCompiledRendererViewDistanceScale();
+        // [RENDER] Frustum only: retail also dropped chunks past the culler's road view distance
+        // (lodSwitchDistance x viewDistanceScale); roads now draw to the far plane.
         m_anyChunkVisible = 0;
         for (unsigned int i = 0; i < m_chunkCount; ++i)
         {
-            const Vec3& centre = m_chunkCentres[i];
-            const float dx = frustum->m_transformation.m[12] - centre.x;
-            const float dy = frustum->m_transformation.m[13] - centre.y;
-            const float dz = frustum->m_transformation.m[14] - centre.z;
-            const float* const radius = &m_chunkRadii[i];
-#if defined(__APPLE__)
-            // [CHOSEN, not recovered] the shipped body keeps the differences, squares, root and the
-            // radius subtraction on the x87 stack and compares that against the stored float.
-            using namespace bf2x87;
-            const Real ex = sub(wide(frustum->m_transformation.m[12]), wide(centre.x));
-            const Real ey = sub(wide(frustum->m_transformation.m[13]), wide(centre.y));
-            const Real ez = sub(wide(frustum->m_transformation.m[14]), wide(centre.z));
-            const Real root = squareRoot(add(add(mul(ez, ez), mul(ey, ey)), mul(ex, ex)));
-            (void)dx; (void)dy; (void)dz;
-            if (less(sub(root, wide(*radius)), wide(maxDistance)))
-#else
-            const float distance = std::sqrt((dz * dz + dy * dy) + dx * dx) - *radius;
-            if (distance < maxDistance)
-#endif
-            {
-                m_chunkVisible[i] = rendmath::frustumInside(*frustum, centre, *radius);
-                m_anyChunkVisible |= m_chunkVisible[i] ? 1 : 0;
-            }
-            else
-            {
-                m_chunkVisible[i] = false;
-            }
+            m_chunkVisible[i] = rendmath::frustumInside(*frustum, m_chunkCentres[i], m_chunkRadii[i]);
+            m_anyChunkVisible |= m_chunkVisible[i] ? 1 : 0;
         }
     }
     else

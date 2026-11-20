@@ -70,10 +70,9 @@ const TerrainAtlases* terrainAtlases();
 const void* terrainAtlasDetailValue(int index);
 // The lightmap atlas as an effect texture value, or 0.
 const void* terrainAtlasLightmapValue();
-// [RENDER] Roads' own light (render milestone 10, task 5): with renderer.terrainOnePass on and a
-// lightmap atlas built, the atlas as an effect texture value, `grid` = lightmapGrid and `giDirect` =
-// (the terrain's GI colour, 1); otherwise 0. The .w of 1 tells the road shaders to light from the
-// atlas (the old path's projection offset has .w 0) until the old path is deleted.
+// [RENDER] Roads' own light (render milestone 10): with a lightmap atlas built, the atlas as an
+// effect texture value, `grid` = lightmapGrid and `giDirect` = (the terrain's GI colour, 1);
+// otherwise 0, leaving `grid` and `giDirect` as they were.
 const void* terrainRoadLight(float grid[4], float giDirect[4]);
 // [DEV] Console `terrain.atlasDump`: every atlas as a .dds under `dir`, and a log line per entry.
 void terrainAtlasDump(const std::string& dir);

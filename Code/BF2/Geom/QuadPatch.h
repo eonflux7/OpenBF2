@@ -111,21 +111,14 @@ public:
     // full-detail index range, under the caller's pass.
     void beginCasterDraw();
     void drawCasterNode(const TerrainCullerNode* node);
-    void draw(TerrainCullerNode**& it);                              // 0x1018BE20  the Hi_/Low_Terrain pass-0 draw (accumulation target)
-    // [RENDER] Render milestone 10, tasks 4 and 6 (renderer.terrainOnePass): the patch's visible
-    // nodes, near and far alike, each over its whole LOD 0 range on the bound LOD index buffer,
-    // adjacent ranges merged, in the current pass. Advances `it` past the patch.
+    void draw(TerrainCullerNode**& it);                              // 0x1018BE20  retail's pass-0 draw; [RENDER] the depth prepass's
+    // [RENDER] Technique RaTerrain's draw (render milestone 10): the patch's visible nodes, each over
+    // its whole LOD 0 range on the bound LOD index buffer, adjacent ranges merged, in the current
+    // pass. Advances `it` past the patch. Replaces retail's per-layer diffuse passes (0x1018C910).
     void drawNodes(TerrainCullerNode**& it);
-    void drawFinal(TerrainCullerNode**& it);                         // 0x1018C910  the diffuse passes: detail layers on near nodes, then the low-detail pass
     void drawWater(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,
                    void* materialParameters, void* objectParameters); // 0x1018D800  the Ra water submit - see the body
 
-    // the light passes' draws over the culler's gathered list
-    void drawGatheredNodes(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,
-                           int passNear, int passFar);              // 0x10189210  per node: its pass by detailNear, one full-detail range
-    void drawPointLight(TerrainCullerNode**& it);                    // 0x1018C7F0  "TerrainPointLight": drawGatheredNodes, pass 13 / 1
-    // Draws this patch's full-detail ranges for the selected terrain technique pass.
-    void drawTechniquePass(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list);
     // Emits the shipped obsolete-depth-draw error; the iterator and pass are unused.
     void drawDepthComplexity(TerrainCullerNode**& it, int pass);
 
@@ -281,10 +274,9 @@ struct TerrainCullerNode
     int                   childrenWalked;       // +0x0F0  0; the walk counts the visible children it took
     unsigned char         visible;              // +0x0F4  0; the walk's frustum answer
     unsigned char         padF5[3];
-    // [RENDER] Terrain geometry is always full detail (retail's LOD 0; see TerrainCuller). What
-    // remains of retail's per-node LOD is the shading choice it was tied to: detail layers within
-    // the detail distance, the low-detail pass beyond it.
-    int                   detailNear;           // +0x0F8  1 within TerrainCuller::detailDistance
+    // [RENDER] Terrain is always full detail (retail's LOD 0; see TerrainCuller), geometry and
+    // shading alike.
+    int                   unusedF8;             // +0x0F8  [RENDER] was the near-detail shading flag
     unsigned char         cameraInside;         // +0x0FC  0; the camera's xz lies inside the bounds
     unsigned char         padFD[3];
     unsigned char         pad100[4];            // +0x100  [RENDER] was the crack mask
@@ -324,12 +316,11 @@ public:
     // [RENDER] Every visible leaf draws at full detail. Retail picked LOD 0..2 per node by distance
     // (plus the camera's height above the terrain, scaled by zoom) and geomorphed between them;
     // a coarser LOD keeps a subset of the grid, so convex crests drew below the collision
-    // heightmap and anything just behind a ridge showed over it at range. The walk now only culls
-    // and sets each node's detailNear shading flag.
+    // heightmap and anything just behind a ridge showed over it at range. The walk now only culls.
     void update();                                                   // 0x100E7080  slot +0x28 of Terrain calls it
     // Tests the root, then walks its children.
     int walkRoot(TerrainCullerNode* node);
-    // Per child: the frustum tests, the shading flag, then push (leaf) or descend.
+    // Per child: the frustum tests, then push (leaf) or descend.
     void walk(TerrainCullerNode* parent);
     // Removes recently occluded nodes; the native renderer age-limit read remains a frontier.
     void filterOccluded();
@@ -341,15 +332,15 @@ public:
     void gatherVisibleFrustum(Frustum* source);
     void gatherVisibleFrustumNode(TerrainCullerNode* node);
 
-    int                   detailDistance;       // +0x000  update: zoom * param18 * 0.75, floored at param14; detailNear within it
+    int                   unused00;             // +0x000  [RENDER] was the detail-shading distance
     Terrain*              terrain;              // +0x004
     TerrainCullerNode*    nodes;                // +0x008  nodeCount x 272 B (a count word sits ahead of them)
     int                   unresolved0C;         // +0x00C  not touched
     int                   param10;              // +0x010  1; init: 32
     int                   param14;              // +0x014  1; init: 64 - the detail distance floor; the leaf cell size
-    int                   param18;              // +0x018  100 - console lodSwitchDistance: the detail distance per unit of zoom (x 0.75), and the roads' view distance
+    int                   unused18;             // +0x018  [RENDER] was console lodSwitchDistance (100): the detail-shading and road view distances
     int                   unused1C;             // +0x01C  [RENDER] was the last LOD distance
-    float                 lodFactor20;          // +0x020  0.4 - console lod0SwitchStart: where the roads' fade starts, as a fraction of their view distance
+    float                 unused20;             // +0x020  [RENDER] was console lod0SwitchStart (0.4): the roads' fade start
     float                 unused24[4];          // +0x024  [RENDER] were the morph and LOD 2 factors
     std::vector<TerrainCullerNode*> visible;    // +0x034  the visible node list the draws walk
     std::vector<TerrainCullerNode*> gathered;   // +0x044  the sphere gathers' node list

@@ -672,7 +672,7 @@ void TerrainEditable::drawPatches()
         float farTiling[4];
         farTiling[0] = m_farSideTiling.x;
         farTiling[1] = m_farSideTiling.y;
-        farTiling[2] = m_lowQualityB ? m_farTopTilingLow : m_farTopTilingHi;
+        farTiling[2] = m_farTopTilingHi;                                    // [RENDER] one terrain quality
         farTiling[3] = m_farYOffset;
         const std::string name("FARTEXTILING");
         dx9rend::effectGetShaderParameterBorrowedTyped(static_cast<dx9rend::Effect*>(m_effect), name)->setValue(farTiling, 0);
@@ -756,7 +756,7 @@ void TerrainEditable::drawEditorSurrounding()
         float farTiling[4];
         farTiling[1] = m_farSideTiling.y;
         farTiling[0] = count * m_farSideTiling.x / quarter;
-        farTiling[2] = (m_lowQualityB ? count * m_farTopTilingLow : count * m_farTopTilingHi) / quarter;
+        farTiling[2] = count * m_farTopTilingHi / quarter;                  // [RENDER] one terrain quality
         farTiling[3] = m_farYOffset;
         dx9rend::effectGetShaderParameterBorrowedTyped(fx, std::string("FARTEXTILING"))->setValue(farTiling, 0);
     }

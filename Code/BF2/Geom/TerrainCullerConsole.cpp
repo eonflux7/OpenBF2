@@ -24,26 +24,6 @@ TerrainCuller* consoleTerrainCuller()
     return g_Terrain ? static_cast<Terrain*>(g_Terrain)->m_culler : 0;
 }
 
-} // namespace
-
-// PE 0x100E2EF0. Also called directly by VideoOptions' three terrain-quality arms (100, 80, 64).
-// [RENDER] Sets the detail-layer shading distance and the roads' view distance; terrain geometry
-// has no LOD distance any more, so the morph limits it dirtied are gone.
-void RD9_THUNK setCullerLodSwitchDistance(TerrainCuller* self RD9_THUNK_EDX, int value)
-{
-    if (value < self->param14 || value > 1000)
-        return;
-    self->param18 = value;
-}
-
-namespace {
-
-// PE 0x100E2F10. [RENDER] Only the roads' fade start reads it now.
-void RD9_THUNK setCullerLod0Start(TerrainCuller* self RD9_THUNK_EDX, float value)
-{
-    self->lodFactor20 = value;
-}
-
 // PE 0x100E3400. Shipped defect: the initial node is dereferenced without a null check.
 void RD9_THUNK updateCullerBaseCells(TerrainCuller* self RD9_THUNK_EDX, TerrainCullerNode* node)
 {
@@ -101,21 +81,13 @@ void RD9_THUNK setCullerStitchedLods(TerrainCuller* self RD9_THUNK_EDX, bool val
 }
 
 // Console setter adapters keep the executable's repeated owner lookup at execution time.
-void consoleLodSwitchDistance(int value) { setCullerLodSwitchDistance(consoleTerrainCuller() RD9_THUNK_ARG, value); }
-void consoleLod0Start(float value) { setCullerLod0Start(consoleTerrainCuller() RD9_THUNK_ARG, value); }
 void consoleBaseCellSize(int value) { setCullerBaseCellSize(consoleTerrainCuller() RD9_THUNK_ARG, value); }
 void consoleStitchedLods(bool value) { setCullerStitchedLods(consoleTerrainCuller() RD9_THUNK_ARG, value); }
 
 BF2_CONSOLE_OBJECT("terrainCuller", 2, 0)
 
-// PE 0x100B6AB8.
-// PE 0x100B69FA, 0x100B6A6B
-BF2_CONSOLE_PROPERTY_FN(lodSwitchDistance, int, consoleTerrainCuller() != 0,
-                        consoleTerrainCuller()->param18, consoleLodSwitchDistance, kTerrainCullerConsoleTag)
-// PE 0x100B6C15 / 0x100B6D18 / 0x100B6E1B / 0x100B6F1E / 0x100B7021.
-// PE 0x100B6AFA, 0x100B6BC8
-BF2_CONSOLE_PROPERTY_FN(lod0SwitchStart, float, consoleTerrainCuller() != 0,
-                        consoleTerrainCuller()->lodFactor20, consoleLod0Start, kTerrainCullerConsoleTag)
+// [RENDER] lodSwitchDistance (PE 0x100B6AB8) and lod0SwitchStart (PE 0x100B6C15) are gone: the
+// detail-shading distance and the roads' view distance and fade they set are (render milestone 10).
 // PE 0x100B7124 / 0x100B721F.
 // PE 0x100B7066, 0x100B70D7
 BF2_CONSOLE_FIELD(detailCullMaxLevel, int, consoleTerrainCuller(), param68, kTerrainCullerConsoleTag)

@@ -466,7 +466,7 @@ const void* terrainAtlasLightmapValue()
 
 const void* terrainRoadLight(float grid[4], float giDirect[4])
 {
-    if (!dx9rend::rendererTerrainOnePass() || !g_built || !g_atlases.lightmap || !g_Terrain)
+    if (!g_built || !g_atlases.lightmap || !g_Terrain)
         return 0;
     for (int i = 0; i != 4; ++i)
         grid[i] = g_atlases.lightmapGrid[i];

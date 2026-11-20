@@ -538,11 +538,9 @@ constexpr RaConstantMetadata kRaConstantMetadata[] =
     { "ShadowMap",                   616 },
     { "ShadowOccluderMap",           624 },
     { "MultipleShadowMap",           632 },
-    { "AccumulationMap",             640 },
     { "ClampMap",                    648 },
-    { "AccumulationMapProjScale",    656 },
-    { "AccumulationMapProjOffset",   676 },
-    // [RENDER] Milestone 10, task 5: the same two records under renderer.terrainOnePass (Frame.cpp)
+    // [RENDER] Retail's AccumulationMap (640) and its projection pair; the pair now carries the
+    // road shaders' terrain lightmap atlas constants (Frame.cpp).
     { "TerrainLightAtlasGrid",       656 },
     { "TerrainLightAtlasGI",         676 }
 };
@@ -2334,22 +2332,13 @@ void raShaderConstantsSetEngineTexture(unsigned int holderOffset, EngineTexture*
         static_cast<RaShaderConstants*>(g_raShaderConstants), holderOffset, texture);
 }
 
-// Renderer::renderFrame's AccumulationMap store (PE 0x100300A2..0x100300DD): the texture's D3D
-// base object (EngineTexture +8) into the record at +0x280 (pointer at +0x284), with the
-// reference rule of setTextureRecord.
-void raShaderConstantsSetAccumulationMap(EngineTexture* texture)
-{
-    setTextureRecord(static_cast<RaShaderConstants*>(g_raShaderConstants), 0x280u,
-                     texture->baseTexture);
-}
-
-// Renderer::renderFrame's projection-pair copies (PE 0x1003016E..0x100301C5): the scale into the
-// Vec4 at +0x294, then the offset into the Vec4 at +0x2A8. The values are renderFrame's statics.
-void raShaderConstantsSetAccumulationProjection(const float scale[4], const float offset[4])
+// [RENDER] The road shaders' terrain lightmap atlas grid into the Vec4 at +0x294 and (GI colour,
+// 1) into the Vec4 at +0x2A8: retail's accumulation projection pair (PE 0x1003016E..0x100301C5).
+void raShaderConstantsSetTerrainLightAtlas(const float grid[4], const float gi[4])
 {
     RaShaderConstants* const constants = static_cast<RaShaderConstants*>(g_raShaderConstants);
-    ::memcpy(raSpan(constants, 0x294, 4u * sizeof(float)), scale, 4u * sizeof(float));
-    ::memcpy(raSpan(constants, 0x2A8, 4u * sizeof(float)), offset, 4u * sizeof(float));
+    ::memcpy(raSpan(constants, 0x294, 4u * sizeof(float)), grid, 4u * sizeof(float));
+    ::memcpy(raSpan(constants, 0x2A8, 4u * sizeof(float)), gi, 4u * sizeof(float));
 }
 
 // The Hemi texture is an EngineTexture record (holder +0x134), not a

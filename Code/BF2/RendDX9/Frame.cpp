@@ -192,7 +192,6 @@ bool g_linearDepthFrame = false;    // this frame's prepass drew; water and firs
 bool g_transparentDepth = false;    // the rebuilt depth is bound for the world transparents
 float g_worldDepthProjection[2] = { 0.0f, 0.0f };   // the world view's P22, P32
 float g_softParticleDistance = 1.5f;   // m, renderer.softParticleDistance
-bool g_terrainOnePass = false;         // renderer.terrainOnePass (milestone 10, in development)
 
 void bindSampler(DWORD stage, IDirect3DTexture9* texture, D3DTEXTUREFILTERTYPE filter)
 {
@@ -307,11 +306,6 @@ float& softParticleDistance()
     return g_softParticleDistance;
 }
 
-bool& rendererTerrainOnePass()
-{
-    return g_terrainOnePass;
-}
-
 IDirect3DTexture9* rendererLinearDepthTexture()
 {
     return g_linearDepthTexture;
@@ -369,23 +363,12 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     stateManagerSetDepthStencilSurface(sceneDepth);
     stateManagerClear(D3DCLEAR_TARGET, 0, 1.0f, 0);
 
-    // Terrain's depth is in already: its linear depth draws over it with EQUAL and no depth write.
-    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): not on that path; terrain draws its
-    // depth after the queues below.
-    const bool terrainDepth = drawTerrain && geom::g_Terrain && rendererTerrainOnePass();
-    if (drawTerrain && geom::g_Terrain && !terrainDepth)
-    {
-        gpuTimerMark("terrain depth");   // [DEV] BF2_GPU_TIMERS
-        stateManagerSetPrepassedDraw(true);
-        static_cast<geom::Terrain*>(geom::g_Terrain)->drawDepthPrepass();
-        stateManagerSetPrepassedDraw(false);
-        gpuTimerMark("depth prepass");   // [DEV] BF2_GPU_TIMERS
-    }
+    // Terrain draws its depth after the queues below.
     static const unsigned int key = raHashString(std::string("RaDepthPrepass"));
     // Alpha-to-coverage: alpha-tested draws turn their alpha into a sample mask here, and their
     // lit passes test EQUAL against it with no alpha test of their own (stateManagerMapDepthState).
     // The vendor state (DXVK: NVIDIA's ATOC) acts only while a draw has its alpha test on, so
-    // opaque draws in the bracket are unaffected. Terrain above draws outside it.
+    // opaque draws in the bracket are unaffected. Terrain below draws outside it.
     const bool coverage = rendererShouldToggleTransparencyAA();
     if (coverage)
         stateManagerSetTransparencyAA(true);
@@ -393,9 +376,8 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     if (coverage)
         stateManagerSetTransparencyAA(false);
 
-    // [RENDER] Milestone 10, task 5: terrain's depth and linear depth like any prepassed entry,
-    // last, so the depth test rejects what buildings and props in front of it already cover.
-    if (terrainDepth)
+    // Terrain's depth and linear depth like any prepassed entry, last, so the depth test rejects what buildings and props in front of it already cover.
+    if (drawTerrain && geom::g_Terrain)
     {
         gpuTimerMark("terrain depth");   // [DEV] BF2_GPU_TIMERS
         static_cast<geom::Terrain*>(geom::g_Terrain)->drawDepthPrepass();
@@ -773,45 +755,22 @@ bool frameRender(const FrameInputs& in, IDirect3DSurface9*& overlayDepthStencil)
     IBase* terrain = geom::g_Terrain;
     if (in.terrain && terrain)
     {
-        gpuTimerMark("terrain lightmap");                               // [DEV] BF2_GPU_TIMERS
+        gpuTimerMark("terrain begin");                                  // [DEV] BF2_GPU_TIMERS
         static_cast<geom::Terrain*>(terrain)->renderWorldPassBegin();   // +0xB8
         gpuTimerMark("pre-world");                                      // [DEV] BF2_GPU_TIMERS
         terrain = geom::g_Terrain;
     }
 
-    // The world pass publishes the renderer-owned accumulation
-    // target and its lazily initialized projection vectors, then the current base Hemi map
-    // and its four constants. The shipped guard is only byte +0x69D; the old source also
-    // tested dword 477 and thereby hid a real live path. Both texture records retain their
-    // retail ownership semantics inside RenderQueues.cpp.
+    // The world pass publishes the road shaders' terrain lightmap atlas grid and (GI colour, 1)
+    // (TerrainLightAtlasGrid, TerrainLightAtlasGI; zero without an atlas), then the current base
+    // Hemi map and its four constants. The shipped guard is only byte +0x69D; the old source also
+    // tested dword 477 and thereby hid a real live path. [RENDER] Retail published the
+    // accumulation target (+0x774) and its projection here; terrain and roads no longer use it.
     if (in.world)
     {
-        // PE 0x100300A2..0x100300DD: the base texture of g_Renderer +0x774 into the
-        // AccumulationMap record. PE 0x100300DD..0x100301C5: the half texel of the same
-        // texture (+0x774 read again, sub_100846A0, call 0x100300F4), then the projection
-        // pair, two function-local statics behind bits 0 and 1 of the guard word
-        // dword_1023D948 (bit 2 is the PostProduction profiler below): the scale
-        // (0.5, -0.5, 1, 1) and the offset (0.5 + half texel x, 0.5 + half texel y, 0, 0),
-        // fixed by the first world pass even if the target is later recreated at another
-        // size. Both are copied into the constants block on every world pass. The scale
-        // has a guard bit in retail because its type has a constructor; here it is a
-        // constant aggregate, and nothing can observe the difference.
-        raShaderConstantsSetAccumulationMap(
-            rendererGetHemiScratchTexture());
-        const Math::Vec2 halfTexel = geom::textureHalfTexelSize(
-            rendererGetHemiScratchTexture());
-        static const Vec4 accumulationScale = { 0.5f, -0.5f, 1.0f, 1.0f };
-        static const Vec4 accumulationOffset =
-            { halfTexel.x + 0.5f, halfTexel.y + 0.5f, 0.0f, 0.0f };
-        // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): the same two records carry the
-        // road shaders' terrain lightmap atlas grid and (GI colour, 1), TerrainLightAtlasGrid and
-        // TerrainLightAtlasGI.
-        float roadGrid[4], roadGI[4];
-        if (geom::terrainRoadLight(roadGrid, roadGI))
-            raShaderConstantsSetAccumulationProjection(roadGrid, roadGI);
-        else
-            raShaderConstantsSetAccumulationProjection(&accumulationScale.x,
-                                                       &accumulationOffset.x);
+        float roadGrid[4] = {}, roadGI[4] = {};
+        geom::terrainRoadLight(roadGrid, roadGI);
+        raShaderConstantsSetTerrainLightAtlas(roadGrid, roadGI);
 
         geom::HemiMap* const hemiMap = geom::g_HemiMapManager->getBaseHemiMap();
         if (hemiMap)
@@ -859,7 +818,7 @@ bool frameRender(const FrameInputs& in, IDirect3DSurface9*& overlayDepthStencil)
     // PE 0x100303A7..0x100303BC mirrors the pre-detail Terrain arm at +0xBC.
     if (in.terrain && terrain)
     {
-        gpuTimerMark("terrain detail");                                 // [DEV] BF2_GPU_TIMERS
+        gpuTimerMark("terrain");                                        // [DEV] BF2_GPU_TIMERS
         static_cast<geom::Terrain*>(terrain)->renderWorldPassEnd();     // +0xBC
     }
 

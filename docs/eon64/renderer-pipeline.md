@@ -43,8 +43,7 @@ buildings and vehicles. What it removed from the engine:
   when they restore the scene depth (`e7623d07`).
 - One terrain path. `Low_Terrain` had no `RaDepthPrepass` or `RaShadowDepth` technique, so the
   engine no longer enters it: not at load, not from the terrain-quality video option, not as a
-  fallback. The `m_lowQuality` branches left in the terrain code are always false and go in
-  milestone 10.
+  fallback. Its `m_lowQuality` branches went in milestone 10 ([Terrain](#terrain)).
 
 ### 7. Particle lighting
 
@@ -132,14 +131,13 @@ In draw order, for the main world view:
    `RaDepthPrepass`, and whose prepass draw writes depth, draws into the scene depth near to far
    by distance band (powers of two in metres; within a band by effect, mesh instance and material)
    (the MSAA scene depth when the scene is multisampled), with its linear view depth (`R32F`, 0
-   where nothing was drawn) into a target of the same sample count. Terrain's depth is already
-   there from its first pass (`Terrain::drawMain`, before the prepass), so its prepass draws only
-   the linear depth, with EQUAL and no depth write. The linear depth is resolved into a
+   where nothing was drawn) into a target of the same sample count. Terrain draws last, with depth
+   write, so the depth test drops what buildings and props in front of it already cover. The linear depth is resolved into a
    single-sample texture bound to s15 for the rest of the frame; the resolve averages an edge
    pixel's samples, so soft particles fade against a depth no surface has.
    In the world pass every prepassed entry draws with depth EQUAL and no depth write, whatever its
-   effect states (`stateManagerSetPrepassedDraw`), so each sample is shaded once. Terrain's later
-   passes already test EQUAL against its first pass. Not prepassed, and testing and writing depth
+   effect states (`stateManagerSetPrepassedDraw`), so each sample is shaded once; terrain's one
+   pass (`RaTerrain`) tests EQUAL against its prepass. Not prepassed, and testing and writing depth
    as before: the depth-only queue, undergrowth, roads, the sky, and entries whose effect has no
    `RaDepthPrepass`. First-person models have a prepass of their own (item 6). The effects keep this working by drawing both techniques
    with the same vertex shader function.
@@ -186,7 +184,9 @@ Depth is reversed throughout (near 1, far 0) except in shadow-map depth buffers.
 
 `BF2_GPU_TIMERS` ([flags.md](flags.md)) and the performance overlay ([ui.md](ui.md)) time the frame
 in spans, each from its mark to the next, in frame order: `pre-world` (BeginScene to the sun
-cascades), `sun clear`, `sun c0`..`sun c3`, `depth prepass`, `world opaque` (with the sky),
+cascades), `sun clear`, `sun c0`..`sun c3`, `depth prepass` (`terrain depth` within it, terrain's
+part), `terrain begin` (the aux queues and terrain water), `world opaque` (with the sky),
+`terrain` (`RaTerrain`), `roads`,
 `world transparent` (the transparents in the 4x scene, item 5), `first person`, `resolve`,
 `depth rebuild`, `world transparent 1x` (item 8), `post pass`, `post finish`, `hud` (to Present).
 A span includes the GPU's idle time while the CPU is the bottleneck; that usually lands in `hud`.
@@ -298,8 +298,8 @@ and add its row here.
 | 1 | The contract as of render milestone 8: everything below |
 | 2 | Material depth states by semantic: `RaAlphaTest`, `RaAlphaRef`, `RaDepthWrite` (render milestone 9, [Submission](#submission)) |
 | 3 | Instanced static meshes: a vertex shader input `TEXCOORD8`–`TEXCOORD11` is the instance record (the world transform's three columns, the lightmap offset); positions from the instance parameter `ViewProjection`; the sun in world space by semantic `RaSunDirection`, `RaSunColor` ([Instancing](#instancing)) |
-| 4 | Terrain lit passes (render milestone 10, in development): `RaTerrainDirectLight` (`bool`, `renderer.terrainOnePass`): `TEXLAYER1` is the patch lightmap, read at the colormap's UV, instead of the accumulation target; the point lights reaching the patch in `RaTerrainLightPos` (`float4[4]`, position and 1 / range²), `RaTerrainLightCol` (`float4[4]`, authored colour), `RaTerrainLightCount` (`int`) |
-| 5 | Terrain in one pass (render milestone 10, in development): technique `RaTerrain` (pass 0, depth EQUAL, no blend) on the terrain effect; per patch `RaTerrainLayerCount` (`int`), `RaTerrainLayerTop`, `RaTerrainLayerSide` (`float4[6]`, atlas cell scale and offset), `RaTerrainLayerTiling` (`float4[6]`, side tiling, top tiling, side y offset), `RaTerrainLayerWeight0`/`1` (`float4[6]`, channel in weight map 0 or 1), `RaTerrainLayerAtlas` (`float4[6]`, top atlas, side atlas, planar), `RaTerrainUnderWater` (`bool`); textures `RaTerrainAtlas0`–`2` (detail atlases, wrapped in the shader), `RaTerrainWeight0`/`1` |
+| 4 | Terrain light (render milestone 10): `TEXLAYER1` is the patch lightmap, read at the colormap's UV, instead of the accumulation target; the point lights reaching the patch in `RaTerrainLightPos` (`float4[4]`, position and 1 / range²), `RaTerrainLightCol` (`float4[4]`, authored colour), `RaTerrainLightCount` (`int`) |
+| 5 | Terrain in one pass (render milestone 10): technique `RaTerrain` (pass 0, depth EQUAL, no blend) on the terrain effect; per patch `RaTerrainLayerCount` (`int`), `RaTerrainLayerTop`, `RaTerrainLayerSide` (`float4[6]`, atlas cell scale and offset), `RaTerrainLayerTiling` (`float4[6]`, side tiling, top tiling, side y offset), `RaTerrainLayerWeight0`/`1` (`float4[6]`, channel in weight map 0 or 1), `RaTerrainLayerAtlas` (`float4[6]`, top atlas, side atlas, planar), `RaTerrainUnderWater` (`bool`); textures `RaTerrainAtlas0`–`2` (detail atlases, wrapped in the shader), `RaTerrainWeight0`/`1` |
 
 Samplers 13 and 15 are reserved for renderer frame resources, and pixel registers c200–c221 for
 `RASM`. No effect may use them for anything else.
@@ -325,7 +325,7 @@ Techniques the engine looks up by name:
 |---|---|---|
 | `RaDepthPrepass` | Ra mesh effects, terrain | Linear depth to COLOR0 |
 | `RaShadowDepth` | Ra mesh effects, terrain | Light depth into the atlas, with `RaShadowViewProj` |
-| `RaTerrain` | Terrain | Every detail layer in one pass (`renderer.terrainOnePass`, contract 5) |
+| `RaTerrain` | Terrain | Every detail layer in one pass (contract 5, [Terrain](#terrain)) |
 
 Passes the submission layer draws (`RaDepthPrepass` and `RaShadowDepth` of the Ra mesh effects)
 take every render and sampler state as a constant, except three a material decides, which follow
@@ -389,7 +389,7 @@ consecutive materials as one range when none is alpha tested and they share the 
 declaration and the vertex buffers (`depthRunLength`). The run's later materials upload none of
 their parameters: the depth techniques read the material only for alpha.
 
-Effect programs: terrain (`terrainshader.fx`: lit, detail, prepass, caster and surrounding passes)
+Effect programs: terrain (`terrainshader.fx`: `RaTerrain`, prepass, caster and surrounding passes)
 and undergrowth (`undergrowth.fx`) draw through the engine's `Effect` wrapper, which they opt in
 (`effectEnableSubmit`). An opted-in effect's `beginPass` binds the program of the current
 technique's pass (any pass of a technique of several), built on first use as above with the same
@@ -446,6 +446,51 @@ objects back. Over the 20 % above the threshold the mesh dissolves through `RaLo
 switch pops. Shadow casters drop with the mesh, without a fade. Left alone: roads, water,
 overgrowth (its own fade), and bundled and skinned meshes, so vehicles and soldiers stay visible
 at any size. `BF2_DRAW_STATS` counts `contribution culled` and `contribution fading`.
+
+## Terrain
+
+Render milestone 10 (accepted by the owner, 2026-11-20). Terrain draws in one pass at full detail
+everywhere. Retail drew a lightmap pass (`ZFillLightMap`: depth and the lightmap packed to `[0,1]`
+into an accumulation target, `+0x774`), additive point-light passes into that target, then per
+patch one additive pass per detail layer on the near nodes and a low-detail pass on the far ones,
+each reading the target projected and fogging again where they overlapped. Roads read the same
+target.
+
+- **Atlases** (`Geom/TerrainAtlas.cpp`, built on the terrain's first `update` after a load,
+  managed pool): one detail atlas per (format, size) of the level's detail and side textures, each
+  cell the texture 2x2 shifted half a tile, copied per DXT block, so the shader wraps it
+  (`atlasUv = frac(uv) * scale + offset`, `tex2Dgrad` with the unwrapped gradients); one lightmap
+  atlas of every patch's lightmap, cell = patch grid position. Console `terrain.atlasDump` writes
+  them as `.dds`.
+- **Depth**: the visible patches draw `RaDepthPrepass` at the end of the depth prepass
+  ([Frame](#frame), item 3).
+- **`Terrain::drawMain`** (the +0xB8 arm) flushes the aux queues and gathers the point lights per
+  patch (`gatherPointLights`: the culler's sphere gather per light, the nearest four to the patch
+  centre; the static frame lights under ShaderVersion 1, else the visible lights of mask 2313).
+- **`Terrain::drawFinal`** (the +0xBC arm) draws technique `RaTerrain`, one draw per patch over its
+  visible nodes' LOD 0 ranges (`QuadPatch::drawNodes`, adjacent ranges merged), shader contract 5:
+  up to six layers in layer order from the atlases, blended by weight; the low-detail map modulates
+  them, fading in with distance; fog once on the weight-normalised colour; layer 6 (under water)
+  blends the water colour by depth. Light (contract 4): the patch lightmap at the colormap's UV
+  (centroid), the sun cascades, the per-patch point lights. Without the atlases or the technique
+  terrain draws no colour.
+- **Roads** (compiled roads, `roadcompiled.fx`; road static meshes, `rashaderroad.fx`) light from
+  the lightmap atlas by world position (`Ra_SampleTerrainLightAtlas`; grid and (GI colour, 1) in
+  the Ra records `TerrainLightAtlasGrid`/`TerrainLightAtlasGI`, retail's accumulation projection
+  pair, and on compiled roads `TEXPROJSCALE`/`TEXPROJOFFSET`). No distance cull and no fade: they
+  draw to the far plane. Dynamic point lights do not reach roads.
+- **Gone**: the accumulation target's use and its `AccumulationMap` record, `Hi_Terrain` and its
+  passes, the culler's detail distance and `detailNear`, the console properties
+  `terrainCuller.lodSwitchDistance` and `lod0SwitchStart` (the road view distance and fade) and
+  the video option's culler distances, the low-quality branches and the Renderer's terrain-quality
+  slots (+0x98 does nothing, +0x9C answers false), the dynamic shadow-range index buffer (+0x368).
+
+Frame time on the benchmark paths, old path against the one pass (same build and session,
+Conquest 64, 1920x1080 4x, 3 runs each, 2026-11-20): Muttrah City `bench1` 7.81 to 7.92–8.02 ms
+(draws 3324 to 3465, Mprims 3.18 to 2.91), Fallujah West `bench` 14.92 to 15.17–15.27 ms (4481 to
+4489, 2.88 to 2.75), Saaremaa `bench1` 5.18 to 5.20–5.21 ms (1640 to 1630, 2.56 to 2.29; the frame
+GPU span 4.74 to 4.38–4.48 ms). Every frame CPU bound; the 0–2 % is within the spread between runs.
+After the deletion: 8.39 / 8.48 (another load on the machine during the run), 15.34 and 5.22 ms.
 
 ## Effect cache
 

@@ -6,7 +6,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Milestones 1–9 accepted | Milestone 10, terrain in one pass: acceptance (task 8), benches done, shots next | [renderer.md](renderer.md#roadmap) |
+| `render` | Milestones 1–10 accepted | Milestone 11, atmosphere, sky IBL, water reflections (not yet in tasks) | [renderer.md](renderer.md#roadmap) |
 | `tools` | Milestone 1: tasks 1–3 | Milestone 3 cut to the benchmark path; milestone 1 tasks 4–5 built | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
@@ -80,87 +80,17 @@ tried on Muttrah City by an agent: a view shot before the HUD and one with `tool
 8. Determinism check: two shots of a view, the difference against a stated tolerance, its sources
    named in the report.
 
-## Next: `render` milestone 10, terrain in one pass
+## Next: `render` milestone 11, atmosphere, sky IBL, water reflections
 
-Plan: [renderer.md](renderer.md#10-terrain-in-one-pass), with what the current passes do and the
-constraints found while planning. A/B switch while in development: `renderer.terrainOnePass`
-(new path on by default once task 4 draws; deleted on acceptance with the old path).
+Plan: [renderer.md](renderer.md#11-atmosphere-sky-ibl-water-reflections). Not broken into tasks yet.
 
-Tasks (planned 2026-11-20; 1–6 done):
-1. Done 2026-11-20, results in renderer.md (no point lights or environment-mapped layers on terrain;
-   layer 6 folded in). Survey on the three maps: patches by detail-layer count, planar, environment-mapped and layer-6
-   (underwater) layers; detail texture sizes and formats; which point-light path runs (pass 16 is
-   past the technique's last pass) and how many lights reach terrain; terrain's GPU span and draws
-   at the reference views and on the benchmark paths (the baseline). Recorded in renderer.md.
-2. Done 2026-11-20, results in renderer.md (one detail atlas per format, 2x2 wrapped cells; one
-   lightmap atlas by patch grid; ten samplers fixed; built and dumped on the three maps, nothing
-   samples them yet).
-   Sampler layout (left to the agent by the owner, 2026-11-20): per-level detail and side texture
-   atlases built at load (same format and size per atlas, wrap in the shader with `tex2Dgrad` for
-   the mips, padded), leaving about 11 samplers fixed; the survey only sizes them. One terrain
-   lightmap atlas the same way, so roads look up by world position across patches.
-3. Done 2026-11-20, behind `renderer.terrainOnePass` (contract 4; results in renderer.md). Muttrah
-   City A/B at view `high`, normal and thermals: same image (25 and 59 pixels over 3 %); no point
-   light on terrain to see on the three maps (the other two maps are checked at acceptance).
-   Lighting without the accumulation target: the lit pass reads the patch lightmap at its own UV,
-   unpacked (no `[0,1]` packing); point lights come from a per-patch constant list (nearest N from
-   the culler's sphere gather) instead of an additive pass; sun cascades and thermals as now.
-4. Done 2026-11-20, behind `renderer.terrainOnePass` (contract 5; results in renderer.md).
-   Technique `RaTerrain`: one draw per patch over its near nodes' LOD 0 ranges, every layer from
-   the atlases blended by its weight, fog once, layer 6 folded in. Muttrah City A/B at the owner's
-   view `mountain` (planar slopes): same image (130 and 21 pixels over 3 % and 10 %); the draw
-   stats show `RaTerrain` drawing and no per-layer pass. View `high` has no near node, so it
-   tests nothing here. Thermals and GPU time not measured (owner: not needed).
-   Moved to task 5: terrain depth into the depth prepass. Pass 0 still draws the accumulation
-   target roads read, so its depth goes with it.
-5. Done 2026-11-20, behind `renderer.terrainOnePass` (results in renderer.md). Muttrah City A/B
-   at views `roadbug` and `high`: road surfaces the same; the differences are wind and far road
-   edges, which the old path faded past 130 m. No z-fighting on the far roads at `high`. Cost on
-   Fallujah West not measured (owner: GPU timers not needed). Planned:
-   Terrain depth into the depth prepass like other entries (the lit pass already tests EQUAL),
-   with pass 0 and the light passes gone once roads no longer read the target. Roads' own lit path and no fade (owner, 2026-11-20, "roads are cheap, draw them at all
-   times"): road effects and road static meshes read the terrain lightmap by world position
-   (task 2's atlas) and light themselves, no longer blending into a target. Compiled roads are
-   their own meshes over the terrain, culled at 1.3 x `lodSwitchDistance`
-   (`RoadCompiledRenderer::m_viewDistanceScale`) and faded in the shader (`RoadFadeOut`); retail
-   faded them because far terrain dropped to lower LODs under them. Terrain is LOD 0 everywhere
-   since milestone 8, so roads draw to the view distance: the cull limit and the fade pair go.
-   Checked for z-fighting far out and for the cost on Fallujah West.
-6. Done 2026-11-20, behind `renderer.terrainOnePass` (results in renderer.md). Every visible node
-   draws `RaTerrain` with its detail layers at any distance; the low-detail map only modulates.
-   Muttrah City A/B at views `mountain` and `high`: near terrain the same, far slopes now
-   detailed. Not yet seen by the owner: whether the pop is gone in motion and whether the far
-   tiling reads well. The old path still reads `detailNear` and `lodSwitchDistance`, so they go
-   in task 8. GPU cost not measured (owner: not needed).
-7. Dropped 2026-11-20 (owner): the compressed resolve. At the fixed exposure few edges cross the
-   tonemap's shoulder, and every pass blending before the resolve (decals, particles, water,
-   first-person transparents, additive light passes) would blend compressed values. Moved to
-   milestone 12, decided there by an A/B under auto-exposure ([renderer.md](renderer.md#12-hdr-bloom--auto-exposure)).
-8. Acceptance: A/B shots at the reference views on the three maps (a fogged slope where layers
-   overlap, a road, a thermals view), benchmark frame times against milestone 9's
-   ([renderer-pipeline.md](renderer-pipeline.md#submission)), terrain GPU span and draws. On the
-   owner's acceptance, deleted in one change: the switch and old passes, the accumulation target and
-   its constants, `drawMain`'s clear and copy, `drawDetailPass`/`drawMaskLights`, the
-   `m_lowQuality`/`m_lowQualityB` branches and the terrain-quality option hook (`BF2Render.cpp`),
-   the `+0x368` index buffer with its lock and unlock, the unused `Hi_Terrain` passes, and
-   `detailNear` with the culler's detail distance, `drawGatheredNodes`' far pass and the
-   `lodSwitchDistance` console property (its roads reader went in task 5).
-   Benches done 2026-11-20 (agent, engine `6fd523bb`, Conquest 64, 1920x1080 4x, 3 runs each,
-   same session per map, one-pass / old / one-pass again; no GPU timers): Muttrah City `bench1`
-   8.02 / 7.81 / 7.92 ms, draws 3465 / 3324, Mprims 2.91 / 3.18; Fallujah West `bench` 15.17 /
-   14.92 / 15.27 ms, draws 4489 / 4481, Mprims 2.75 / 2.88; Saaremaa `bench1` 5.20 / 5.18 /
-   5.21 ms, draws 1630 / 1640, Mprims 2.29 / 2.56, frame GPU span 4.38 / 4.74 / 4.48 ms (the one
-   map where the GPU span sits below the frame time). Every frame CPU bound: the one pass costs
-   0–2 % CPU frame time (Muttrah and Fallujah up to 2 %, near the run spread of 1–3 %), cuts
-   primitives 5–10 % and the GPU span about 6 % where it shows. Left: the A/B shots at the
-   reference views, terrain's per-pass GPU span (`GPU=1`) if the owner wants it, acceptance.
-
-Milestone 9 (draw submission) accepted by the owner, 2026-11-20; the D3DX path and
-`renderer.submit`, `renderer.instancing` and `renderer.casterCull` deleted. Its
-frame-time change is recorded in [renderer-pipeline.md](renderer-pipeline.md#submission). The
-deletion loaded by an agent on all three maps, 2026-11-20: shots match the new path's acceptance
-shots (wind, smoke and water only), draws unchanged, `bench1`/`bench` 7.94 (runs 2–3; run 1 still
-streaming), 14.49 and 5.10 ms, no crash.
+Milestone 10 (terrain in one pass) accepted by the owner, 2026-11-20 (benches on the three maps and
+a visual check in game); the old terrain passes, `renderer.terrainOnePass`, the accumulation
+target's use, the culler's detail distance and `terrainCuller.lodSwitchDistance` deleted. As built,
+with its frame-time change: [renderer-pipeline.md](renderer-pipeline.md#terrain). The deletion
+loaded by an agent on all three maps, 2026-11-20: Muttrah City views `mountain` (the same image as
+task 6's one-pass shot) and `roadbug` (wind and rooftops only), Fallujah West `city1`, Saaremaa
+`runway`; `bench1`/`bench` 8.39–8.48, 15.34 and 5.22 ms, no crash, no shader error.
 
 Open from milestones 8 and 9:
 - Crash in the first frame after a device reset: fixed in `717b2671` (a stale RaShadowViewProj
@@ -171,7 +101,6 @@ Open from milestones 8 and 9:
   distance (shaders); loaded on Saaremaa, not yet seen.
 - The default video profile picks 8x antialiasing (log) while the scene runs 4x. Settle with fixed
   4x (a single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
-- Roads fading at 130 m: no fade on the new path (milestone 10, task 5); goes with the old path.
 - Road overlays (road static meshes) drawn over buildings at range: fixed 2026-11-20 (`51c0b38e`
   and shaders), roads pull 0.1 % of their distance toward the camera instead of a depth bias; seen
   fixed by an agent at the owner's view `roadbug` (Muttrah City); seen fixed by the owner.

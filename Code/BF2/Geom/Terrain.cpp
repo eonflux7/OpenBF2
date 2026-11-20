@@ -183,15 +183,6 @@ void holderSetTexture(RaMaterialParameters::Texture& holder, dx9rend::EngineText
     }
 }
 
-// [CHOSEN, not recovered] Borrow one of the four shadow-array handles read by PE 0x100E1110.
-// The ordinal is in [0, 4); each read observes the owner's current handle, including teardown.
-void* terrainShadowArrayParameter(unsigned int ordinal)
-{
-    void** const handles[] = { &g_terrainShadowViewProjArray, &g_terrainShadowPosArray,
-                              &g_terrainShadowSizeArray, &g_terrainShadowCount };
-    return *handles[ordinal];
-}
-
 unsigned char& terrainWaterQualityLatched()
 {
     return g_waterQualityLatched;
@@ -440,9 +431,9 @@ Terrain::Terrain()
     m_hFarTexTiling = 0; m_hStFarTexTiling = 0; m_hNearTexTiling = 0;
     m_hLightViewProj = 0; m_hLightViewProjOrtho = 0; m_hViewportMap = 0; m_hStTransXZ = 0;
     m_hPointLight = 0; m_hSpotLight = 0;
-    m_hRaTerrainDirectLight = 0; m_hRaTerrainLightCount = 0;          // [RENDER]
+    m_hRaTerrainLightCount = 0;                                        // [RENDER]
     m_hRaTerrainLightPos = 0; m_hRaTerrainLightCol = 0;
-    m_onePass = OnePassHandles();
+    m_raTerrain = RaTerrainHandles();
     m_hLightPos1 = 0; m_hLightAttSqrInv1 = 0;
     m_hColorLightTex = 0;
     m_surroundingDeclaration = 0;
@@ -461,7 +452,6 @@ Terrain::Terrain()
     m_giColorLow.x = 0.0f; m_giColorLow.y = 0.0f; m_giColorLow.z = 0.0f;
     m_farSideTiling.x = 0.0f; m_farSideTiling.y = 0.0f;
     // m_detailTextures (+0x338) default-constructs empty
-    m_currentPass = 0;
     m_primaryHeightmap = 0;
     m_heightmapSizeX = 0;
     m_heightmapSizeZ = 0;
@@ -471,11 +461,7 @@ Terrain::Terrain()
     m_flag35B = 0;
     m_surroundingBuilt = 0;
     m_flag35D = 0;
-    m_lowQualityB = 0;
-    m_lowQuality = 0;
-    m_drawDebugFlags = 0;
     m_flag364 = 0;
-    m_indexBuffer = 0;
     m_patches = 0;
     m_renderStyle = 2;
     m_halfFloatSurrounding = 0;
@@ -489,19 +475,15 @@ Terrain::Terrain()
     for (int i = 0; i < 4; ++i) m_cameraPosition[i] = 0.0f;
     m_streamedPatchCount = 0;
     m_lightingDirty = 1;
-    m_currentDetailLayer = -1;
     m_unused424 = 0;
     for (int i = 0; i < 6; ++i) m_unused428[i] = 0.0f;
     m_unresolved440 = -1.0f;
     // m_shadowPatches (+0x448) default-constructs empty
-    m_indexBufferCount = 49152u;
     m_shadowGatherThreshold = 4.0f;
     m_shadowExtrusionScale = 4.0f;
     m_unresolved464 = 512;
     m_unresolved46C = 0;
     // m_lodBlockIndices (+0x470) default-constructs empty
-    m_indexBufferLocked = 0;
-    m_indexBufferBits = 0;
     m_flag489 = 0;
     m_compactVertices = 0;
     m_lowDetailTextureMode = 0;
@@ -810,23 +792,22 @@ void Terrain::init()
     TERRAIN_PARAM(m_hViewportMap,               "VIEWPORTMAP");
     TERRAIN_PARAM(m_hStTransXZ,                 "STTRANSXZ");
     TERRAIN_PARAM(m_hPointLight,                "POINTLIGHT");
-    TERRAIN_PARAM(m_hRaTerrainDirectLight,      "RaTerrainDirectLight");   // [RENDER] contract 4
     TERRAIN_PARAM(m_hRaTerrainLightCount,       "RaTerrainLightCount");
     TERRAIN_PARAM(m_hRaTerrainLightPos,         "RaTerrainLightPos");
     TERRAIN_PARAM(m_hRaTerrainLightCol,         "RaTerrainLightCol");
-    TERRAIN_PARAM(m_onePass.layerCount,         "RaTerrainLayerCount");    // [RENDER] contract 5
-    TERRAIN_PARAM(m_onePass.layerTop,           "RaTerrainLayerTop");
-    TERRAIN_PARAM(m_onePass.layerSide,          "RaTerrainLayerSide");
-    TERRAIN_PARAM(m_onePass.layerTiling,        "RaTerrainLayerTiling");
-    TERRAIN_PARAM(m_onePass.layerWeight0,       "RaTerrainLayerWeight0");
-    TERRAIN_PARAM(m_onePass.layerWeight1,       "RaTerrainLayerWeight1");
-    TERRAIN_PARAM(m_onePass.layerAtlas,         "RaTerrainLayerAtlas");
-    TERRAIN_PARAM(m_onePass.underWater,         "RaTerrainUnderWater");
-    TERRAIN_PARAM(m_onePass.atlas[0],           "RaTerrainAtlas0");
-    TERRAIN_PARAM(m_onePass.atlas[1],           "RaTerrainAtlas1");
-    TERRAIN_PARAM(m_onePass.atlas[2],           "RaTerrainAtlas2");
-    TERRAIN_PARAM(m_onePass.weight[0],          "RaTerrainWeight0");
-    TERRAIN_PARAM(m_onePass.weight[1],          "RaTerrainWeight1");
+    TERRAIN_PARAM(m_raTerrain.layerCount,         "RaTerrainLayerCount");    // [RENDER] contract 5
+    TERRAIN_PARAM(m_raTerrain.layerTop,           "RaTerrainLayerTop");
+    TERRAIN_PARAM(m_raTerrain.layerSide,          "RaTerrainLayerSide");
+    TERRAIN_PARAM(m_raTerrain.layerTiling,        "RaTerrainLayerTiling");
+    TERRAIN_PARAM(m_raTerrain.layerWeight0,       "RaTerrainLayerWeight0");
+    TERRAIN_PARAM(m_raTerrain.layerWeight1,       "RaTerrainLayerWeight1");
+    TERRAIN_PARAM(m_raTerrain.layerAtlas,         "RaTerrainLayerAtlas");
+    TERRAIN_PARAM(m_raTerrain.underWater,         "RaTerrainUnderWater");
+    TERRAIN_PARAM(m_raTerrain.atlas[0],           "RaTerrainAtlas0");
+    TERRAIN_PARAM(m_raTerrain.atlas[1],           "RaTerrainAtlas1");
+    TERRAIN_PARAM(m_raTerrain.atlas[2],           "RaTerrainAtlas2");
+    TERRAIN_PARAM(m_raTerrain.weight[0],          "RaTerrainWeight0");
+    TERRAIN_PARAM(m_raTerrain.weight[1],          "RaTerrainWeight1");
     TERRAIN_PARAM(m_hSpotLight,                 "SPOTLIGHT");
     TERRAIN_PARAM(m_hTerrainWaterColor,         "TerrainWaterColor");
     TERRAIN_PARAM(m_hWaterHeight,               "WaterHeight");
@@ -997,12 +978,8 @@ void Terrain::load(const std::string& path)
     setupWater();                                                                 // vslot +0xD4
     terrainAtlasLoad(this);    // [RENDER] the one-pass terrain's atlases, built on the first update (TerrainAtlas.h)
 
-    if (!m_indexBuffer)
-    {
-        const int savedPool = dx9rend::bufferManagerSwapPool(0);
-        m_indexBuffer = dx9rend::bufferManagerCreateIndexBuffer(m_indexBufferCount, 520u, 101u);   // dynamic|writeonly, INDEX16
-        dx9rend::bufferManagerSwapPool(savedPool);
-    }
+    // [RENDER] Retail created the dynamic shadow-range index buffer (+0x368) here; nothing draws
+    // shadow ranges.
     ::dice::hfe::eventManager->postEvent(ECHud, 7u, const_cast<char*>("Loading Templates.."), 0.0f);
     reader.close();
     dx9rend::resourceManagerSwapDefaultPriority(savedPriority);
@@ -1111,22 +1088,11 @@ void Terrain::loadLowDetailTexture()
     std::string levelPath;
     dx9rend::readStringSettingDefault("GLGameLevelPath", " FEEEEL ", levelPath);
 
-    int mode;
-    const char* suffix;
-    if (m_lowQuality)
-    {
-        mode = 1;
-        if (m_lowDetailTextureMode == 1)
-            return;
-        suffix = "lowdetailtexturelow.dds";
-    }
-    else
-    {
-        mode = 2;
-        if (m_lowDetailTextureMode == 2)
-            return;
-        suffix = "lowdetailtexturehi.dds";
-    }
+    // [RENDER] One terrain quality: retail took lowdetailtexturelow.dds (mode 1) at low quality.
+    const int mode = 2;
+    if (m_lowDetailTextureMode == 2)
+        return;
+    const char* const suffix = "lowdetailtexturehi.dds";
     std::string name(levelPath.c_str());
     name += suffix;
     if (::dice::hfe::fileManager->fileExists(::renddx9abi::makeHostString(name)))
@@ -1165,13 +1131,12 @@ void Terrain::loadLowDetailTexture()
 
 // sub_100DD280 - the detail texture records. One record per m_detailTextureCount, its name a
 // '\n'-terminated line, its textures loaded under mip class 5 with the optional _normal / _side /
-// _sideNormal companions; then five file fields. The low-quality arm parses the same fields into
-// a stack record and loads nothing.
+// _sideNormal companions; then five file fields. [RENDER] Retail's low-quality arm parsed the same
+// fields into a stack record and loaded nothing; terrain has one quality.
 
 // PE 0x100DD280
 void Terrain::loadDetailTextures(TerrainRawReader& reader)
 {
-    if (m_lowQuality == 0)
     {
         for (int n = 0; n < m_detailTextureCount; ++n)
         {
@@ -1216,21 +1181,6 @@ void Terrain::loadDetailTextures(TerrainRawReader& reader)
             reader.readU32(&record->yOffset);                                     // +0x24
             reader.readByte(&record->envMap);                                     // +0x28
         }
-    }
-    else
-    {
-        TerrainDetailTexture record;
-        std::string name;
-        for (int n = 0; n < m_detailTextureCount; ++n)
-        {
-            reader.readLine(name, 10);
-            reader.readByte(&record.planeMap);
-            reader.readVec2(&record.sideTiling);
-            reader.readU32(&record.topTiling);
-            reader.readU32(&record.yOffset);
-            reader.readByte(&record.envMap);
-        }
-        // the stack record's destructor (sub_100D8C80) runs here: four null releases, four evictions
     }
 }
 
@@ -1583,40 +1533,6 @@ void Terrain::reportObsolete()
     // sub_10074300(6, __FILE__, 4095, "") << "obsolete" - dice's debug stream, kept as one line
     // like the neighbouring obsolete-path reports.
     ::renddx9abi::logf("[Terrain.cpp:4095] obsolete");
-}
-
-// PE 0x100D8AD0. Unreachable in 1.50: no code or data references (its only caller is
-// setIndexBufferCount).
-void Terrain::allocateIndexBuffer()
-{
-    if (!m_indexBuffer)
-    {
-        const int savedPool = dx9rend::bufferManagerSwapPool(0);
-        m_indexBuffer = dx9rend::bufferManagerCreateIndexBuffer(m_indexBufferCount, 520u, 101u);   // dynamic|writeonly, INDEX16
-        dx9rend::bufferManagerSwapPool(savedPool);
-    }
-}
-
-// PE 0x100DB060. Unreachable in 1.50: no code or data references. A count below 1000 drops the
-// buffer and zeroes the count; otherwise the buffer is rebuilt for the new count.
-void Terrain::setIndexBufferCount(unsigned int count)
-{
-    if (m_indexBufferCount == count)
-        return;
-    void* const buffer = m_indexBuffer;
-    if (count < 0x3E8u)
-    {
-        m_indexBufferCount = 0;
-        if (buffer)
-            dx9rend::indexBufferRelease(buffer);                                  // --ref, sub_10014300 + free at zero
-        m_indexBuffer = 0;
-        return;
-    }
-    m_indexBufferCount = count;
-    if (buffer)
-        dx9rend::indexBufferRelease(buffer);
-    m_indexBuffer = 0;
-    allocateIndexBuffer();
 }
 
 // PE 0x100DD210. Unreachable in 1.50: no code or data references.
@@ -2518,7 +2434,6 @@ Terrain::~Terrain()
     releaseParameter(m_hViewportMap);                    // +0x25C
     releaseParameter(m_hStTransXZ);                      // +0x260
     releaseParameter(m_hPointLight);                     // +0x264
-    releaseParameter(m_hRaTerrainDirectLight);           // [RENDER]
     releaseParameter(m_hRaTerrainLightCount);
     releaseParameter(m_hRaTerrainLightPos);
     releaseParameter(m_hRaTerrainLightCol);
@@ -2543,11 +2458,9 @@ Terrain::~Terrain()
     releaseParameter(m_hLightPos1);                      // +0x274
     releaseParameter(m_hLightAttSqrInv1);                // +0x278
 
-    // (14) The effect - its vslot +0x08 - and the dynamic shadow-range index buffer load() made.
+    // (14) The effect - its vslot +0x08.
     if (m_effect)
         dx9rend::effectRelease(static_cast<dx9rend::Effect*>(m_effect));
-    if (m_indexBuffer)
-        dx9rend::indexBufferRelease(m_indexBuffer);                             // +0x368
 
     // the members' own destructors (0x100DDE53..0x100DDF7D), in reverse declaration order
     // +0x740 m_levelPath and +0x6D0 m_waterVolumeName: strings - see the note at the end.

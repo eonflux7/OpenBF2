@@ -112,9 +112,6 @@ extern IBase* g_SkyDome;
 extern IBase* g_UndergrowthSystem;
 // Applying video settings dirties the terrain's lighting constants.
 extern IBase* g_Terrain;
-// TerrainCullerConsole.cpp, PE 0x100E2EF0: the culler's LOD switch distance (ignored outside
-// param14..1000).
-void RD9_THUNK setCullerLodSwitchDistance(TerrainCuller* self RD9_THUNK_EDX, int value);
 } // namespace geom
 
 namespace dx9rend {
@@ -461,37 +458,23 @@ void videoOptionsApplyCore(VideoOptions* vo)
     void* const skyDome     = ::dice::hfe::geom::g_SkyDome;
     void* const roads       = ::dice::hfe::geom::g_RoadCompiledRenderer;
 
-    // Each arm first sets the terrain's culler LOD switch distance (PE 0x100E2EF0; the culler is
-    // read unguarded once the terrain exists). [RENDER] Retail then set the terrain's low-quality
-    // mode (Terrain::setLowQuality, PE 0x100DF130; 1 for quality 1, else 0); the renderer has one
-    // terrain path, so the call is gone.
-    ::dice::hfe::geom::Terrain* const qualityTerrain = ::dice::hfe::geom::terrain();
+    // [RENDER] Each retail arm first set the terrain's culler LOD switch distance (PE 0x100E2EF0;
+    // 64, 80, 100) and its low-quality mode (Terrain::setLowQuality, PE 0x100DF130; 1 for quality
+    // 1, else 0). Terrain draws every layer at every distance, so neither is set.
     if (wanted0 == 1)
     {
-        if (qualityTerrain)
-        {
-            ::dice::hfe::geom::setCullerLodSwitchDistance(qualityTerrain->m_culler RD9_THUNK_ARG, 64);
-        }
         if (undergrowth) { undergrowth->setSimpleShaderEnable(true); undergrowth->setViewDistanceScale(0.5f); }
         if (renderer)    { writeRendererByte(renderer, 1700, 0); callSlotInt(roads, 24, 0); }
         if (skyDome)     callSlotInt(skyDome, 148, 0);
     }
     else if (wanted0 == 2)
     {
-        if (qualityTerrain)
-        {
-            ::dice::hfe::geom::setCullerLodSwitchDistance(qualityTerrain->m_culler RD9_THUNK_ARG, 80);
-        }
         if (undergrowth) { undergrowth->setSimpleShaderEnable(true); undergrowth->setViewDistanceScale(0.75f); }
         if (renderer)    { writeRendererByte(renderer, 1700, 1); callSlotInt(roads, 24, 1); }
         if (skyDome)     callSlotInt(skyDome, 148, 1);
     }
     else if (wanted0 == 3)
     {
-        if (qualityTerrain)
-        {
-            ::dice::hfe::geom::setCullerLodSwitchDistance(qualityTerrain->m_culler RD9_THUNK_ARG, 100);
-        }
         if (undergrowth) { undergrowth->setSimpleShaderEnable(false); undergrowth->setViewDistanceScale(1.0f); }
         if (renderer)    { writeRendererByte(renderer, 1700, 1); callSlotInt(roads, 24, 1); }
         if (skyDome)     callSlotInt(skyDome, 148, 2);

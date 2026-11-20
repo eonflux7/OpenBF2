@@ -2476,15 +2476,11 @@ void StaticMesh::drawVanilla()
                     std::memcpy(op.viewProjection.value,
                                 dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
                                 sizeof(op.viewProjection.value));
-                    dx9rend::EngineTexture* const scratch =
-                        dx9rend::rendererGetHemiScratchTexture();                    // Renderer +0x774
-                    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): the terrain lightmap
-                    // atlas, looked up by world position, in place of the accumulation target.
+                    // [RENDER] The terrain lightmap atlas, looked up by world position, in place
+                    // of retail's accumulation target (Renderer +0x774).
                     const TerrainAtlases* const atlases = terrainAtlases();
-                    if (dx9rend::rendererTerrainOnePass() && atlases && atlases->lightmap)
+                    if (atlases && atlases->lightmap)
                         staticMeshSwapD3DTexture(entry->lighting.lightMap.value, atlases->lightmap);
-                    else if (scratch)
-                        staticMeshSwapD3DTexture(entry->lighting.lightMap.value, scratch->baseTexture);
 
                     dx9rend::Ra::RaShader* shader;
                     // DetailMap.value: material +0xF0, parameter block +0xC4.
@@ -3024,15 +3020,11 @@ void staticMeshDrawExpansion(void* self)
                     std::memcpy(op.viewProjection.value,
                                 dx9rend::rendererGetRenderViewDup()->getViewProjectionMatrixPtr()->m,
                                 sizeof(op.viewProjection.value));
-                    dx9rend::EngineTexture* const scratch =
-                        dx9rend::rendererGetHemiScratchTexture();                    // Renderer +0x774
-                    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): the terrain lightmap
-                    // atlas, looked up by world position, in place of the accumulation target.
+                    // [RENDER] The terrain lightmap atlas, looked up by world position, in place
+                    // of retail's accumulation target (Renderer +0x774).
                     const TerrainAtlases* const atlases = terrainAtlases();
-                    if (dx9rend::rendererTerrainOnePass() && atlases && atlases->lightmap)
+                    if (atlases && atlases->lightmap)
                         staticMeshSwapD3DTexture(entry->lighting.lightMap.value, atlases->lightmap);
-                    else if (scratch)
-                        staticMeshSwapD3DTexture(entry->lighting.lightMap.value, scratch->baseTexture);
 
                     dx9rend::Ra::RaShader* shader;
                     // DetailMap.value: material +0xF0, parameter block +0xC4.

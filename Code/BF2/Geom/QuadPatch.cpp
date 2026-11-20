@@ -174,27 +174,12 @@ QuadPatchDetailLayer::QuadPatchDetailLayer(Terrain* owner)
     lodTables = 0;
 }
 
-// returns the layer's detail texture index. The low-quality-B arm parses the fields
-// and seeks past the tables and indices without keeping any of them.
+// returns the layer's detail texture index. [RENDER] Retail's low-quality arm parsed the fields
+// and sought past the tables and indices without keeping any of them; terrain has one quality.
 // PE 0x101BB7C0.
 int QuadPatchDetailLayer::load(TerrainRawReader& reader)
 {
     Terrain* const t = terrain;
-    if (t->m_lowQualityB)
-    {
-        reader.readU32(&detailIndex);
-        reader.readVec3(&fileVec24);
-        reader.readU32(&fileInt30);
-        reader.readU32(&indexCount);
-        reader.readU32(&fileWord0C);
-        reader.read(fileBytes10, 4);
-        int tableCount = 0;
-        reader.readU32(&tableCount);
-        const int position = reader.tell();
-        reader.seek(0, position + 2 * (static_cast<int>(indexCount) + 12 * tableCount));
-        return detailIndex;
-    }
-
     reader.readU32(&detailIndex);
     const int selector = detailIndex % 3;
     selectorZ = (selector == 0) ? 1.0f : 0.0f;
@@ -585,8 +570,7 @@ void QuadPatch::load(TerrainRawReader& reader)
             colormapName += name;
             colormap = dx9rend::textureManagerGetTexture(colormapName);
         }
-        if (!t->m_lowQuality)
-            loadDetailMaps();
+        loadDetailMaps();
         dx9rend::textureManagerSwapDefaultMipClass(4);                            // the answer is discarded
         std::string lowName(t->m_lowDetailmapBaseName.c_str());
         lowName += name;
@@ -607,42 +591,20 @@ void QuadPatch::load(TerrainRawReader& reader)
     dx9rend::textureManagerSwapDefaultMipClass(savedClass7);
 }
 
-// PE 0x1018A4F0.
+// PE 0x1018A4F0. [RENDER] Retail's low-quality arm released the layers and detail maps instead.
 void QuadPatch::reloadDetailLayers(TerrainRawReader& reader)
 {
-    if (!terrain->m_lowQuality)
-    {
-        reader.seek(0, fileEndOffset);
-        // Shipped defect: loadDetailLayers appends slots and replaces old pointers without
-        // destroying the previous layers. Preserve the same reload operation.
-        loadDetailLayers(reader);
-        loadDetailMaps();
-        return;
-    }
-
-    for (std::vector<QuadPatchDetailLayer*>::iterator it = detailLayers.begin();
-         it != detailLayers.end(); ++it)
-    {
-        QuadPatchDetailLayer* const layer = *it;
-        if (layer)
-        {
-            layer->~QuadPatchDetailLayer();
-            ::renddx9abi::engineFree(layer);
-        }
-    }
-    detailLayers.clear();
-    for (int i = 0; i < 2; ++i)
-    {
-        terrainReleaseTexture(detailMap[i]);
-        dx9rend::textureManagerEvictFromCache(detailMap[i]);
-        detailMap[i] = 0;
-    }
+    reader.seek(0, fileEndOffset);
+    // Shipped defect: loadDetailLayers appends slots and replaces old pointers without
+    // destroying the previous layers. Preserve the same reload operation.
+    loadDetailLayers(reader);
+    loadDetailMaps();
 }
 
 // PE 0x1018A3A0
 // the detail layers: detailTextureCount + 1 null slots, then layer records until a
-// -1 marker. The record's own detail index says which slot it fills; the low-quality arm parses
-// each record on the stack and keeps nothing.
+// -1 marker. The record's own detail index says which slot it fills. [RENDER] Retail's low-quality
+// arm parsed each record on the stack and kept nothing.
 void QuadPatch::loadDetailLayers(TerrainRawReader& reader)
 {
     Terrain* const t = terrain;
@@ -656,19 +618,10 @@ void QuadPatch::loadDetailLayers(TerrainRawReader& reader)
     reader.readU32(&marker);
     while (marker != -1)
     {
-        int detailIndex;
-        if (t->m_lowQuality)
-        {
-            QuadPatchDetailLayer layer(t);
-            detailIndex = layer.load(reader);
-        }
-        else
-        {
-            void* const storage = ::renddx9abi::engineAlloc(sizeof(QuadPatchDetailLayer));
-            QuadPatchDetailLayer* const layer = storage ? new (storage) QuadPatchDetailLayer(t) : 0;
-            detailIndex = layer->load(reader);                                    // unguarded, as shipped
-            detailLayers.data()[detailIndex] = layer;                             // unchecked index, as shipped
-        }
+        void* const storage = ::renddx9abi::engineAlloc(sizeof(QuadPatchDetailLayer));
+        QuadPatchDetailLayer* const layer = storage ? new (storage) QuadPatchDetailLayer(t) : 0;
+        int detailIndex = layer->load(reader);                                    // unguarded, as shipped
+        detailLayers.data()[detailIndex] = layer;                                 // unchecked index, as shipped
         if (detailIndex < t->m_detailTextureCount)
         {
             if (maxDetailLayerIndex >= detailIndex)
@@ -968,7 +921,6 @@ TerrainCullerNode::TerrainCullerNode()
     visible = 0;
     cameraInside = 0;
     legacyParent = 0;
-    detailNear = 0;
     legacyGridIndex = -1;
     child[0] = 0; child[1] = 0; child[2] = 0; child[3] = 0;
 }
@@ -980,9 +932,9 @@ TerrainCuller::TerrainCuller()
     nodes = 0;
     param10 = 1;
     param14 = 1;
-    param18 = 100;
+    unused18 = 0;
     unused1C = 0;
-    lodFactor20 = 0.4f;
+    unused20 = 0.0f;
     for (int i = 0; i < 4; ++i)
         unused24[i] = 0.0f;
     frustum = 0;
@@ -1146,7 +1098,6 @@ void TerrainCuller::load(TerrainRawReader& reader)
         }
         loadNode(reader, node);
         node->childrenWalked = 0;
-        node->detailNear = 0;
         if (node->hasPatchList)
         {
             node->lodTable = terrain->m_lodTables;
@@ -1296,11 +1247,6 @@ void TerrainCuller::update()
     dx9rend::IRenderView* const view = dx9rend::rendererGetRenderView();                   // base +0x48
     frustum = view->getFrustumPtr();                                              // +0x74
     cameraPosition = view->getViewMatrixPtr()->m + 12;                            // +0x64, row 3
-    int distance = static_cast<int>(static_cast<long long>(
-        view->getZoom() * static_cast<double>(param18) * 0.75));                  // +0x28
-    if (param14 >= distance)
-        distance = param14;
-    detailDistance = distance;
     walkRoot(nodes);
 }
 
@@ -1375,8 +1321,7 @@ int TerrainCuller::walkRoot(TerrainCullerNode* node)
 }
 
 // [RENDER] The one walk (retail's default mode 3 without its LOD choice), per child: the sphere,
-// the camera's xz when the parent held it, else the corner planes; the shading flag from the xz
-// distance to the box plus the camera's height above the terrain; then a push (fileByteEE) or a
+// the camera's xz when the parent held it, else the corner planes; then a push (fileByteEE) or a
 // descent. Retail's modes 1, 2 and 4-6 (console cullerType) only reordered the same tests.
 void TerrainCuller::walk(TerrainCullerNode* parent)
 {
@@ -1434,18 +1379,6 @@ void TerrainCuller::walk(TerrainCullerNode* parent)
         if (!accepted)
             continue;
 
-        double dx = 0.0;
-        if (cam[0] < box.min.x)
-            dx = static_cast<double>(box.min.x) - cam[0];
-        else if (cam[0] > box.max.x)
-            dx = static_cast<double>(cam[0]) - box.max.x;
-        double dz = 0.0;
-        if (cam[2] < box.min.z)
-            dz = static_cast<double>(box.min.z) - cam[2];
-        else if (cam[2] > box.max.z)
-            dz = static_cast<double>(cam[2]) - box.max.z;
-        const double distance = std::sqrt(dz * dz + dx * dx) + terrain->m_cameraHeightAboveTerrain;
-        child->detailNear = distance <= static_cast<double>(detailDistance) ? 1 : 0;
         if (child->fileByteEE)
             visible.push_back(child);
         else
@@ -1681,11 +1614,6 @@ void TerrainCuller::buildLegacyTree()
     for (int quadrant = 0; quadrant < 4; ++quadrant)
         buildLegacyChild(nodes, quadrant, 0);
     assignLegacyGridIndices(nodes, 0, 0);
-    if (nodes->child[0])
-        for (int quadrant = 0; quadrant < 4; ++quadrant)
-            if (nodes->child[quadrant]->visible)
-                nodes->child[quadrant]->detailNear = 1;
-    nodes->detailNear = 1;
     linkLegacyNeighbours(nodes);
 }
 
@@ -1966,32 +1894,6 @@ void QuadPatch::drawDepthComplexity(TerrainCullerNode**& it, int pass)
         << "TBM: not used any more!";
 }
 
-// PE 0x10188D80. [INFERRED] Method name.
-void QuadPatch::drawTechniquePass(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list)
-{
-    static unsigned int once = 0;                 // dword_10261A04
-    static unsigned int vertexCount = 0;          // dword_10261A00
-    Terrain* const t = terrain;
-    if ((once & 1u) == 0)
-    {
-        once |= 1u;
-        const int side = t->m_patchSize + 1;
-        vertexCount = static_cast<unsigned int>(side * side);
-    }
-    beginPatchDraw(this);
-    while (it != list->data() + list->size())
-    {
-        TerrainCullerNode* const node = *it;
-        if (node->patch != this)
-            return;
-        param(t->m_hTexLayer[0])->setValue(lightmap, 0);
-        const int primitives = static_cast<int>(lodCount(node)) / 3;
-        drawPatchRange(t, static_cast<unsigned int>(primitives), vertexCount, lodStart(node));
-        terrainRendererStat(624) += static_cast<unsigned int>(primitives);
-        ++it;
-    }
-}
-
 // [RENDER] See QuadPatch.h.
 void QuadPatch::beginCasterDraw()
 {
@@ -2117,290 +2019,6 @@ void QuadPatch::drawNodes(TerrainCullerNode**& it)
     }
     lastDrawnFrame = dx9rend::rendererFrameOrdinal();
 }
-
-// Draws gathered nodes while advancing it, switching passes and morph constants as needed.
-// The default mode uses uncracked index ranges. Counts primitives, without merging ranges.
-void QuadPatch::drawGatheredNodes(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,
-                                  int passNear, int passFar)
-{
-    static unsigned int s_once = 0;                                               // dword_10261A0C
-    static unsigned int s_vertexCount = 0;                                        // dword_10261A08
-    Terrain* const t = terrain;
-    if ((s_once & 1u) == 0)
-    {
-        const int n = t->m_patchSize;
-        s_once |= 1u;
-        s_vertexCount = static_cast<unsigned int>((n + 1) * (n + 1));
-    }
-    beginPatchDraw(this);
-    if (it == list->data() + list->size())
-        return;
-    do
-    {
-        TerrainCullerNode* const node = *it;
-        if (node->patch != this)
-            break;
-        const int pass = node->detailNear ? passNear : passFar;
-        if (t->m_currentPass != pass)
-        {
-            t->m_currentPass = pass;                                              // stored first, as shipped
-            dx9rend::effectBeginPass(t->m_effect, static_cast<unsigned int>(pass));
-        }
-        const unsigned int start = lodStart(node);
-        const unsigned int count = lodCount(node);
-        const int prims = static_cast<int>(count) / 3;
-        drawPatchRange(t, static_cast<unsigned int>(prims), s_vertexCount, start);
-        terrainRendererStat(0x270) += static_cast<unsigned int>(prims);           // Renderer +0x6C, then +0x270
-        ++it;
-    } while (it != list->data() + list->size());
-}
-
-// (132 B) - "TerrainPointLight": this patch's run of the culler's gathered list (the
-// terrain's m_culler, gatheredPatches 0x100E2EE0) through drawGatheredNodes with pass 13 at LOD 0
-// and pass 1 above it. Terrain::drawMaskLights is the live caller (the ShaderVersion-1 detail pass,
-// dead on stock shaders, is the other). The once-registered profiler timer (0x10262168,
-// "TerrainPointLight") and its begin/end (sub_10046EE0 / sub_10046EF0) are stat-only scaffolding
-// this tree does not reproduce.
-void QuadPatch::drawPointLight(TerrainCullerNode**& it)
-{
-    drawGatheredNodes(it, terrain->m_culler->gatheredPatches(), 13, 1);
-}
-
-
-// the diffuse passes. "TerrainDiffusePassLod0": per detail layer (the cached layer
-// first, then the rest, one hidden by +0x3C0), this patch's LOD-0 nodes through the layer's index
-// buffer and pass 4 / 5 (side) / 11 (envmap) / 14 (layer 6). "TerrainDiffusePassLodLower": the
-// nodes above LOD 0 (every node at low quality) through the LOD index buffer and pass 3 (14 for a
-// patch without layers when dword_10262644 is set - which nothing writes).
-void QuadPatch::drawFinal(TerrainCullerNode**& it)
-{
-    static unsigned int s_once = 0;                                               // dword_10262B1C
-    static unsigned int s_vertexCount = 0;                                        // dword_10262B18
-    const int kLowerPass14 = 0;                                                   // dword_10262644 [UNRESOLVED writer - none]
-    Terrain* const t = terrain;
-    if ((s_once & 1u) == 0)
-    {
-        const int n = t->m_patchSize;
-        s_once |= 1u;
-        s_vertexCount = static_cast<unsigned int>((n + 1) * (n + 1));
-    }
-    beginPatchDraw(this);
-    TerrainCullerNode** const begin = it;
-    std::vector<TerrainCullerNode*>* const list = t->m_culler->visiblePatches();
-    TerrainCullerNode** const end = list->data() + list->size();
-    currentDetailMap = -1;
-    int previous = -2;
-    if (!t->m_lowQualityB)
-    {
-        for (int layerIter = -1; layerIter < 7; ++layerIter)
-        {
-            int layer = layerIter;
-            if (layerIter == previous)
-                continue;
-            if (layerIter == -1)
-            {
-                const int cached = t->m_currentDetailLayer;
-                if (cached == -1)
-                    continue;
-                layer = cached;
-                previous = cached;
-            }
-            if (t->m_hiddenDetailLayer != -1 && t->m_hiddenDetailLayer == layer)
-                continue;
-            QuadPatchDetailLayer* const detailLayer = detailLayers.data()[layer];   // unchecked, as shipped
-            if (!detailLayer)
-                continue;
-            it = begin;
-            bool bound = false;
-            while (it != end)
-            {
-                TerrainCullerNode* const node = *it;
-                if (node->patch != this)
-                    break;
-                if (!node->detailNear)
-                {
-                    ++it;
-                    continue;
-                }
-                if (!bound)
-                {
-                    TerrainDetailTexture* const record =
-                        t->m_detailTextures.data()[detailLayer->detailIndex];
-                    dx9rend::indexBufferBind(detailLayer->indexBuffer);
-                    int pass;
-                    if (layer == 6)
-                        pass = 14;
-                    else
-                    {
-                        const int map = detailLayer->detailIndex / 3;
-                        if (currentDetailMap != map)
-                        {
-                            currentDetailMap = map;
-                            param(t->m_hTexLayer[2])->setValue(detailMap[map], 0);
-                        }
-                        // The real EnvMapManager now owns the borrowed texture (retail +0x64).
-                        void* envTexture = record->planeMap ? 0 :
-                            static_cast<void*>(static_cast<Rend::EnvMapManager*>(
-                                terrainEnvMapManager())->m_currentTexture);
-                        if (layer == t->m_currentDetailLayer)
-                        {
-                            if (record->planeMap)
-                                pass = 5;
-                            else if (envTexture && record->envMap)
-                                pass = 11;
-                            else
-                                pass = 4;
-                        }
-                        else
-                        {
-                            t->m_currentDetailLayer = layer;
-                            if (record->planeMap)
-                            {
-                                pass = 5;
-                                param(t->m_hTexLayer[6])->setValue(record->sideTexture, 0);
-                            }
-                            else if (envTexture && record->envMap)
-                            {
-                                pass = 11;
-                                param(t->m_hTexLayer[6])->setValue(envTexture, 0);
-                            }
-                            else
-                                pass = 4;
-                            float tiling[4];                                      // neartextiling
-                            tiling[0] = record->sideTiling.x;
-                            tiling[1] = record->sideTiling.y;
-                            ::memcpy(&tiling[2], &record->topTiling, 4);          // the word as stored
-                            ::memcpy(&tiling[3], &record->yOffset, 4);
-                            param(t->m_hNearTexTiling)->setValue(tiling, 0);
-                            param(t->m_hTexLayer[3])->setValue(record->texture, 0);
-                            param(t->m_hComponentSelector)->setValue(&detailLayer->selectorX, 0);
-                        }
-                    }
-                    if (t->m_currentPass != pass)
-                    {
-                        dx9rend::effectBeginPass(t->m_effect, static_cast<unsigned int>(pass));
-                        t->m_currentPass = pass;
-                    }
-                    bound = true;
-                }
-                const unsigned int* const table =
-                    reinterpret_cast<const unsigned int*>(node->layerLodTables.data()[layer]);
-                const unsigned int count = table[48];
-                if (!count)
-                {
-                    ++it;
-                    continue;
-                }
-                if ((t->m_drawDebugFlags & 2) == 0)
-                {
-                    const unsigned int prims = count / 3;
-                    drawPatchRange(t, prims, s_vertexCount, table[0]);
-                    ++terrainRendererStat(628);
-                    terrainRendererStat(632) += prims;
-                    ++it;
-                    continue;
-                }
-                // The merge (debug bit 2): the shipped loop re-reads the first node's table for every
-                // follower (v40 is never re-derived) - reproduced as read.
-                unsigned int start = table[0];
-                unsigned int total = count;
-                ++it;
-                bool flushed = false;
-                while (it != end)
-                {
-                    TerrainCullerNode* const next = *it;
-                    if (next->patch != this)
-                        break;
-                    const unsigned int nextCount = table[48];
-                    if (!next->detailNear)
-                    {
-                        flushed = true;
-                        drawPatchRange(t, total / 3, s_vertexCount, start);
-                        break;
-                    }
-                    if (table[0] != start + count)
-                    {
-                        if (nextCount + table[0] != start)
-                        {
-                            flushed = true;
-                            drawPatchRange(t, total / 3, s_vertexCount, start);
-                            break;
-                        }
-                        start -= nextCount;
-                    }
-                    total += nextCount;
-                    ++it;
-                }
-                if (!flushed && static_cast<int>(total) > 0)
-                    drawPatchRange(t, total / 3, s_vertexCount, start);
-            }
-        }
-    }
-
-    // "TerrainDiffusePassLodLower"
-    dx9rend::indexBufferBind(t->m_lodIndexBuffer);
-    if (hasNoDetailLayers && kLowerPass14)
-    {
-        if (t->m_currentPass != 14)
-        {
-            dx9rend::effectBeginPass(t->m_effect, 14u);
-            t->m_currentPass = 14;
-        }
-    }
-    else if (t->m_currentPass != 3)
-    {
-        dx9rend::effectBeginPass(t->m_effect, 3u);
-        t->m_currentPass = 3;
-    }
-    it = begin;
-    while (it != end)
-    {
-        TerrainCullerNode* const node = *it;
-        if (node->patch != this)
-            break;
-        // [RENDER] Retail drew LOD 1 and 2 here; now the far nodes, at full detail.
-        if (!node->detailNear || t->m_lowQualityB)
-        {
-            if ((t->m_drawDebugFlags & 1) == 0)
-            {
-                unsigned int count = lodCount(node);
-                unsigned int start = lodStart(node);
-                ++it;
-                bool flushed = false;
-                while (it != end)
-                {
-                    TerrainCullerNode* const next = *it;
-                    if (next->patch != this)
-                        break;
-                    const unsigned int nextStart = lodStart(next);
-                    const unsigned int nextCount = lodCount(next);
-                    // A near node after a far one is not drawn by this pass (unless low quality).
-                    const bool sameRun = next->detailNear == node->detailNear || t->m_lowQualityB;
-                    if (!sameRun || nextStart != start + count)
-                    {
-                        if (!sameRun || nextCount + nextStart != start)
-                        {
-                            drawPatchRange(t, count / 3, s_vertexCount, start);
-                            flushed = true;
-                            break;
-                        }
-                        start -= nextCount;
-                    }
-                    count += nextCount;
-                    ++it;
-                }
-                if (!flushed && static_cast<int>(count) > 0)
-                    drawPatchRange(t, count / 3, s_vertexCount, start);
-                continue;
-            }
-            const int count = static_cast<int>(lodCount(node));
-            drawPatchRange(t, static_cast<unsigned int>(count / 3), s_vertexCount, lodStart(node));
-        }
-        ++it;
-    }
-    lastDrawnFrame = dx9rend::rendererFrameOrdinal();                             // base +0x54
-}
-
 
 // PE 0x1018D800. Builds the patch's water streams, lightmap, lighting record and transform.
 void QuadPatch::drawWater(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,

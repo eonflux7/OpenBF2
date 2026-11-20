@@ -1386,13 +1386,6 @@ void setSoftParticleDistance(float value)
 BF2_CONSOLE_PROPERTY_FN_RANGED_T(softParticleDistance, float, true, getSoftParticleDistance(),
                                  setSoftParticleDistance, 0.1f, 20.0f, kRendererConsoleTag)
 
-// [RENDER] Render milestone 10's A/B switch while in development (docs/eon64/renderer.md).
-bool getTerrainOnePass() { return rendererTerrainOnePass(); }
-void setTerrainOnePass(bool on) { rendererTerrainOnePass() = on; }
-BF2_CONSOLE_PROPERTY_FN(terrainOnePass, bool, true, getTerrainOnePass(), setTerrainOnePass, kRendererConsoleTag)
-
-
-
 } // anonymous namespace
 
 // The help lines of the fork's renderer variables, for the debug menu (docs/eon64/ui.md).
@@ -1409,7 +1402,6 @@ const char* rendererVariableHelp(const char* name)
         { "sunShadowDepthBias", "Receiver offset toward the sun, in cascade texels (against acne)" },
         { "contributionCull", "Static meshes whose bounding sphere spans fewer pixels than this are not drawn, faded out just above it; 0 off" },
         { "softParticleDistance", "Depth over which particles fade out in front of the scene, in metres" },
-        { "terrainOnePass", "Terrain milestone in development: lit passes read the patch lightmap and point lights directly (A/B)" },
         { "uiMenuKey", "Win32 virtual-key code that opens and closes this menu (45 = Insert)" },
         { "uiOverlay", "Performance overlay, top right; kept between sessions" },
         { "uiConsoleHeight", "Console window height, as a share of the screen; kept between sessions" },

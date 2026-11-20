@@ -543,19 +543,13 @@ void RoadCompiledRenderer::drawAll()
         fullInvert(copy, cameraWorld);
     }
 
-    const float* const packed = staticMeshPackVec4(&view->getViewMatrixPtr()->m[12], 1.0f);  // +0x64
-    Vec3 camera;
-    camera.x = packed[0];
-    camera.y = packed[1];
-    camera.z = packed[2];
-
     m_terrain = terrain();                                                                   // +0x9C
     if (!g_Terrain)
         return;
 #if defined(BF2_IMAGE_EDITOR) && BF2_IMAGE_EDITOR
     // [CHOSEN, not recovered] editor-only region (agents.md, Editor): the editor's TerrainEditable has no
-    // culler (Geom/TerrainEditable.cpp, region 2), whose view distance this walk and updateFrameConstants read
-    // unguarded, as shipped; no compiled road is drawn over it (RoadCompiled::updateChunkVisibility queues none).
+    // culler (Geom/TerrainEditable.cpp, region 2), whose view distance the shipped walk and
+    // updateFrameConstants read unguarded; no compiled road is drawn over it (RoadCompiled::updateChunkVisibility queues none).
     if (!m_terrain->m_culler)
     {
         m_roads.clear();
@@ -574,16 +568,7 @@ void RoadCompiledRenderer::drawAll()
         RoadCompiled* const road = *node;
         RoadCompiledTemplate* const tmpl = road->m_template;
 
-        terrainOriginScratch(camera);                                                        // inlined sub_100E11B0
-
-        const float dx = road->m_origin.x - camera.x;
-        const float dy = road->m_origin.y - camera.y;
-        const float dz = road->m_origin.z - camera.z;
-        const float distance = std::sqrt((dz * dz + dy * dy) + dx * dx);
-        const float limit = static_cast<float>(m_terrain->m_culler->param18) * m_viewDistanceScale
-                          + road->m_radius;
-        if (limit < distance && !dx9rend::rendererTerrainOnePass())   // [RENDER] milestone 10, task 5
-            continue;
+        // [RENDER] No distance cull: retail skipped roads past the culler's road view distance.
 
         if (!last || last != tmpl)
         {
@@ -627,22 +612,18 @@ void RoadCompiledRenderer::drawAll()
 }
 
 
-// PE 0x10145390. Updates road fade, lighting, fog, projection and depth-bias constants. The
-// half-texel pair is the inlined wrapper PE 0x100846A0 (0.5 / width, 0.5 / height of the hemi texture).
-// Requires terrain, its culler, renderer targets and Ra constants. Projection offset is
-// cached from the first target size, even if later frame dimensions change.
+// PE 0x10145390. Updates road fade, lighting, fog, terrain light atlas and depth-bias constants.
+// Requires terrain and Ra constants.
 void RoadCompiledRenderer::updateFrameConstants()
 {
     if (!m_heightmapCluster)
         m_heightmapCluster = ::dice::hfe::classManager->getSingleton(
             ::renddx9abi::HostString("HeightmapCluster"));                                 // +0x48
 
-    const TerrainCuller* const culler = m_terrain->m_culler;
-    const float viewDistance = static_cast<float>(culler->param18) * m_viewDistanceScale;
-    const float fadeStart = viewDistance * culler->lodFactor20;
-    const float scale = 1.0f / (viewDistance - fadeStart);
-    m_fadeOut[0] = scale;
-    m_fadeOut[1] = scale * fadeStart;
+    // [RENDER] No fade: retail faded roads out between lod0SwitchStart and the culler's road view
+    // distance; they draw to the far plane.
+    m_fadeOut[0] = 0.0f;
+    m_fadeOut[1] = 0.0f;
     m_paramFadeOut->setValue(m_fadeOut, 0);
 
     m_paramScaleY->setFloat(m_terrain->getPrimaryWorldScale()->y);                          // +0x38
@@ -664,53 +645,17 @@ void RoadCompiledRenderer::updateFrameConstants()
     m_paramFogColor->setValue(raConstantAt(kRaFogColor), 0);
     m_paramWorldSpaceCamPos->setValue(m_worldSpaceCamPos, 0);
 
-    dx9rend::EngineTexture* const hemi = dx9rend::rendererGetHemiScratchTexture();          // g_Renderer +0x774
-    float halfTexel[2];
-    {
-        const Math::Vec2 half = textureHalfTexelSize(hemi);                   // PE 0x100846A0, call 0x101454F9
-        halfTexel[0] = half.x;
-        halfTexel[1] = half.y;
-    }
-
-    static unsigned int s_texProjOnce = 0;          // dword_1025DF6C
-    static float s_texProjScale[4];                 // dword_1025DF5C
-    static float s_texProjOffset[4];                // flt_1025DF4C
-    if ((s_texProjOnce & 1u) == 0)
-    {
-        s_texProjOnce |= 1u;
-        s_texProjScale[0] = 0.5f;
-        s_texProjScale[1] = -0.5f;
-        s_texProjScale[2] = 1.0f;
-        s_texProjScale[3] = 1.0f;
-    }
-    if ((s_texProjOnce & 2u) == 0)
-    {
-        s_texProjOnce |= 2u;
-        s_texProjOffset[2] = 0.0f;
-        s_texProjOffset[3] = 0.0f;
-        s_texProjOffset[0] = halfTexel[0] + 0.5f;
-        s_texProjOffset[1] = halfTexel[1] + 0.5f;
-    }
-    m_paramTexProjScale->setValue(s_texProjScale, 0);
-    m_paramTexProjOffset->setValue(s_texProjOffset, 0);
-
     m_paramSinglePointColor->setValue(raConstantAt(kRaSinglePointColor), 0);
-    m_paramTexLayer2->setValue(dx9rend::rendererGetHemiScratchTexture(), 0);
 
-    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): the road lights itself from the
-    // terrain lightmap atlas by world position, TEXPROJSCALE = the atlas grid, TEXPROJOFFSET = (GI
-    // colour, 1), and draws to the view distance with no fade.
+    // [RENDER] The road lights itself from the terrain lightmap atlas by world position:
+    // TEXLAYER2 the atlas, TEXPROJSCALE its grid, TEXPROJOFFSET (GI colour, 1). Retail bound the
+    // accumulation target (+0x774) and its screen projection.
     {
-        float grid[4], giDirect[4];
+        float grid[4] = {}, giDirect[4] = {};
         if (const void* const atlas = terrainRoadLight(grid, giDirect))
-        {
             m_paramTexLayer2->setValue(atlas, 0);
-            m_paramTexProjScale->setValue(grid, 0);
-            m_paramTexProjOffset->setValue(giDirect, 0);
-            m_fadeOut[0] = 0.0f;
-            m_fadeOut[1] = 0.0f;
-            m_paramFadeOut->setValue(m_fadeOut, 0);
-        }
+        m_paramTexProjScale->setValue(grid, 0);
+        m_paramTexProjOffset->setValue(giDirect, 0);
     }
 
     {
@@ -796,12 +741,10 @@ void* roadCompiledRendererListener()
 // StateManager as their bit patterns. Unguarded; roadQueuePass tests the singleton first.
 const float* roadCompiledRendererFadeOut()
 {
-    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): roads draw to the view distance with
-    // no fade (terrain is LOD 0 everywhere, so no lower LOD rises over them); (0, 0) fades nothing.
+    // [RENDER] Roads draw to the far plane with no fade (terrain is LOD 0 everywhere, so no lower
+    // LOD rises over them); (0, 0) fades nothing.
     static const float s_noFade[2] = { 0.0f, 0.0f };
-    if (dx9rend::rendererTerrainOnePass())
-        return s_noFade;
-    return static_cast<RoadCompiledRenderer*>(static_cast<void*>(g_RoadCompiledRenderer))->m_fadeOut;
+    return s_noFade;
 }
 
 unsigned int roadCompiledRendererDepthBiasBits()

@@ -4510,15 +4510,6 @@ void skyDomeUpdate(IBase* sky, float time)
     static_cast<geom::SkyDome*>(sky)->update(time);
 }
 
-// sub_100D89C0, the Terrain's +0x35E setter: the store happens only while the value differs and
-// +0x35F is clear. [CHOSEN, not recovered] placement: a Terrain member in the PE; kept here until
-// Geom/Terrain publishes it.
-void terrainSetLowQualityB(geom::Terrain* terrain, unsigned char value)
-{
-    if (terrain->m_lowQualityB != value && !terrain->m_lowQuality)
-        terrain->m_lowQualityB = value;
-}
-
 } // anonymous namespace
 
 // Published for the frame module (Frame.cpp).
@@ -5753,18 +5744,15 @@ bool Renderer::slot_0x94()
     return false;
 }
 
-// PE 0x10028660 / 0x10028680, slots +0x98 / +0x9C: the Terrain's +0x35E byte, set through
-// sub_100D89C0 and read directly; false without a Terrain.
-void Renderer::slot_0x98(bool value)
+// PE 0x10028660 / 0x10028680, slots +0x98 / +0x9C: retail set and read the Terrain's low-quality
+// byte (+0x35E, through sub_100D89C0). [RENDER] Terrain has one quality: the setter does nothing
+// and the getter answers false.
+void Renderer::slot_0x98(bool)
 {
-    if (geom::g_Terrain)
-        terrainSetLowQualityB(static_cast<geom::Terrain*>(geom::g_Terrain), value ? 1u : 0u);
 }
 
 bool Renderer::slot_0x9C()
 {
-    if (geom::g_Terrain)
-        return static_cast<geom::Terrain*>(geom::g_Terrain)->m_lowQualityB != 0;
     return false;
 }
 

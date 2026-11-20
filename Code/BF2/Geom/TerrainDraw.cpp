@@ -68,7 +68,6 @@ void  rendererDrawIndexedPrimitive(unsigned int primCount, unsigned int type, in
 namespace geom {
 
 extern LightManager* g_LightManager;                                       // ModuleGeom.cpp, dword_1024B914
-void* terrainShadowArrayParameter(unsigned int ordinal);
 void geometryRendererMatrixProduct(Mat4&, const Mat4&, const Mat4&);
 
 namespace {
@@ -98,26 +97,6 @@ inline ::dice::hfe::world::IHeightmapCluster* heightmapClusterByName()
         ::renddx9abi::HostString("HeightmapCluster"));
     return static_cast< ::dice::hfe::world::IHeightmapCluster*>(static_cast<void*>(found));
 }
-
-// PE sub_1000A6B0 - is multisampling active. BF2Render.cpp keeps its copy in an anonymous
-// namespace, so this is the same file-local probe FSQuadDrawer.cpp carries: the forced-on byte
-// +0x514 wins, then the forced-off +0x515, else the first entry of the base's mode vector at +0xC0.
-bool isMultisampleActive()
-{
-    const dx9rend::RendDX9Base* const base =
-        static_cast<const dx9rend::RendDX9Base*>(dx9rend::g_rendererBase);
-    if (base->forceMultisample)
-        return true;
-    if (base->disableMultisample)
-        return false;
-    return dx9rend::multiSampleListActive(base);
-}
-
-// dword_10259568 bit 0 & co: the once-only stat registrations are not reproduced; the once-only
-// value seeds (the texprojscale / texprojoffset pair of sub_100D95D0) are.
-unsigned int g_texProjOnce = 0;                                            // dword_1025929C
-float        g_texProjScale[4];                                            // dword_1025928C..98
-float        g_texProjOffset[4];                                           // flt_1025927C..88
 
 // The .data constants the water arms read. byte_10239200: the morph limits are squared; the
 // flt_10239208 / flt_10239204 pair is WaterScroll.zw; byte_1023920C gates the two cell tests.
@@ -528,29 +507,8 @@ void Terrain::applyFrameConstants()
     param(m_hTexLayer[4])->setValue(m_lowDetailTexture, 0);
     if (m_drawMain)
     {
-        dx9rend::EngineTexture* const accumulation = dx9rend::rendererGetHemiScratchTexture();   // Renderer +0x774
-        param(m_hTexLayer[1])->setValue(accumulation, 0);
-        float halfTexel[2];
-        {
-            const Math::Vec2 half = textureHalfTexelSize(accumulation);       // PE 0x100846A0, call 0x100D9B10
-            halfTexel[0] = half.x;
-            halfTexel[1] = half.y;
-        }
-        if ((g_texProjOnce & 1u) == 0)
-        {
-            g_texProjOnce |= 1u;
-            g_texProjScale[0] = 0.5f; g_texProjScale[1] = -0.5f; g_texProjScale[2] = 1.0f; g_texProjScale[3] = 1.0f;
-        }
-        if ((g_texProjOnce & 2u) == 0)
-        {
-            g_texProjOnce |= 2u;
-            g_texProjOffset[2] = 0.0f;
-            g_texProjOffset[3] = 0.0f;
-            g_texProjOffset[0] = halfTexel[0] + 0.5f;
-            g_texProjOffset[1] = halfTexel[1] + 0.5f;
-        }
-        param(m_hTexProjScale)->setValue(g_texProjScale, 0);
-        param(m_hTexProjOffset)->setValue(g_texProjOffset, 0);
+        // [RENDER] Retail bound the accumulation target (+0x774) on TEXLAYER1 here with its screen
+        // projection (TEXPROJSCALE/OFFSET); the one pass binds each patch's lightmap instead.
         {
             float scaleTransY[4] = { m_primaryWorldScale.y, 1.0f, 0.0f, 0.0f };
             param(m_hScaleTransY)->setValue(scaleTransY, 0);
@@ -561,7 +519,7 @@ void Terrain::applyFrameConstants()
         texScale[2] = texScale[0];
         texScale[3] = 0.0f;
         param(m_hTexScale)->setValue(texScale, 0);
-        const float farTop = (m_lowQualityB == 0) ? m_farTopTilingHi : m_farTopTilingLow;
+        const float farTop = m_farTopTilingHi;                            // [RENDER] one terrain quality
         {
             float farTiling[4] = { m_farSideTiling.x, m_farSideTiling.y, farTop, m_farYOffset };
             param(m_hFarTexTiling)->setValue(farTiling, 0);
@@ -622,8 +580,7 @@ void Terrain::applyFrameConstants()
             float stFar[4];
             stFar[0] = static_cast<float>(patches * m_farSideTiling.x / quarter);
             stFar[1] = m_farSideTiling.y;
-            stFar[2] = static_cast<float>(
-                ((m_lowQualityB == 0) ? patches * m_farTopTilingHi : patches * m_farTopTilingLow) / quarter);
+            stFar[2] = static_cast<float>(patches * m_farTopTilingHi / quarter);   // [RENDER] one terrain quality
             stFar[3] = m_farYOffset;
             param(m_hStFarTexTiling)->setValue(stFar, 0);
         }
@@ -652,29 +609,6 @@ void Terrain::applyFrameConstants()
         }
     }
 }
-
-// sub_100D8570 - the discard lock of the dynamic index buffer, once per frame.
-void Terrain::lockDynamicIndexBuffer()
-{
-    if (!m_indexBufferLocked)
-    {
-        m_indexBufferBits = dx9rend::indexBufferLock(m_indexBuffer, 0, 0, 0x2000u);   // D3DLOCK_DISCARD
-        m_indexBufferLocked = 1;
-    }
-}
-
-// PE 0x100D85A0. Unreachable in 1.50: no code or data references; drawMain inlines the same
-// unlock.
-void Terrain::unlockDynamicIndexBuffer()
-{
-    if (m_indexBufferLocked)
-    {
-        dx9rend::indexBufferUnlock(m_indexBuffer);
-        m_indexBufferBits = 0;
-        m_indexBufferLocked = 0;
-    }
-}
-
 
 // PE 0x100DB2F0. The argument is not read.
 void Terrain::drawDepthComplexity(int)
@@ -769,54 +703,21 @@ void Terrain::drawDepthComplexity(int)
 }
 
 
-// PE 0x100DB810. [INFERRED] Method and argument names.
-void Terrain::drawTechniquePass(Frustum* source, int pass, int preserveColorMask)
+// PE 0x100DB810. [INFERRED] Method and argument names. [RENDER] Nothing calls it; retail drew one
+// Hi_Terrain pass over the visible or frustum-gathered nodes. The slot stays for the table layout.
+void Terrain::drawTechniquePass(Frustum*, int, int)
 {
-    std::vector<TerrainCullerNode*>* list;
-    if (source)
-    {
-        m_culler->gatherVisibleFrustum(source);
-        list = m_culler->gatheredPatches();
-    }
-    else
-        list = m_culler->visiblePatches();
-
-    dx9rend::effectSetTechniqueByName(m_effect, std::string("Hi_Terrain"));   // [RENDER] one terrain path
-    dx9rend::effectBegin(m_effect);
-    dx9rend::vertexBufferBindStream(m_baseGridVertexBuffer, 0);
-    dx9rend::vertexDeclarationBind(m_vertexDeclaration);
-    dx9rend::indexBufferBind(m_lodIndexBuffer);
-    dx9rend::effectBeginPass(m_effect, static_cast<unsigned int>(pass));
-    if (static_cast<unsigned char>(preserveColorMask) == 0)
-        dx9rend::stateManagerSetRenderState(168u, 0u);
-
-    TerrainCullerNode** it = list->data();
-    while (it != list->data() + list->size())
-    {
-        QuadPatch* const patch = (*it)->patch;
-        param(m_hTexLayer[0])->setValue(patch->lightmap, 0);
-        patch->drawTechniquePass(it, list);
-        ++terrainRendererStat(612);
-    }
-    if (static_cast<unsigned char>(preserveColorMask) == 0)
-        dx9rend::stateManagerSetRenderState(168u, 15u);
-    dx9rend::effectEnd(m_effect);
 }
 
-// the main draw. The shadow-range gather, the accumulation target, the technique,
-// pass 7 for the gathered ranges, pass 0 per visible node, the light pass, the target restore.
-
-// PE 0x100E0940.
-// [DEV] terrain.survey: the last frame's point-light pass (0 none, 1 drawDetailPass, 2
-// drawMaskLights), the lights it drew and their gathered nodes.
+// [DEV] terrain.survey: the last frame's point-light source (0 none, 1 the static frame lights, 2
+// the visible mask lights), the lights it gathered and their nodes.
 static int g_surveyLightPath = 0;
 static unsigned int g_surveyLights = 0;
 static unsigned int g_surveyLightNodes = 0;
 
-// [RENDER] Render milestone 10, task 3 (renderer.terrainOnePass): the point lights reaching each
-// patch, gathered by the light passes of drawMain (the same culler sphere gather that picks their
-// nodes) and handed to the lit passes as constants (RaTerrainLightPos/Col), nearest to the patch
-// centre first when more than kPatchLights reach it.
+// [RENDER] The point lights reaching each patch, gathered by drawMain through the culler's sphere
+// gather and handed to RaTerrain as constants (RaTerrainLightPos/Col), the nearest to the patch
+// centre when more than kPatchLights reach it.
 namespace {
 
 const int kPatchLights = 4;   // RA_TERRAIN_MAX_LIGHTS in the terrain shader
@@ -876,8 +777,6 @@ void addPatchLight(QuadPatch* patch, const Vec3& position, float inverseRangeSqu
 void addGatheredLight(std::vector<TerrainCullerNode*>* gathered, const Vec3& position,
                       float inverseRangeSquared, const Vec3& color)
 {
-    if (!dx9rend::rendererTerrainOnePass())
-        return;
     QuadPatch* previous = 0;
     for (size_t i = 0; i != gathered->size(); ++i)
     {
@@ -899,88 +798,22 @@ const PatchLights* findPatchLights(const QuadPatch* patch)
 
 } // anonymous namespace
 
+// PE 0x100E0940. [RENDER] Terrain's depth is drawn by the depth prepass and its colour by
+// drawFinal in one pass, so the main draw only flushes the aux queues and gathers the point lights
+// for RaTerrain. Retail drew pass 0 (depth and the packed lightmap) into the accumulation target
+// (+0x774), then the point-light passes (16, or 13 and 1) over it.
 void Terrain::drawMain()
 {
-    std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
-    TerrainCullerNode** it = 0;
     m_shadowPatches.clear();                                              // sub_100E1C20(0, 0)
-
-    // [RENDER] The sun shadow comes from the renderer's screen-space mask in the final passes;
-    // retail's per-caster shadow pass (7) and its range gathering are not drawn.
-
-    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): terrain's depth is drawn by the depth
-    // prepass and roads light themselves from the lightmap atlas, so no pass 0 and no accumulation
-    // target; only the aux queues and the point-light gather for the lit pass's per-patch list.
-    if (dx9rend::rendererTerrainOnePass())
-    {
-        dx9rend::renderQueueFlush(0x44u, 1);
-        dx9rend::renderQueueFlush(0x54u, 1);
-        dx9rend::renderQueueFlush(0x64u, 1);
-        g_surveyLightPath = 0;                                            // [DEV] terrain.survey
-        g_patchLights.clear();
-        g_surveyLights = 0;
-        g_surveyLightNodes = 0;
-        if (dx9rend::rendererGetHemiRenderMode() != 4)
-        {
-            if (m_effect && *dx9rend::effectShaderVersion(m_effect) == 1)
-                drawDetailPass(false);
-            else
-                drawMaskLights(false);
-        }
-        return;
-    }
-
-    if (!isMultisampleActive())
-    {
-        lightManagerSetRenderTargetTexture(0, dx9rend::rendererGetHemiScratchTexture());   // sub_10005920(0, +0x774, 0, 0x7FFFFFFF)
-        dx9rend::stateManagerClear(1u, 0xFF000000u, 0.0f, 0u);           // sub_100057E0(1, -16777216, 0, 0)
-    }
     dx9rend::renderQueueFlush(0x44u, 1);                                  // RSMTAux0..2 through their +0x08 slot
     dx9rend::renderQueueFlush(0x54u, 1);
     dx9rend::renderQueueFlush(0x64u, 1);
-    dx9rend::stateManagerSetRenderState(15u, 0u);                         // D3DRS_ALPHATESTENABLE
-    if (m_compactVertices)
-        dx9rend::vertexBufferBindStream(m_baseGridVertexBuffer, 0);
-    dx9rend::vertexDeclarationBind(m_vertexDeclaration);
-
-    // [RENDER] Hi_Terrain only. Retail fell back to Low_Terrain (reloading the effects, then the
-    // low-detail data) when the effect had no Hi_Terrain; the renderer has one terrain path.
-    const char* const technique = "Hi_Terrain";
-    dx9rend::effectSetTechniqueByName(m_effect, std::string(technique));
-    dx9rend::effectBegin(m_effect);
-
-    dx9rend::indexBufferBind(m_lodIndexBuffer);
-    dx9rend::effectBeginPass(m_effect, 0u);
-    it = list->data();
-    while (it != list->data() + list->size())
-    {
-        param(m_hTexLayer[0])->setValue((*it)->patch->lightmap, 0);
-        (*it)->patch->draw(it);                                           // sub_1018BE20, advances `it`
-        ++terrainRendererStat(612);
-    }
     g_surveyLightPath = 0;                                                // [DEV] terrain.survey
-    g_patchLights.clear();                                                // [RENDER] milestone 10
+    g_patchLights.clear();
     g_surveyLights = 0;
     g_surveyLightNodes = 0;
     if (dx9rend::rendererGetHemiRenderMode() != 4)                        // sub_10009F00, base +0x20
-    {
-        if (m_effect && *dx9rend::effectShaderVersion(m_effect) == 1)
-            drawDetailPass();
-        else
-            drawMaskLights();
-    }
-    if (isMultisampleActive())
-    {
-        IDirect3DSurface9* const surface = dx9rend::textureGetLevelSurface(
-            dx9rend::rendererGetHemiScratchTexture(), 0, 0x7FFFFFFFu);
-        IDirect3DSurface9* const backBuffer = dx9rend::rendererSceneColorSurface();   // Renderer +0x76C; [RENDER] the HDR scene
-        dx9rend::Ra::raRendererDevice()->StretchRect(backBuffer, 0, surface, 0, D3DTEXF_NONE);   // device +0x88
-        surface->Release();
-        dx9rend::stateManagerClear(1u, 0u, 0.0f, 0u);
-    }
-    else
-        lightManagerRestoreRendererTarget0();
-    dx9rend::effectEnd(m_effect);
+        gatherPointLights();
 }
 
 
@@ -1025,7 +858,7 @@ void gatherTerrainCasterNode(TerrainCullerNode* node, const Frustum& volume)
 void Terrain::gatherShadowCasters(const Frustum& volume)
 {
     g_terrainCasters.clear();
-    if (!m_drawMain || m_lowQuality || !m_culler || !m_culler->nodes || !m_culler->cameraPosition)
+    if (!m_drawMain || !m_culler || !m_culler->nodes || !m_culler->cameraPosition)
         return;
     gatherTerrainCasterNode(m_culler->nodes, volume);
 }
@@ -1080,7 +913,7 @@ void Terrain::drawShadowCasters(const float* viewProjection, const dx9rend::Shad
 void Terrain::drawDepthPrepass()
 {
     static const std::string technique("RaDepthPrepass");
-    if (!m_drawMain || m_lowQuality || !m_effect
+    if (!m_drawMain || !m_effect
         || !dx9rend::effectHasTechnique(m_effect, technique))
         return;
     std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
@@ -1115,109 +948,60 @@ float terrainScaledInverseRangeSquared(float radius, float scale)
 
 } // anonymous namespace
 
-// PE 0x100DF990, the ShaderVersion-1 detail/light pass (pass 16).
-// [RENDER] Point and spot shadow maps are gone, so this pass keeps only the unshadowed point-light
-// draw over each static light's gathered patches. Retail also drew the dynamic shadow ranges and,
-// for spot lights, only lights with shadow records; outside the expansion pack those lists were
-// always empty, so neither draw was ever issued for PR.
-void Terrain::drawDetailPass(bool draw)
+// [RENDER] The point lights reaching terrain, by the source retail's light passes drew from:
+// with the effect's ShaderVersion 1 the frame's static point lights (PE 0x100DF990, pass 16),
+// otherwise the visible lights of mask 2313 (PE 0x100DE5B0, passes 13 and 1). Attenuation uses
+// dynamicLightRangeScale; the gather radius stays unscaled.
+void Terrain::gatherPointLights()
 {
-    if (draw)
+    const float rangeScale = g_LightManager->getDynamicLightRangeScale();
+    if (m_effect && *dx9rend::effectShaderVersion(m_effect) == 1)
     {
-        dx9rend::effectBeginPass(m_effect, 16);
-        if (!dx9rend::rendererPerformanceFlag(11))
-            dx9rend::stateManagerSetRenderState(27, 0);
-        dx9rend::stateManagerSetRenderState(168, 15);
-        dx9rend::indexBufferBind(m_lodIndexBuffer);
+        const std::vector<XpLight*>& lights = xpStaticFrameLights();
+        for (XpLight* const* light = lights.data(); light != lights.data() + lights.size(); ++light)
+        {
+            if (xpLightType(*light) == 2)
+                continue;
+            world::LightSource* const source = xpLightSource(*light);
+            m_culler->gatherVisibleSphere(&source->getAbsolutePosition().x, xpLightRadius(*light));
+            std::vector<TerrainCullerNode*>* const gathered = m_culler->gatheredPatches();
+            g_surveyLightPath = 1;                                        // [DEV] terrain.survey
+            ++g_surveyLights;
+            g_surveyLightNodes += static_cast<unsigned int>(gathered->size());
+            addGatheredLight(gathered, source->getAbsolutePosition(),
+                             terrainScaledInverseRangeSquared(source->getAttenuationRange2(), rangeScale),
+                             source->getColor());
+        }
+        return;
     }
-
-    const std::vector<XpLight*>& pointLights = xpStaticFrameLights();
-    for (XpLight* const* light = pointLights.data(); light != pointLights.data() + pointLights.size(); ++light)
-    {
-        XpLight* const wrapper = *light;
-        world::LightSource* const source = xpLightSource(wrapper);
-        if (xpLightType(wrapper) == 2)
-            continue;
-        struct PointRecord { Vec3 position; float inverseRange; Vec3 color; } point;
-        static_assert(sizeof(PointRecord) == 7 * sizeof(float), "point-light shader payload");
-        point.position = source->getAbsolutePosition();
-        const float radius = source->getAttenuationRange2();
-        point.inverseRange = terrainScaledInverseRangeSquared(radius, g_LightManager->getDynamicLightRangeScale());
-        point.color = source->getColor();
-        param(m_hPointLight)->setValue(&point, 0);
-        m_culler->gatherVisibleSphere(&source->getAbsolutePosition().x, xpLightRadius(wrapper));
-        std::vector<TerrainCullerNode*>* const gathered = m_culler->gatheredPatches();
-        g_surveyLightPath = 1;                                            // [DEV] terrain.survey
-        ++g_surveyLights;
-        g_surveyLightNodes += static_cast<unsigned int>(gathered->size());
-        addGatheredLight(gathered, point.position, point.inverseRange, point.color);   // [RENDER]
-        if (!draw)
-            continue;
-        param(terrainShadowArrayParameter(3))->setInt(0);
-        TerrainCullerNode** first = gathered->data();
-        TerrainCullerNode** const end = gathered->data() + gathered->size();
-        while (first != end)
-            (*first)->patch->drawPointLight(first);
-    }
-}
-
-
-// Draws visible dynamic point lights on gathered terrain patches.
-// Attenuation uses dynamicLightRangeScale, while the gather radius remains unscaled.
-
-void Terrain::drawMaskLights(bool draw)
-{
-    static std::vector<world::LightSource*> s_lights;                     // unk_102592A4 (the once-only seed and atexit)
-    s_lights.clear();                                                     // sub_100E1C20(0, 0)
+    static std::vector<world::LightSource*> s_lights;                     // unk_102592A4
+    s_lights.clear();
     g_LightManager->getVisibleLightsByMask(s_lights, 2313u, 0u);          // +0x18
-    for (std::size_t i = 0; i != s_lights.size(); ++i)                    // the end re-read every pass
+    for (std::size_t i = 0; i != s_lights.size(); ++i)
     {
         world::LightSource* const light = s_lights[i];
-        struct PointLightRecord                                           // pointlight, 0x1C bytes
-        {
-            Vec3  position;                                               // [ebp-0x24]
-            float invRangeSq;                                             // [ebp-0x18]
-            Vec3  color;                                                  // [ebp-0x14]
-        } record;
-        record.position.x = 0.0f;
-        record.position.y = 0.0f;
-        record.position.z = 0.0f;
-        record.color.x = 0.0f;
-        record.color.y = 0.0f;
-        record.color.z = 0.0f;
-        record.position = light->getAbsolutePosition();                  // IObject PE +0x68
-        const float range = light->getAttenuationRange2();               // LightSource PE +0x190
-        const float scaled = g_LightManager->getDynamicLightRangeScale() * range;   // +0x2E0
-        record.invRangeSq = 1.0f / (scaled * scaled);                    // fld st0; fmul st1; fdivr 1.0f
-        record.color = light->getColor();                                // LightSource PE +0x198
-        param(m_hPointLight)->setValue(&record, 0);                      // +0x264
-        const float radius = light->getVisualBoundingRadius();           // PE +0x90 - asked first
-        m_culler->gatherVisibleSphere(&light->getAbsolutePosition().x, radius);
-        std::vector<TerrainCullerNode*>* const list = m_culler->gatheredPatches();
+        m_culler->gatherVisibleSphere(&light->getAbsolutePosition().x, light->getVisualBoundingRadius());
+        std::vector<TerrainCullerNode*>* const gathered = m_culler->gatheredPatches();
         g_surveyLightPath = 2;                                            // [DEV] terrain.survey
         ++g_surveyLights;
-        g_surveyLightNodes += static_cast<unsigned int>(list->size());
-        addGatheredLight(list, record.position, record.invRangeSq, record.color);   // [RENDER]
-        if (!draw)
-            continue;
-        TerrainCullerNode** it = list->data();
-        while (it != list->data() + list->size())
-            (*it)->patch->drawPointLight(it);                            // sub_1018C7F0, advances `it`
+        g_surveyLightNodes += static_cast<unsigned int>(gathered->size());
+        const float scaled = rangeScale * light->getAttenuationRange2();
+        addGatheredLight(gathered, light->getAbsolutePosition(), 1.0f / (scaled * scaled),
+                         light->getColor());
     }
 }
 
 
 namespace {
-const std::string& onePassTechniqueName()
+const std::string& raTerrainTechniqueName()
 {
     static const std::string name("RaTerrain");
     return name;
 }
 
-// [RENDER] Render milestone 10, task 4 (renderer.terrainOnePass): technique RaTerrain's constants
-// for one patch, its detail layers 0-5 in layer order (layer 6, under water, is a flag). A layer
+// [RENDER] Technique RaTerrain's constants for one patch, its detail layers 0-5 in layer order (layer 6, under water, is a flag). A layer
 // whose texture has no atlas cell is left out, as is the debug-hidden one.
-void setOnePassPatch(Terrain* t, QuadPatch* patch, const TerrainAtlases& atlases)
+void setRaTerrainPatch(Terrain* t, QuadPatch* patch, const TerrainAtlases& atlases)
 {
     float top[6][4], side[6][4], tiling[6][4], weight0[6][4], weight1[6][4], atlas[6][4];
     std::memset(weight0, 0, sizeof(weight0));
@@ -1264,7 +1048,7 @@ void setOnePassPatch(Terrain* t, QuadPatch* patch, const TerrainAtlases& atlases
         atlas[count][3] = 0.0f;
         ++count;
     }
-    const Terrain::OnePassHandles& h = t->m_onePass;
+    const Terrain::RaTerrainHandles& h = t->m_raTerrain;
     param(h.layerCount)->setInt(count);
     param(h.underWater)->setBool(underWater ? 1 : 0);
     if (count)
@@ -1282,85 +1066,39 @@ void setOnePassPatch(Terrain* t, QuadPatch* patch, const TerrainAtlases& atlases
 }
 } // anonymous namespace
 
-// the +0xBC arm's diffuse passes: the technique again, per visible node's patch the
-// colormap and the low-detail map, then the patch's detail passes.
-
+// PE 0x100DB680, the +0xBC arm's diffuse passes. [RENDER] Technique RaTerrain, one draw per patch
+// over its visible nodes: every detail layer from the atlases, fog once, layer 6 folded in, lit
+// from the patch's lightmap and its point lights; it tests EQUAL against the prepass's depth.
+// Retail drew per patch one Hi_Terrain pass per detail layer on the near nodes (4, 5, 11, 14) and
+// the low-detail pass (3) on the far ones, each reading the accumulation target. Without the
+// atlases or the technique terrain draws no colour.
 void Terrain::drawFinal()
 {
-    std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
-    if (m_compactVertices)
-        dx9rend::vertexBufferBindStream(m_baseGridVertexBuffer, 0);
-    dx9rend::vertexDeclarationBind(m_vertexDeclaration);
-    dx9rend::effectSetTechniqueByName(m_effect, std::string("Hi_Terrain"));
-    dx9rend::effectBegin(m_effect);
     if (m_flag35B)
     {
         // sub_10074300(6, __FILE__, 2557, "") << the message - dice's debug stream, kept as one line.
         ::renddx9abi::logf("[Terrain.cpp:2557] makeDynamicLightmap is obsolete!");
     }
-    m_currentPass = 0;
     if (dx9rend::rendererGetHemiRenderMode() == 4)
         dx9rend::stateManagerClear(1u, 0x808080u, 0.0f, 0u);             // sub_100057E0(1, 8421504, ...)
-    lightManagerRestoreRendererTarget0();
-    // [RENDER] Milestone 10, task 3 (renderer.terrainOnePass): the lit passes read the patch's
-    // lightmap on Tex1 and its point lights as constants; off, Tex1 is the accumulation target.
-    const bool direct = dx9rend::rendererTerrainOnePass();
-    // Tasks 4 and 6: with the atlases built, every visible node draws technique RaTerrain, every
-    // layer in one pass, at any distance.
-    const TerrainAtlases* const atlases = direct ? terrainAtlases() : 0;
-    if (atlases && !atlases->detail.empty() && dx9rend::effectHasTechnique(m_effect, onePassTechniqueName()))
-    {
-        dx9rend::effectEnd(m_effect);
-        drawOnePass(*atlases);
+    const TerrainAtlases* const atlases = terrainAtlases();
+    if (!atlases || atlases->detail.empty() || !dx9rend::effectHasTechnique(m_effect, raTerrainTechniqueName()))
         return;
-    }
-    param(m_hRaTerrainDirectLight)->setBool(direct ? 1 : 0);
-    if (!direct)
-    {
-        param(m_hTexLayer[1])->setValue(dx9rend::rendererGetHemiScratchTexture(), 0);
-        param(m_hRaTerrainLightCount)->setInt(0);
-    }
-    TerrainCullerNode** it = list->data();
-    while (it != list->data() + list->size())
-    {
-        QuadPatch* const patch = (*it)->patch;
-        param(m_hTexLayer[0])->setValue(patch->colormap, 0);
-        param(m_hTexLayer[5])->setValue(patch->lowDetailmap, 0);
-        if (direct)
-        {
-            param(m_hTexLayer[1])->setValue(patch->lightmap, 0);
-            const PatchLights* const lights = findPatchLights(patch);
-            const int count = lights ? lights->count : 0;
-            param(m_hRaTerrainLightCount)->setInt(count);
-            if (count)
-            {
-                param(m_hRaTerrainLightPos)->setValue(lights->position, static_cast<unsigned int>(count));
-                param(m_hRaTerrainLightCol)->setValue(lights->color, static_cast<unsigned int>(count));
-            }
-        }
-        patch->drawFinal(it);                                             // sub_1018C910, advances `it`
-    }
-    dx9rend::effectEnd(m_effect);
-}
 
-
-// [RENDER] Render milestone 10, task 4: see drawFinal. The effect is not begun on entry.
-void Terrain::drawOnePass(const TerrainAtlases& atlases)
-{
     std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
     TerrainCullerNode** const begin = list->data();
     TerrainCullerNode** const end = begin + list->size();
-    param(m_hRaTerrainDirectLight)->setBool(1);
-    const int atlasCount = static_cast<int>(atlases.detail.size());
+    if (m_compactVertices)
+        dx9rend::vertexBufferBindStream(m_baseGridVertexBuffer, 0);
+    dx9rend::vertexDeclarationBind(m_vertexDeclaration);
+    const int atlasCount = static_cast<int>(atlases->detail.size());
     for (int i = 0; i < 3; ++i)
-        param(m_onePass.atlas[i])->setValue(terrainAtlasDetailValue(i < atlasCount ? i : 0), 0);
+        param(m_raTerrain.atlas[i])->setValue(terrainAtlasDetailValue(i < atlasCount ? i : 0), 0);
 
-    // Task 6: every visible node at full detail, near or far; detailNear is not read here.
-    dx9rend::effectSetTechniqueByName(m_effect, onePassTechniqueName());
+    dx9rend::effectSetTechniqueByName(m_effect, raTerrainTechniqueName());
     dx9rend::effectBegin(m_effect);
     dx9rend::indexBufferBind(m_lodIndexBuffer);
     dx9rend::effectBeginPass(m_effect, 0u);
-    m_currentPass = 0;
     TerrainCullerNode** it = begin;
     while (it != end)
     {
@@ -1376,7 +1114,7 @@ void Terrain::drawOnePass(const TerrainAtlases& atlases)
             param(m_hRaTerrainLightPos)->setValue(lights->position, static_cast<unsigned int>(count));
             param(m_hRaTerrainLightCol)->setValue(lights->color, static_cast<unsigned int>(count));
         }
-        setOnePassPatch(this, patch, atlases);
+        setRaTerrainPatch(this, patch, *atlases);
         patch->drawNodes(it);                                             // advances `it`
     }
     dx9rend::effectEnd(m_effect);
@@ -1838,15 +1576,12 @@ void Terrain::survey()
     ::renddx9abi::logf("[terrain.survey] env map %s",
                        surveyTexture(envMaps ? envMaps->m_currentTexture : 0).c_str());
 
-    // The last frame: visible nodes, how many shade near, and the point-light pass.
+    // The last frame: visible nodes and the point-light gather.
     std::vector<TerrainCullerNode*>* const visible = m_culler->visiblePatches();
-    unsigned int nearNodes = 0;
-    for (std::size_t i = 0; i != visible->size(); ++i)
-        nearNodes += (*visible)[i]->detailNear ? 1u : 0u;
-    static const char* const kPaths[] = { "none", "drawDetailPass (pass 16)", "drawMaskLights (passes 13/1)" };
-    ::renddx9abi::logf("[terrain.survey] frame: visible nodes %u (detailNear %u), detailDistance %d; "
+    static const char* const kPaths[] = { "none", "static frame lights", "visible mask lights" };
+    ::renddx9abi::logf("[terrain.survey] frame: visible nodes %u; "
                        "shader version %d; lights %s, %u lights over %u gathered nodes",
-                       static_cast<unsigned int>(visible->size()), nearNodes, m_culler->detailDistance,
+                       static_cast<unsigned int>(visible->size()),
                        m_effect ? *dx9rend::effectShaderVersion(m_effect) : -1,
                        kPaths[g_surveyLightPath], g_surveyLights, g_surveyLightNodes);
 }

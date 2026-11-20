@@ -442,14 +442,10 @@ public:
 
     // the per-frame bodies - TerrainDraw.cpp
     void  applyFrameConstants();                                     // sub_100D95D0  the +0xB8 arm's constants worker
-    void  lockDynamicIndexBuffer();                                  // sub_100D8570  discard-lock of +0x368 into +0x484
     // Unreachable in 1.50 (no code or data references); recovered from the listings, names [INFERRED].
-    void  unlockDynamicIndexBuffer();                                // the unlock half of the frame's lock
     void  setFlag364(unsigned char value);                           // +0x364
     void  setUnresolved464(int value);                               // +0x464, only 0x400 / 0x200 / 0x100 / 0x80
     void  reportObsolete();                                          // the "obsolete" error (Terrain.cpp line 4095)
-    void  allocateIndexBuffer();                                     // +0x368 from +0x458 when absent
-    void  setIndexBufferCount(unsigned int count);                   // +0x458, rebuilding +0x368
     Vec3* getWaterColor255(Vec3* out);                               // the +0x710 record's colour x 255
     void  setWaterColor255(Vec3 colour);                             // the colour / 255 into the record
     void  setWaterTransparencyBelow(float value);                    // record +0x14 [INFERRED] name
@@ -465,7 +461,7 @@ public:
     void  setFlag3B8(unsigned char value);                           // +0x3B8; also the legacy base-grid table
     void  setFlag2AD(unsigned char value);                           // +0x2AD
     void  setFlag2AC(unsigned char value);                           // +0x2AC
-    void  drawMain();                                                // sub_100E0940  Hi_/Low_Terrain pass 0 (and pass 7 shadows) into the accumulation target
+    void  drawMain();                                                // sub_100E0940  [RENDER] the aux queues and the point-light gather
     // [RENDER] Sun shadow casters. gatherShadowCasters collects the drawable culler
     // nodes (the camera walk's units) whose sphere meets `volume`, with the LOD the camera drew them
     // at this frame, or for nodes it did not draw the LOD its walk would pick and no crack fixup.
@@ -474,12 +470,10 @@ public:
     void  gatherShadowCasters(const Frustum& volume);
     void  drawShadowCasters(const float* viewProjection, const dx9rend::ShadowCascadeCull& cull);
     void  drawDepthPrepass();                                        // [RENDER] technique RaDepthPrepass
-    // [RENDER] Milestone 10, task 5: `draw` false gathers the point lights per patch
-    // (renderer.terrainOnePass) without drawing them into the accumulation target.
-    void  drawDetailPass(bool draw = true);                                          // sub_100DF990  the ShaderVersion-1 detail/light pass [read - stops, see the body]
-    void  drawMaskLights(bool draw = true);                                          // sub_100DE5B0  the point-light pass over getVisibleLightsByMask(2313) - LightManager +0x18, the frame's visible lights
-    void  drawFinal();                                               // sub_100DB680  the +0xBC arm's diffuse passes
-    void  drawOnePass(const TerrainAtlases& atlases);                // [RENDER] milestone 10, task 4: technique RaTerrain
+    // [RENDER] The point lights reaching each patch, for RaTerrain's per-patch list (the sources of
+    // retail's light passes, sub_100DF990 and sub_100DE5B0).
+    void  gatherPointLights();
+    void  drawFinal();                                               // sub_100DB680  [RENDER] technique RaTerrain, one pass
     void  drawSurrounding();                                         // sub_100E0F80  Shared_SurroundingTerrain over the ring
     // [DEV] Console `terrain.survey`: the loaded terrain's detail layers, textures and the last
     // frame's terrain lights, written to the log (render milestone 10, task 1).
@@ -633,7 +627,7 @@ public:
     void*          m_lowDetailTexture;      // +0x2D4  loadLowDetailTexture's texture - TEXLAYER4
     int            m_unresolved2D8;         // +0x2D8  not touched
     ::dice::hfe::world::IHeightmapCluster* m_heightmapCluster;   // +0x2DC  0; applyFrameConstants caches the "HeightmapCluster" singleton
-    float          m_cameraHeightAboveTerrain; // +0x2E0  0; applyFrameConstants: |camera.y - terrain height under it|; the walk adds it to every LOD distance
+    float          m_cameraHeightAboveTerrain; // +0x2E0  0; applyFrameConstants: |camera.y - terrain height under it|
     Vec3           m_sunColor;              // +0x2E4  (1,1,1); file, stored * 0.25
     Vec3           m_giColor;               // +0x2F0  (0x3ECECCCD, 0x3EB53333, 0x3E9B999A); file, stored * 0.5
     Vec3           m_ambientColor;          // +0x2FC  0 - ambientcolor; console `ambientColor` [INFERRED from the constant it feeds]
@@ -645,7 +639,7 @@ public:
     float          m_farTopTilingHi;        // +0x330  16.0; file
     float          m_farYOffset;            // +0x334  0; file
     std::vector<TerrainDetailTexture*> m_detailTextures;   // +0x338  one per record
-    int            m_currentPass;           // +0x348  0; drawFinal's pass cache (the +0xBC arm resets it)
+    int            m_unused348;             // +0x348  [RENDER] was drawFinal's pass cache
     ::dice::hfe::world::IHeightmap* m_primaryHeightmap; // +0x34C  init: the cluster's primary heightmap
     int            m_heightmapSizeX;        // +0x350  init: its size
     int            m_heightmapSizeZ;        // +0x354
@@ -655,14 +649,11 @@ public:
     unsigned char  m_flag35B;               // +0x35B  0  drawFinal: "makeDynamicLightmap is obsolete!" when set
     unsigned char  m_surroundingBuilt;      // +0x35C  0; loadSurroundingPatches raises it after slot +0xCC; the +0xBC arm's third gate
     unsigned char  m_flag35D;               // +0x35D  0
-    // [RENDER] Always 0: the renderer has one terrain path (Hi_Terrain). Retail set both when the
-    // Terrain quality option was 1; the branches that test them go with the terrain rewrite.
-    unsigned char  m_lowQualityB;           // +0x35E
-    unsigned char  m_lowQuality;            // +0x35F
-    int            m_drawDebugFlags;        // +0x360  0; drawFinal: bit 1 skips the lower-LOD merge, bit 2 enables the LOD-0 merge [UNRESOLVED writer]
+    unsigned char  m_unused35E[2];          // +0x35E  [RENDER] were the low-quality bytes (Terrain quality option 1)
+    int            m_unused360;             // +0x360  [RENDER] was drawFinal's debug merge flags
     unsigned char  m_flag364;               // +0x364  0
     unsigned char  m_pad365[3];
-    void*          m_indexBuffer;           // +0x368  49152 x u16, usage 520, format 101 (load's tail) - the dynamic shadow-range index buffer
+    void*          m_unused368;             // +0x368  [RENDER] was the dynamic shadow-range index buffer
     // [RENDER] +0x36C held the point/spot shadow-range vector; it went with those shadow maps.
     int            m_unresolved37C;         // +0x37C  not touched
     QuadPatch**    m_patches;               // +0x380  patchCount^2 pointers (load)
@@ -685,14 +676,14 @@ public:
     unsigned int   m_streamedPatchCount;    // +0x418  cleared and incremented by geometryStreamTick
     unsigned char  m_lightingDirty;         // +0x41C  1; the sun/GI setters and the culler's LOD-distance change raise it; applyFrameConstants clears it
     unsigned char  m_pad41D[3];
-    int            m_currentDetailLayer;    // +0x420  -1; drawFinal's per-frame layer cache (TEXLAYER3/6, neartextiling, componentselector)
+    int            m_unused420;             // +0x420  [RENDER] was drawFinal's per-frame layer cache
     int            m_unused424;             // +0x424  [RENDER] was the morph constants' LOD cache
     float          m_unused428[6];          // +0x428  [RENDER] were the morph limits per LOD
     float          m_unresolved440;         // +0x440  -1.0f [UNRESOLVED] (the LOD-3 pair's first word, never set by a draw)
     int            m_unresolved444;         // +0x444  not touched
     // +0x448: the patches whose shadow gather produced ranges this frame; the pass-7 draw walks it.
     std::vector<QuadPatch*> m_shadowPatches; // +0x448
-    unsigned int   m_indexBufferCount;      // +0x458  49152
+    unsigned int   m_unused458;             // +0x458  [RENDER] was the +0x368 buffer's index count
     float          m_shadowGatherThreshold; // +0x45C  4.0f; drawMain gathers only when > 0.1 [INFERRED]
     float          m_shadowExtrusionScale;  // +0x460  4.0f; drawMain: threshold * (1.643 + sunDirection.y), handed to the gather [INFERRED]
     int            m_unresolved464;         // +0x464  512
@@ -701,9 +692,9 @@ public:
     int            m_unresolved46C;         // +0x46C  0
     // Reused ushort index buffer for one block of base-grid LOD generation.
     std::vector<unsigned short> m_lodBlockIndices;  // +0x470
-    unsigned char  m_indexBufferLocked;     // +0x480  0; lockDynamicIndexBuffer raises it
+    unsigned char  m_unused480;             // +0x480  [RENDER] was the +0x368 buffer's lock flag
     unsigned char  m_pad481[3];
-    void*          m_indexBufferBits;       // +0x484  0; the discard lock of +0x368
+    void*          m_unused484;             // +0x484  [RENDER] was the +0x368 buffer's locked bits
     unsigned char  m_flag488;               // +0x488  not touched
     unsigned char  m_flag489;               // +0x489  0
     unsigned char  m_compactVertices;       // +0x48A  0; file (version >= 0x19): the 20-byte "QuadPatch_SingleCompact" format
@@ -746,14 +737,13 @@ public:
     int            m_fileOffsetDetail;      // +0x75C  reader.tell() before the detail records
     int            m_fileOffsetPatches;     // +0x760  reader.tell() before the patches
     int            m_unresolved764;         // +0x764  not touched
-    // [RENDER] Not retail: the lit passes' direct terrain light (render milestone 10, contract 4).
-    void*          m_hRaTerrainDirectLight; // RaTerrainDirectLight (bool)
+    // [RENDER] Not retail: RaTerrain's per-patch point lights (render milestone 10, contract 4).
     void*          m_hRaTerrainLightCount;  // RaTerrainLightCount (int)
     void*          m_hRaTerrainLightPos;    // RaTerrainLightPos (float4[4])
     void*          m_hRaTerrainLightCol;    // RaTerrainLightCol (float4[4])
     // [RENDER] Not retail: technique RaTerrain, every detail layer in one pass (render milestone
-    // 10, task 4, contract 5). Per patch: the layers' atlas cells, tiling and weight channels.
-    struct OnePassHandles
+    // 10, contract 5). Per patch: the layers' atlas cells, tiling and weight channels.
+    struct RaTerrainHandles
     {
         void* layerCount;    // RaTerrainLayerCount (int)
         void* layerTop;      // RaTerrainLayerTop (float4[6])
@@ -766,7 +756,7 @@ public:
         void* atlas[3];      // RaTerrainAtlas0..2 (texture)
         void* weight[2];     // RaTerrainWeight0..1 (texture)
     };
-    OnePassHandles m_onePass;
+    RaTerrainHandles m_raTerrain;
 };
 
 #if defined(_M_IX86)
