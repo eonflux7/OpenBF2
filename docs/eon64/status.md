@@ -216,7 +216,17 @@ Tasks (tasks 1–3 done by an agent, 2026-11-19; task 5 seen by the owner; tasks
    owner: the fade and the cull distance show only in motion.
 10. Acceptance: the benchmark paths against the baselines above (re-taken at 1920x1080 on a quiet
     host first; the baselines above are 1600x900), view shots matching the D3DX
-    path, then the D3DX path and the A/B variable deleted.
+    path, then the D3DX path and the A/B variable deleted. Measured by an agent, 2026-11-20
+    (engine `5daefb35`, quiet host after a reboot, 1920x1080 4x): the baseline is the D3DX path
+    in the same build (`renderer.submit`, `instancing`, `casterCull` and `contributionCull` 0),
+    since the shaders before contract 3 no longer build; same session, 3 runs each, D3DX against
+    the new path: Muttrah City `bench1` 11.36 / 7.93 ms (1 % low 15.51 / 10.85; draws 7713 /
+    3383), Fallujah West `bench` 20.66 / 14.11 ms (26.01 / 18.72; 14848 / 4418), Saaremaa
+    `bench1` 6.24 / 5.04 ms (8.80 / 7.55; 4318 / 1644); spreads 0.4 to 4.8 % on average. View
+    shots, D3DX against new, differ only in wind, smoke and water (Muttrah `high` 22, `market`
+    375; Fallujah `city1` 6861, `city2` 395, `city3` 11934; Saaremaa `forest1` 742, `forest2`
+    6996, `runway` 1646 pixels of 2.07 M, 2 % fuzz). Waiting for the owner to see tasks 4 and
+    6–9 in game (the contribution fade shows only in motion); on acceptance the deletion.
 
 Open from milestone 8:
 - Crash in the first frame after a device reset: fixed in `717b2671` (a stale RaShadowViewProj
