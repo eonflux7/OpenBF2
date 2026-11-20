@@ -1178,6 +1178,81 @@ void Terrain::drawMaskLights()
 }
 
 
+namespace {
+const std::string& onePassTechniqueName()
+{
+    static const std::string name("RaTerrain");
+    return name;
+}
+
+// [RENDER] Render milestone 10, task 4 (renderer.terrainOnePass): technique RaTerrain's constants
+// for one patch, its detail layers 0-5 in layer order (layer 6, under water, is a flag). A layer
+// whose texture has no atlas cell is left out, as is the debug-hidden one.
+void setOnePassPatch(Terrain* t, QuadPatch* patch, const TerrainAtlases& atlases)
+{
+    float top[6][4], side[6][4], tiling[6][4], weight0[6][4], weight1[6][4], atlas[6][4];
+    std::memset(weight0, 0, sizeof(weight0));
+    std::memset(weight1, 0, sizeof(weight1));
+    int count = 0;
+    bool underWater = false;
+    const int layers = static_cast<int>(patch->detailLayers.size());
+    for (int layer = 0; layer < 7 && layer < layers; ++layer)
+    {
+        const QuadPatchDetailLayer* const detail = patch->detailLayers[layer];
+        if (!detail || layer == t->m_hiddenDetailLayer)
+            continue;
+        if (layer == 6)
+        {
+            underWater = true;
+            continue;
+        }
+        const int index = detail->detailIndex;
+        if (index < 0 || index / 3 > 1 || index >= static_cast<int>(atlases.top.size())
+            || index >= static_cast<int>(t->m_detailTextures.size()))
+            continue;
+        const TerrainDetailTexture* const record = t->m_detailTextures[index];
+        const TerrainAtlasEntry& topEntry = atlases.top[index];
+        if (!record || topEntry.atlas < 0)
+            continue;
+        const bool planar = record->planeMap != 0;
+        const TerrainAtlasEntry& sideEntry =
+            (planar && atlases.side[index].atlas >= 0) ? atlases.side[index] : topEntry;
+        const float topCell[4] = { topEntry.scaleU, topEntry.scaleV, topEntry.offsetU, topEntry.offsetV };
+        const float sideCell[4] = { sideEntry.scaleU, sideEntry.scaleV, sideEntry.offsetU, sideEntry.offsetV };
+        std::memcpy(top[count], topCell, sizeof(topCell));
+        std::memcpy(side[count], sideCell, sizeof(sideCell));
+        tiling[count][0] = record->sideTiling.x;
+        tiling[count][1] = record->sideTiling.y;
+        tiling[count][2] = record->topTiling;
+        tiling[count][3] = record->yOffset;
+        float* const select = (index / 3 == 0) ? weight0[count] : weight1[count];
+        select[0] = detail->selectorX;
+        select[1] = detail->selectorY;
+        select[2] = detail->selectorZ;
+        atlas[count][0] = static_cast<float>(topEntry.atlas);
+        atlas[count][1] = static_cast<float>(sideEntry.atlas);
+        atlas[count][2] = planar ? 1.0f : 0.0f;
+        atlas[count][3] = 0.0f;
+        ++count;
+    }
+    const Terrain::OnePassHandles& h = t->m_onePass;
+    param(h.layerCount)->setInt(count);
+    param(h.underWater)->setBool(underWater ? 1 : 0);
+    if (count)
+    {
+        const unsigned int n = static_cast<unsigned int>(count);
+        param(h.layerTop)->setValue(top, n);
+        param(h.layerSide)->setValue(side, n);
+        param(h.layerTiling)->setValue(tiling, n);
+        param(h.layerWeight0)->setValue(weight0, n);
+        param(h.layerWeight1)->setValue(weight1, n);
+        param(h.layerAtlas)->setValue(atlas, n);
+    }
+    param(h.weight[0])->setValue(patch->detailMap[0], 0);
+    param(h.weight[1])->setValue(patch->detailMap[1] ? patch->detailMap[1] : patch->detailMap[0], 0);
+}
+} // anonymous namespace
+
 // the +0xBC arm's diffuse passes: the technique again, per visible node's patch the
 // colormap and the low-detail map, then the patch's detail passes.
 
@@ -1201,6 +1276,15 @@ void Terrain::drawFinal()
     // [RENDER] Milestone 10, task 3 (renderer.terrainOnePass): the lit passes read the patch's
     // lightmap on Tex1 and its point lights as constants; off, Tex1 is the accumulation target.
     const bool direct = dx9rend::rendererTerrainOnePass();
+    // Task 4: with the atlases built, the near nodes draw technique RaTerrain, every layer in one
+    // pass, and the far nodes Hi_Terrain's LowDiffuse pass as before (until task 6).
+    const TerrainAtlases* const atlases = direct ? terrainAtlases() : 0;
+    if (atlases && !atlases->detail.empty() && dx9rend::effectHasTechnique(m_effect, onePassTechniqueName()))
+    {
+        dx9rend::effectEnd(m_effect);
+        drawOnePass(*atlases);
+        return;
+    }
     param(m_hRaTerrainDirectLight)->setBool(direct ? 1 : 0);
     if (!direct)
     {
@@ -1228,6 +1312,48 @@ void Terrain::drawFinal()
         patch->drawFinal(it);                                             // sub_1018C910, advances `it`
     }
     dx9rend::effectEnd(m_effect);
+}
+
+
+// [RENDER] Render milestone 10, task 4: see drawFinal. The effect is not begun on entry.
+void Terrain::drawOnePass(const TerrainAtlases& atlases)
+{
+    std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
+    TerrainCullerNode** const begin = list->data();
+    TerrainCullerNode** const end = begin + list->size();
+    param(m_hRaTerrainDirectLight)->setBool(1);
+    const int atlasCount = static_cast<int>(atlases.detail.size());
+    for (int i = 0; i < 3; ++i)
+        param(m_onePass.atlas[i])->setValue(terrainAtlasDetailValue(i < atlasCount ? i : 0), 0);
+
+    for (int nearNodes = 1; nearNodes >= 0; --nearNodes)
+    {
+        dx9rend::effectSetTechniqueByName(m_effect, nearNodes ? onePassTechniqueName() : std::string("Hi_Terrain"));
+        dx9rend::effectBegin(m_effect);
+        dx9rend::indexBufferBind(m_lodIndexBuffer);
+        dx9rend::effectBeginPass(m_effect, nearNodes ? 0u : 3u);
+        m_currentPass = nearNodes ? 0 : 3;
+        TerrainCullerNode** it = begin;
+        while (it != end)
+        {
+            QuadPatch* const patch = (*it)->patch;
+            param(m_hTexLayer[0])->setValue(patch->colormap, 0);
+            param(m_hTexLayer[1])->setValue(patch->lightmap, 0);
+            param(m_hTexLayer[5])->setValue(patch->lowDetailmap, 0);
+            const PatchLights* const lights = findPatchLights(patch);
+            const int count = lights ? lights->count : 0;
+            param(m_hRaTerrainLightCount)->setInt(count);
+            if (count)
+            {
+                param(m_hRaTerrainLightPos)->setValue(lights->position, static_cast<unsigned int>(count));
+                param(m_hRaTerrainLightCol)->setValue(lights->color, static_cast<unsigned int>(count));
+            }
+            if (nearNodes)
+                setOnePassPatch(this, patch, atlases);
+            patch->drawNodes(it, nearNodes != 0);                         // advances `it`
+        }
+        dx9rend::effectEnd(m_effect);
+    }
 }
 
 

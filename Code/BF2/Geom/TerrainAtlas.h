@@ -61,6 +61,9 @@ void terrainAtlasUpdate();
 void terrainAtlasRelease();
 // The current atlases, or 0 before a terrain has loaded.
 const TerrainAtlases* terrainAtlases();
+// Detail atlas `index` as an effect texture value (an engine texture record wrapping it, for
+// ShaderParameter::setValue), or 0.
+const void* terrainAtlasDetailValue(int index);
 // [DEV] Console `terrain.atlasDump`: every atlas as a .dds under `dir`, and a log line per entry.
 void terrainAtlasDump(const std::string& dir);
 

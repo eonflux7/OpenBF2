@@ -26,6 +26,8 @@ namespace {
 
 TerrainAtlases g_atlases = { std::vector<IDirect3DTexture9*>(), std::vector<TerrainAtlasEntry>(),
                              std::vector<TerrainAtlasEntry>(), 0, 0, 0 };
+// Engine texture records wrapping the detail atlases: effect parameters take a texture as one.
+std::vector<dx9rend::EngineTexture*> g_detailValues;
 bool g_built = false;
 Terrain* g_pending = 0;   // loaded, waiting for its textures (the texture manager's post-load sweep)
 
@@ -263,6 +265,9 @@ void buildDetailAtlases(Terrain* terrain)
             continue;
         atlasOf[g] = static_cast<int>(g_atlases.detail.size());
         g_atlases.detail.push_back(atlas);
+        dx9rend::EngineTexture* const value = new dx9rend::EngineTexture();
+        value->baseTexture = atlas;
+        g_detailValues.push_back(value);
         D3DSURFACE_DESC desc = {};
         atlas->GetLevelDesc(0, &desc);
         ::renddx9abi::logf("[terrain.atlas] detail atlas %d: %s %ux%u m%u, %u entries of %ux%u",
@@ -390,6 +395,9 @@ void terrainAtlasRelease()
         if (g_atlases.detail[i])
             g_atlases.detail[i]->Release();
     g_atlases.detail.clear();
+    for (std::size_t i = 0; i != g_detailValues.size(); ++i)
+        delete g_detailValues[i];
+    g_detailValues.clear();
     g_atlases.top.clear();
     g_atlases.side.clear();
     if (g_atlases.lightmap)
@@ -428,6 +436,13 @@ void terrainAtlasUpdate()
 const TerrainAtlases* terrainAtlases()
 {
     return g_built ? &g_atlases : 0;
+}
+
+const void* terrainAtlasDetailValue(int index)
+{
+    if (!g_built || index < 0 || index >= static_cast<int>(g_detailValues.size()))
+        return 0;
+    return g_detailValues[index];
 }
 
 void terrainAtlasDump(const std::string& dir)

@@ -812,7 +812,7 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 // needs a newer contract stops with #error instead of running against an engine without it. Raised
 // whenever the engine changes what the shaders may rely on; docs/eon64/renderer-pipeline.md lists
 // what each version adds.
-#define RA_CONTRACT_VERSION 4
+#define RA_CONTRACT_VERSION 5
 #define RA_CONTRACT_TEXT_(v) #v
 #define RA_CONTRACT_TEXT(v) RA_CONTRACT_TEXT_(v)
 

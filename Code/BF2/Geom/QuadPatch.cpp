@@ -2075,6 +2075,51 @@ void QuadPatch::draw(TerrainCullerNode**& it)
     }
 }
 
+// [RENDER] See QuadPatch.h.
+void QuadPatch::drawNodes(TerrainCullerNode**& it, bool nearNodes)
+{
+    static unsigned int s_vertexCount = 0;
+    Terrain* const t = terrain;
+    if (!s_vertexCount)
+        s_vertexCount = static_cast<unsigned int>((t->m_patchSize + 1) * (t->m_patchSize + 1));
+    beginPatchDraw(this);
+    std::vector<TerrainCullerNode*>* const list = t->m_culler->visiblePatches();
+    TerrainCullerNode** const end = list->data() + list->size();
+    unsigned int start = 0;
+    unsigned int count = 0;
+    for (; it != end && (*it)->patch == this; ++it)
+    {
+        const TerrainCullerNode* const node = *it;
+        if ((node->detailNear != 0) != nearNodes)
+            continue;
+        const unsigned int nodeStart = lodStart(node);
+        const unsigned int nodeCount = lodCount(node);
+        if (count && nodeStart == start + count)
+            count += nodeCount;
+        else if (count && nodeStart + nodeCount == start)
+        {
+            start = nodeStart;
+            count += nodeCount;
+        }
+        else
+        {
+            if (count >= 3)
+            {
+                drawPatchRange(t, count / 3, s_vertexCount, start);
+                ++terrainRendererStat(628);
+            }
+            start = nodeStart;
+            count = nodeCount;
+        }
+    }
+    if (count >= 3)
+    {
+        drawPatchRange(t, count / 3, s_vertexCount, start);
+        ++terrainRendererStat(628);
+    }
+    lastDrawnFrame = dx9rend::rendererFrameOrdinal();
+}
+
 // Draws gathered nodes while advancing it, switching passes and morph constants as needed.
 // The default mode uses uncracked index ranges. Counts primitives, without merging ranges.
 void QuadPatch::drawGatheredNodes(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,

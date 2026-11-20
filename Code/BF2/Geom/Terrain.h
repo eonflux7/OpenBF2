@@ -25,6 +25,8 @@ namespace dx9rend { struct EngineTexture; struct ShadowCascadeCull; namespace Ra
 
 namespace geom {
 
+struct TerrainAtlases;   // TerrainAtlas.h
+
 // The water-object ring's header (Terrain::m_waterObjectRing): the count word, padded to pointer
 // alignment for the object blocks after it - 4 bytes on x86, as shipped.
 const unsigned int kWaterObjectRingHeader =
@@ -475,6 +477,7 @@ public:
     void  drawDetailPass();                                          // sub_100DF990  the ShaderVersion-1 detail/light pass [read - stops, see the body]
     void  drawMaskLights();                                          // sub_100DE5B0  the point-light pass over getVisibleLightsByMask(2313) - LightManager +0x18, the frame's visible lights
     void  drawFinal();                                               // sub_100DB680  the +0xBC arm's diffuse passes
+    void  drawOnePass(const TerrainAtlases& atlases);                // [RENDER] milestone 10, task 4: technique RaTerrain
     void  drawSurrounding();                                         // sub_100E0F80  Shared_SurroundingTerrain over the ring
     // [DEV] Console `terrain.survey`: the loaded terrain's detail layers, textures and the last
     // frame's terrain lights, written to the log (render milestone 10, task 1).
@@ -746,6 +749,22 @@ public:
     void*          m_hRaTerrainLightCount;  // RaTerrainLightCount (int)
     void*          m_hRaTerrainLightPos;    // RaTerrainLightPos (float4[4])
     void*          m_hRaTerrainLightCol;    // RaTerrainLightCol (float4[4])
+    // [RENDER] Not retail: technique RaTerrain, every detail layer in one pass (render milestone
+    // 10, task 4, contract 5). Per patch: the layers' atlas cells, tiling and weight channels.
+    struct OnePassHandles
+    {
+        void* layerCount;    // RaTerrainLayerCount (int)
+        void* layerTop;      // RaTerrainLayerTop (float4[6])
+        void* layerSide;     // RaTerrainLayerSide (float4[6])
+        void* layerTiling;   // RaTerrainLayerTiling (float4[6])
+        void* layerWeight0;  // RaTerrainLayerWeight0 (float4[6])
+        void* layerWeight1;  // RaTerrainLayerWeight1 (float4[6])
+        void* layerAtlas;    // RaTerrainLayerAtlas (float4[6])
+        void* underWater;    // RaTerrainUnderWater (bool)
+        void* atlas[3];      // RaTerrainAtlas0..2 (texture)
+        void* weight[2];     // RaTerrainWeight0..1 (texture)
+    };
+    OnePassHandles m_onePass;
 };
 
 #if defined(_M_IX86)

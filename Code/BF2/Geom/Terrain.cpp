@@ -442,6 +442,7 @@ Terrain::Terrain()
     m_hPointLight = 0; m_hSpotLight = 0;
     m_hRaTerrainDirectLight = 0; m_hRaTerrainLightCount = 0;          // [RENDER]
     m_hRaTerrainLightPos = 0; m_hRaTerrainLightCol = 0;
+    m_onePass = OnePassHandles();
     m_hLightPos1 = 0; m_hLightAttSqrInv1 = 0;
     m_hColorLightTex = 0;
     m_surroundingDeclaration = 0;
@@ -813,6 +814,19 @@ void Terrain::init()
     TERRAIN_PARAM(m_hRaTerrainLightCount,       "RaTerrainLightCount");
     TERRAIN_PARAM(m_hRaTerrainLightPos,         "RaTerrainLightPos");
     TERRAIN_PARAM(m_hRaTerrainLightCol,         "RaTerrainLightCol");
+    TERRAIN_PARAM(m_onePass.layerCount,         "RaTerrainLayerCount");    // [RENDER] contract 5
+    TERRAIN_PARAM(m_onePass.layerTop,           "RaTerrainLayerTop");
+    TERRAIN_PARAM(m_onePass.layerSide,          "RaTerrainLayerSide");
+    TERRAIN_PARAM(m_onePass.layerTiling,        "RaTerrainLayerTiling");
+    TERRAIN_PARAM(m_onePass.layerWeight0,       "RaTerrainLayerWeight0");
+    TERRAIN_PARAM(m_onePass.layerWeight1,       "RaTerrainLayerWeight1");
+    TERRAIN_PARAM(m_onePass.layerAtlas,         "RaTerrainLayerAtlas");
+    TERRAIN_PARAM(m_onePass.underWater,         "RaTerrainUnderWater");
+    TERRAIN_PARAM(m_onePass.atlas[0],           "RaTerrainAtlas0");
+    TERRAIN_PARAM(m_onePass.atlas[1],           "RaTerrainAtlas1");
+    TERRAIN_PARAM(m_onePass.atlas[2],           "RaTerrainAtlas2");
+    TERRAIN_PARAM(m_onePass.weight[0],          "RaTerrainWeight0");
+    TERRAIN_PARAM(m_onePass.weight[1],          "RaTerrainWeight1");
     TERRAIN_PARAM(m_hSpotLight,                 "SPOTLIGHT");
     TERRAIN_PARAM(m_hTerrainWaterColor,         "TerrainWaterColor");
     TERRAIN_PARAM(m_hWaterHeight,               "WaterHeight");
