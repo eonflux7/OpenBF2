@@ -57,7 +57,8 @@ with it: the always-false `m_lowQuality` branches and the dynamic shadow-range i
 
 Full shading detail at every distance (owner, 2026-11-19): detail layers everywhere and no
 low-detail pass, so the `detailNear` split that milestone 8 left in the culler and `drawFinal` goes,
-with `lodSwitchDistance` reduced to the roads' view distance. At range the detail textures tile
+and with it `lodSwitchDistance`. Roads draw to the view distance with no fade (owner, 2026-11-20).
+At range the detail textures tile
 visibly, so the one pass blends the low-detail colormap in by distance for variation, not instead of
 the detail layers.
 

@@ -91,11 +91,10 @@ Tasks (planned 2026-11-20; none started):
    (underwater) layers; detail texture sizes and formats; which point-light path runs (pass 16 is
    past the technique's last pass) and how many lights reach terrain; terrain's GPU span and draws
    at the reference views and on the benchmark paths (the baseline). Recorded in renderer.md.
-2. Sampler layout, decided from the survey, for the owner. Recommended: per-level detail and side
-   texture atlases built at load (same format and size per atlas, wrap in the shader with
-   `tex2Dgrad` for the mips, padded), leaving about 11 samplers fixed. Alternative: per-patch
-   variants by layer count, splitting patches with more layers than fit. The same decision covers
-   the lightmaps: one terrain lightmap atlas lets roads look up by world position across patches.
+2. Sampler layout (left to the agent by the owner, 2026-11-20): per-level detail and side texture
+   atlases built at load (same format and size per atlas, wrap in the shader with `tex2Dgrad` for
+   the mips, padded), leaving about 11 samplers fixed; the survey only sizes them. One terrain
+   lightmap atlas the same way, so roads look up by world position across patches.
 3. Lighting without the accumulation target: the lit pass reads the patch lightmap at its own UV,
    unpacked (no `[0,1]` packing); point lights come from a per-patch constant list (nearest N from
    the culler's sphere gather) instead of an additive pass; sun cascades and thermals as now.
@@ -104,11 +103,19 @@ Tasks (planned 2026-11-20; none started):
    texture blended in by distance for variation, fog once. Terrain depth moves into the depth
    prepass like other entries and the lit pass tests EQUAL. Layer 6 folded in or drawn as a second
    pass on the patches that have it, decided from the survey.
-5. Roads' own lit path: road effects and road static meshes read the terrain lightmap by world
-   position (task 2's layout) and light themselves; they no longer blend into a target.
-6. Full detail at every distance: `detailNear`, pass 3 and the far-node path go;
-   `lodSwitchDistance` becomes the roads' view distance, which settles the open item on roads
-   fading at 130 m. GPU cost measured on the three maps.
+5. Roads' own lit path and no fade (owner, 2026-11-20, "roads are cheap, draw them at all
+   times"): road effects and road static meshes read the terrain lightmap by world position
+   (task 2's atlas) and light themselves, no longer blending into a target. Compiled roads are
+   their own meshes over the terrain, culled at 1.3 x `lodSwitchDistance`
+   (`RoadCompiledRenderer::m_viewDistanceScale`) and faded in the shader (`RoadFadeOut`); retail
+   faded them because far terrain dropped to lower LODs under them. Terrain is LOD 0 everywhere
+   since milestone 8, so roads draw to the view distance: the cull limit and the fade pair go.
+   Checked for z-fighting far out and for the cost on Fallujah West.
+6. Full detail at every distance: `detailNear`, pass 3 and the far-node path go, and with them
+   the texture pop the owner sees on terrain (2026-11-20): each culler node switches between the
+   detail layers and the low-detail pass at `lodSwitchDistance`. Any pop left after this is
+   looked for elsewhere (mips, streaming). `lodSwitchDistance` has no reader left and goes. GPU
+   cost measured on the three maps.
 7. Compressed resolve: one shared output function in the opaque shaders writes colour times
    1 / (1 + luma); the resolve output is expanded before the transparents and post. Water: moved
    after the expansion or written in the same space, decided here.
@@ -136,8 +143,7 @@ Open from milestones 8 and 9:
   distance (shaders); loaded on Saaremaa, not yet seen.
 - The default video profile picks 8x antialiasing (log) while the scene runs 4x. Settle with fixed
   4x (a single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
-- Roads still fade at 1.3 x `lodSwitchDistance` (130 m); with full-detail terrain they could draw
-  farther. Not decided.
+- Roads fading at 130 m: taken into milestone 10, task 5.
 - Cached static casters (owner, 2026-11-19, "most of the map is static"): the far cascades' static
   casters kept in their map while the snapped cascade holds still, moving objects drawn over a
   copy each frame. Not planned yet.
