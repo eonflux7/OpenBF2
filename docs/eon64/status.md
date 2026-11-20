@@ -134,7 +134,7 @@ Tasks (1 done 2026-11-20: survey, reference views and their baseline shots):
    thermals keep their heat gradient. The dome mesh draws only with `renderer.atmosphere 0`; at
    acceptance it and its techniques are deleted, and the sky moves to an effect of its own. Built:
    the sky and disc seen by the owner on Muttrah City on the dome (2026-11-20, "looks good",
-   `renderer.skyGainBlend 0.5`); the full-screen pass replacing it, to check in game. Open:
+   `renderer.skyGainBlend 0.5`); the full-screen pass replacing it, checked by an agent on Muttrah City: the sky fills what nothing covers, the disc and glow sit where retail's flare sprite does (`renderer.atmosphere 0` A/B), 6 device resets (`renderer.vsync`) without a crash; not yet seen by the owner, nor under water or in thermals. Open:
    banding in the dark blue (dither at the tonemap), the glow strength (physical until bloom,
    milestone 13). Look for: no seam where terrain meets the sky; the horizon brighter and warmer
    toward the sun; the sky correct under water and in thermals.
