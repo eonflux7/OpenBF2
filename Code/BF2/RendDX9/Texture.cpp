@@ -18,6 +18,7 @@
 
 #include <new>
 #include <cstdio>
+#include <vector>
 
 namespace dice {
 namespace hfe {
@@ -412,6 +413,202 @@ bool textureUnlock(EngineTexture* tex, TextureLockRecord* rec)
 
     ::renddx9abi::engineFree(rec);
     --tex->lockCount;
+    return true;
+}
+
+// ---- RGBA8 readback (render milestone 11: the atmosphere fit; tools.survey) ----
+
+namespace {
+
+void rgb565(unsigned int c, unsigned char out[3])
+{
+    out[0] = static_cast<unsigned char>(((c >> 11) & 31) * 255 / 31);
+    out[1] = static_cast<unsigned char>(((c >> 5) & 63) * 255 / 63);
+    out[2] = static_cast<unsigned char>((c & 31) * 255 / 31);
+}
+
+// One 4x4 DXT block into 16 RGBA texels.
+void decodeBlock(const unsigned char* block, D3DFORMAT f, unsigned char out[16][4])
+{
+    const unsigned char* colour = (f == D3DFMT_DXT1) ? block : block + 8;
+    const unsigned int c0 = colour[0] | (colour[1] << 8), c1 = colour[2] | (colour[3] << 8);
+    unsigned char p[4][4];
+    rgb565(c0, p[0]);
+    rgb565(c1, p[1]);
+    p[0][3] = p[1][3] = 255;
+    if (f != D3DFMT_DXT1 || c0 > c1)
+        for (int k = 0; k < 3; ++k)
+        {
+            p[2][k] = static_cast<unsigned char>((2 * p[0][k] + p[1][k]) / 3);
+            p[3][k] = static_cast<unsigned char>((p[0][k] + 2 * p[1][k]) / 3);
+        }
+    else
+        for (int k = 0; k < 3; ++k)
+        {
+            p[2][k] = static_cast<unsigned char>((p[0][k] + p[1][k]) / 2);
+            p[3][k] = 0;
+        }
+    p[2][3] = 255;
+    p[3][3] = (f == D3DFMT_DXT1 && c0 <= c1) ? 0 : 255;
+    const unsigned int bits = colour[4] | (colour[5] << 8) | (colour[6] << 16)
+                            | (static_cast<unsigned int>(colour[7]) << 24);
+    for (int i = 0; i < 16; ++i)
+    {
+        const unsigned char* const c = p[(bits >> (2 * i)) & 3];
+        out[i][0] = c[0]; out[i][1] = c[1]; out[i][2] = c[2]; out[i][3] = c[3];
+    }
+    if (f == D3DFMT_DXT2 || f == D3DFMT_DXT3)
+        for (int i = 0; i < 16; ++i)
+            out[i][3] = static_cast<unsigned char>(((block[i / 2] >> ((i & 1) * 4)) & 15) * 17);
+    else if (f == D3DFMT_DXT4 || f == D3DFMT_DXT5)
+    {
+        unsigned int a[8];
+        a[0] = block[0];
+        a[1] = block[1];
+        if (a[0] > a[1])
+            for (int i = 1; i < 7; ++i)
+                a[i + 1] = ((7 - i) * a[0] + i * a[1]) / 7;
+        else
+        {
+            for (int i = 1; i < 5; ++i)
+                a[i + 1] = ((5 - i) * a[0] + i * a[1]) / 5;
+            a[6] = 0;
+            a[7] = 255;
+        }
+        unsigned long long abits = 0;
+        for (int i = 0; i < 6; ++i)
+            abits |= static_cast<unsigned long long>(block[2 + i]) << (8 * i);
+        for (int i = 0; i < 16; ++i)
+            out[i][3] = static_cast<unsigned char>(a[(abits >> (3 * i)) & 7]);
+    }
+}
+
+} // anonymous namespace
+
+// A mip level as RGBA8. False (with why) for default-pool textures and formats not decoded here.
+bool textureReadLevelRgba8(const EngineTexture* t, unsigned int face, unsigned int level,
+               std::vector<unsigned char>& rgba, unsigned int& w, unsigned int& h, std::string& why)
+{
+    if (!t || !t->baseTexture)
+    {
+        why = "no texture";
+        return false;
+    }
+    D3DSURFACE_DESC desc;
+    D3DLOCKED_RECT lr;
+    HRESULT hr;
+    IDirect3DTexture9* tex2d = 0;
+    IDirect3DCubeTexture9* cube = 0;
+    if (t->resourceType == 3)
+    {
+        tex2d = static_cast<IDirect3DTexture9*>(t->baseTexture);
+        if (level >= tex2d->GetLevelCount() || FAILED(tex2d->GetLevelDesc(level, &desc)))
+        {
+            why = "no level";
+            return false;
+        }
+    }
+    else if (t->resourceType == 5)
+    {
+        cube = static_cast<IDirect3DCubeTexture9*>(t->baseTexture);
+        if (level >= cube->GetLevelCount() || FAILED(cube->GetLevelDesc(level, &desc)))
+        {
+            why = "no level";
+            return false;
+        }
+    }
+    else
+    {
+        why = "not 2D or cube";
+        return false;
+    }
+    if (desc.Pool == D3DPOOL_DEFAULT)
+    {
+        why = "default pool";
+        return false;
+    }
+    const D3DFORMAT f = desc.Format;
+    const bool dxt = f == D3DFMT_DXT1 || f == D3DFMT_DXT2 || f == D3DFMT_DXT3 || f == D3DFMT_DXT4
+                  || f == D3DFMT_DXT5;
+    if (!dxt && f != D3DFMT_A8R8G8B8 && f != D3DFMT_X8R8G8B8)
+    {
+        char text[48];
+        std::snprintf(text, sizeof(text), "format %u not read", static_cast<unsigned int>(f));
+        why = text;
+        return false;
+    }
+    hr = tex2d ? tex2d->LockRect(level, &lr, 0, D3DLOCK_READONLY)
+               : cube->LockRect(static_cast<D3DCUBEMAP_FACES>(face), level, &lr, 0, D3DLOCK_READONLY);
+    if (FAILED(hr))
+    {
+        char text[32];
+        std::snprintf(text, sizeof(text), "lock failed 0x%08x", static_cast<unsigned int>(hr));
+        why = text;
+        return false;
+    }
+    w = desc.Width;
+    h = desc.Height;
+    rgba.assign(static_cast<size_t>(w) * h * 4, 0);
+    const unsigned char* const bits = static_cast<const unsigned char*>(lr.pBits);
+    if (dxt)
+    {
+        const unsigned int blockBytes = f == D3DFMT_DXT1 ? 8 : 16;
+        for (unsigned int by = 0; by < (h + 3) / 4; ++by)
+            for (unsigned int bx = 0; bx < (w + 3) / 4; ++bx)
+            {
+                unsigned char texels[16][4];
+                decodeBlock(bits + by * lr.Pitch + bx * blockBytes, f, texels);
+                for (unsigned int i = 0; i < 16; ++i)
+                {
+                    const unsigned int x = bx * 4 + (i & 3), y = by * 4 + i / 4;
+                    if (x < w && y < h)
+                        for (int k = 0; k < 4; ++k)
+                            rgba[(static_cast<size_t>(y) * w + x) * 4 + k] = texels[i][k];
+                }
+            }
+    }
+    else
+        for (unsigned int y = 0; y < h; ++y)
+            for (unsigned int x = 0; x < w; ++x)
+            {
+                const unsigned char* const s = bits + y * lr.Pitch + x * 4;   // B G R A
+                unsigned char* const d = &rgba[(static_cast<size_t>(y) * w + x) * 4];
+                d[0] = s[2]; d[1] = s[1]; d[2] = s[0];
+                d[3] = f == D3DFMT_X8R8G8B8 ? 255 : s[3];
+            }
+    if (tex2d)
+        tex2d->UnlockRect(level);
+    else
+        cube->UnlockRect(static_cast<D3DCUBEMAP_FACES>(face), level);
+    return true;
+}
+
+// The first level no wider than maxWidth (the last level if none is).
+unsigned int textureLevelAtMost(const EngineTexture* t, unsigned int maxWidth)
+{
+    unsigned int level = 0, w = t->width;
+    while (w > maxWidth && level + 1 < t->mipLevels)
+    {
+        w = w > 1 ? w / 2 : 1;
+        ++level;
+    }
+    return level;
+}
+
+bool textureMeanColour(const EngineTexture* t, unsigned int face, unsigned int maxWidth, double out[4],
+                std::string& why)
+{
+    std::vector<unsigned char> rgba;
+    unsigned int w = 0, h = 0;
+    if (!textureReadLevelRgba8(t, face, textureLevelAtMost(t, maxWidth), rgba, w, h, why))
+        return false;
+    double sum[4] = {};
+    for (size_t i = 0; i < rgba.size(); i += 4)
+        for (int k = 0; k < 4; ++k)
+            sum[k] += rgba[i + k];
+    const double n = static_cast<double>(w) * h;
+    for (int k = 0; k < 4; ++k)
+        out[k] = n > 0 ? sum[k] / n : 0;
     return true;
 }
 

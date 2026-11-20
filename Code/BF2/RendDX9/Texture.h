@@ -5,6 +5,7 @@
 #define BF2_RENDDX9_TEXTURE_H
 
 #include <string>
+#include <vector>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -98,6 +99,17 @@ bool textureManagerReupload(const std::string& name, EngineTexture* texture);
 
 // RendDX9Types.cpp - sub_1000CD30, bits per pixel for a D3DFORMAT (4 for DXT1, 8 for DXT3/5, ...).
 int bitsPerPixel(unsigned int d3dFormat);
+
+// A managed texture's mip level (2D, or one cube face) as RGBA8: DXT1-5, A8R8G8B8 and X8R8G8B8.
+// False, with the reason in why, for default-pool textures and other formats.
+bool textureReadLevelRgba8(const EngineTexture* t, unsigned int face, unsigned int level,
+                           std::vector<unsigned char>& rgba, unsigned int& w, unsigned int& h,
+                           std::string& why);
+// The first level no wider than maxWidth (the last level if none is).
+unsigned int textureLevelAtMost(const EngineTexture* t, unsigned int maxWidth);
+// The mean RGBA (0-255) of the first level no wider than maxWidth.
+bool textureMeanColour(const EngineTexture* t, unsigned int face, unsigned int maxWidth,
+                       double out[4], std::string& why);
 
 } // namespace dx9rend
 } // namespace hfe
