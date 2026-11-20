@@ -6,7 +6,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Milestones 1–10 accepted | Milestone 11, atmosphere, sky IBL, water reflections: task 2, atmosphere model | [renderer.md](renderer.md#roadmap) |
+| `render` | Milestones 1–10 accepted | Milestone 11, atmosphere, sky IBL, water reflections: task 2 built (owner's look pending), then task 3, sky and sun | [renderer.md](renderer.md#roadmap) |
 | `tools` | Milestone 1: tasks 1–3 | Milestone 3 cut to the benchmark path; milestone 1 tasks 4–5 built | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
@@ -116,6 +116,17 @@ Tasks (1 done 2026-11-20: survey, reference views and their baseline shots):
    transmittance, multiple-scattering and sky-view tables at load and after a device reset, the
    aerial-perspective atlas per frame, all pixel passes; the atlas format checked for vertex
    texture fetch. Tables on the debug overlay; `renderer.atmosphere`.
+   Built 2026-11-20 (`render(atmosphere)`, `ui(debug)`, `tools(atmosphere)`; shaders): the fit as
+   decided with the owner (Rayleigh tint from the zenith's chromaticity, a per-level sky gain applied
+   as gain^`renderer.skyGainBlend`, default 0.5; [renderer.md](renderer.md#11-atmosphere-sky-ibl-water-reflections));
+   the three load-time tables on the CPU (managed textures; pixel passes came out wrong, see the
+   plan), the atlas a pixel pass with its march unrolled; A16B16G16R16F passes the vertex fetch check
+   (filtered too). Checked by an agent on Muttrah City with `tools.atmosphere`: the tables match the
+   CPU model the fit evaluates, the atlas runs from transmittance 1 to 0 at fog end with in-scatter
+   0.25–0.47, fit and tables take about 250 ms at load; 12 device resets (`renderer.vsync`) and a
+   blend change, no crash. The fit run natively on the survey's inputs for all four levels (gains
+   2.7, 3.1, 5.1, 0.11 at night). Not yet seen by the owner (the Atmosphere tab); nothing on screen
+   changes until task 3.
 3. Sky and sun: the dome keeps its texture and clouds, its colour blending into the model's sky
    below about 20°; the sun disc and its forward-scattering glow from the model, the flare's
    occlusion test kept. The dim dome (open since milestone 2) settled against the model here. Look

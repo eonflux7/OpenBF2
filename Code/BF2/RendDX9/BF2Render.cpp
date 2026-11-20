@@ -1040,6 +1040,7 @@ void releaseRendererPathResources(Renderer* renderer)
     dx9rend::rendererHdrReleaseSurface();                         // [RENDER] HDR
     dx9rend::rendererDepthPrepassRelease();                       // [RENDER] depth prepass
     dx9rend::rendererSunShadowsRelease();                         // [RENDER] sun cascades
+    dx9rend::rendererAtmosphereRelease();                         // [RENDER] atmosphere tables
     dx9rend::submitInstancesRelease();                            // [RENDER] instance records
     dx9rend::gpuTimersRelease();                                  // [DEV] BF2_GPU_TIMERS
     dx9rend::uiLayerDeviceLost();                                 // [UI] ImGui device objects

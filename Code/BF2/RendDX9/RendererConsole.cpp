@@ -1386,6 +1386,18 @@ void setSoftParticleDistance(float value)
 BF2_CONSOLE_PROPERTY_FN_RANGED_T(softParticleDistance, float, true, getSoftParticleDistance(),
                                  setSoftParticleDistance, 0.1f, 20.0f, kRendererConsoleTag)
 
+// [RENDER] Render milestone 11's atmosphere (Atmosphere.cpp): its fit, tables and atlas. A/B
+// switch while the milestone is in development; deleted at acceptance.
+bool getAtmosphere() { return rendererAtmosphereEnabled(); }
+void setAtmosphere(bool value) { rendererAtmosphereEnabled() = value; }
+BF2_CONSOLE_PROPERTY_FN(atmosphere, bool, true, getAtmosphere(), setAtmosphere, kRendererConsoleTag)
+// The share of the atmosphere's sky gain applied, in log space (render milestone 11): 0 a
+// physical sky under the authored sun, 1 the horizon at the authored fog colour's luminance.
+float getSkyGainBlend() { return rendererSkyGainBlend(); }
+void setSkyGainBlend(float value) { rendererSkyGainBlend() = value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value; }
+BF2_CONSOLE_PROPERTY_FN_RANGED_T(skyGainBlend, float, true, getSkyGainBlend(), setSkyGainBlend, 0.0f,
+                                 1.0f, kRendererConsoleTag)
+
 } // anonymous namespace
 
 // The help lines of the fork's renderer variables, for the debug menu (docs/eon64/ui.md).
@@ -1401,6 +1413,8 @@ const char* rendererVariableHelp(const char* name)
         { "sunShadowNormalOffset", "Receiver offset along its normal, in cascade texels (against acne)" },
         { "sunShadowDepthBias", "Receiver offset toward the sun, in cascade texels (against acne)" },
         { "contributionCull", "Static meshes whose bounding sphere spans fewer pixels than this are not drawn, faded out just above it; 0 off" },
+        { "atmosphere", "Atmosphere model (render milestone 11): sky and haze fitted to the level, its tables and aerial-perspective atlas" },
+        { "skyGainBlend", "How far the sky is brought to the level's authored brightness: 0 physical, 1 the fog colour at the horizon (log scale)" },
         { "softParticleDistance", "Depth over which particles fade out in front of the scene, in metres" },
         { "uiMenuKey", "Win32 virtual-key code that opens and closes this menu (45 = Insert)" },
         { "uiOverlay", "Performance overlay, top right; kept between sessions" },

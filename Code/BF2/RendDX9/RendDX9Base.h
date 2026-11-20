@@ -807,7 +807,7 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 // needs a newer contract stops with #error instead of running against an engine without it. Raised
 // whenever the engine changes what the shaders may rely on; docs/eon64/renderer-pipeline.md lists
 // what each version adds.
-#define RA_CONTRACT_VERSION 5
+#define RA_CONTRACT_VERSION 6
 #define RA_CONTRACT_TEXT_(v) #v
 #define RA_CONTRACT_TEXT(v) RA_CONTRACT_TEXT_(v)
 
@@ -817,6 +817,34 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 // rows of RASM. Returns false when nothing was rendered (nothing is then covered: baked sunlight).
 bool rendererSunShadowsRender(float time, float* constants /* kSunCascadeVec4s float4s */);
 void rendererSunShadowsRelease();
+// [RENDER] Atmosphere (Atmosphere.cpp, render milestone 11). Run from the depth prepass after the
+// sun cascades: fits the sky and haze to the level's authored light when it changes (at load),
+// draws the transmittance, multiple-scattering and sky-view tables after a fit or a device reset
+// and the aerial-perspective atlas every frame, through Shaders/RaAtmosphere (contract 6).
+// renderer.atmosphere (A/B while milestone 11 is in development).
+bool& rendererAtmosphereEnabled();
+// The share of the sky gain applied, in log space: 0 a physical sky, 1 the authored level
+// (renderer.skyGainBlend).
+float& rendererSkyGainBlend();
+void rendererAtmosphereFrame();
+void rendererAtmosphereRelease();
+// The fit and the tables, for the debug menu.
+struct AtmosphereInfo
+{
+    bool fitted, haveZenith;
+    bool atlasVertexFetch, atlasVertexFilter, atlasFloat32;
+    IDirect3DTexture9* transmittance;   // 256 x 64
+    IDirect3DTexture9* multiScatter;    // 32 x 32
+    IDirect3DTexture9* skyView;         // 192 x 108
+    IDirect3DTexture9* perspective;     // 1024 x 32: 32 slices of 32 x 32 tiles
+    float fitMs, refHeight, fogEnd, hazeDensity;
+    float skyGain, skyGainApplied;      // horizon gain, and gain^renderer.skyGainBlend
+    float rayleigh[3];                  // times Earth's
+    float sunTop[3];
+    float zenithTarget[3], zenithModel[3], horizonTarget[3], horizonModel[3];
+    float hazeAlbedo[3], groundAlbedo[3];
+};
+AtmosphereInfo rendererAtmosphereInfo();
 // RASM, the sun cascade constants: 22 float4s, laid out in RaSunShadow.fxh. Pixel shaders read them
 // from the fixed registers c200..c221, which the engine owns: it writes them once per frame
 // (rendererSetSunCascadeConstants) and the StateManager drops every effect's write into the range,

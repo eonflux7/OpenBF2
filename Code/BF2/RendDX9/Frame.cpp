@@ -329,6 +329,7 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     // transform (right, up, forward, position) over the projection scales, so position
     // + clip.w * forward + clip.x * right' + clip.y * up' is the world point of a clip position.
     rendererSunShadowsRender(time, g_sunCascadeConstants);
+    rendererAtmosphereFrame();   // [RENDER] milestone 11: its tables and atlas
     {
         IRenderView* const view = rendererGetRenderView();
         const float* const c = view->getViewMatrixPtr()->m;

@@ -97,18 +97,23 @@ Design:
   sun disc and the sky cube. A ground haze layer (density falling exponentially with height) drives
   aerial perspective. One atmosphere dense enough to reach full haze at PR's fog end (0.5–2 km)
   would turn the whole sky into haze, so they cannot be one.
-- **Fit at load, in order.** (1) Sunlight above the atmosphere = authored sun / transmittance at the
-  sun's elevation, the transmittance clamped to at least 0.1 per channel (low suns, night layers).
-  (2) The sky's Rayleigh tint and scale and its Mie density, fitted to the dome's zenith colour and
-  the authored fog colour at the horizon. (1) and (2) repeat a fixed three times, since the
-  transmittance depends on the fit. (3) The haze layer: density from fog end, albedo from the
-  authored fog colour, one height falloff for all levels, tuned at the aerial-perspective A/B.
+- **Fit at load.** (1) Sunlight above the atmosphere = authored sun / transmittance at the sun's
+  elevation, the transmittance clamped to at least 0.1 per channel (low suns, night layers),
+  evaluated with the sky's own parameters at every step of (2). (2) The sky: Earth's densities;
+  the Rayleigh tint (per channel, its luminance kept at Earth's) fitted to the dome's zenith
+  chromaticity; a dome too dark to have a colour (night) keeps Earth's tint. One **sky gain** per
+  level scales the scattered light so the azimuth-averaged horizon at 1° meets the authored fog
+  colour's luminance, applied as gain^`renderer.skyGainBlend` (0 a physical sky, 1 the authored
+  level; default 0.5, settled at task 3's sky A/B). The sun (surfaces, disc) is never scaled.
+  (3) The haze layer: density from fog end, albedo from the authored fog colour, one height
+  falloff for all levels, tuned at the aerial-perspective A/B.
 - **Haze curve.** Exponential in optical depth, steepened only over the last stretch before fog end
   so it reaches full haze there. Retail's fog start is not used: the exponential curve keeps the
   near range clear.
-- **Tables.** Transmittance, multiple scattering and sky view at load and after a device reset (the
-  sun does not move; the sky view is taken at the terrain's mean height). Per frame only the
-  aerial-perspective atlas, with cascade shadowing per slice for the shafts.
+- **Tables.** Transmittance (256x64), multiple scattering (32x32) and sky view (192x108, taken at
+  the terrain's mean height) built on the CPU with the fit (the sun does not move), by the same
+  code the fit evaluates, into managed textures that survive device resets. Per frame only the
+  aerial-perspective atlas, a pixel pass, with cascade shadowing per slice for the shafts.
 - **Sky cube.** Upper half: the dome and the atmosphere. Lower half: the ground, the terrain
   colormap's mean colour lit by the authored sun and sky, under the haze at the horizon (sky alone
   below the horizon makes every glossy surface look chrome). Prefiltered GGX, one mip per
@@ -146,6 +151,11 @@ Decisions (owner, 2026-11-20):
   so the sky, the sun disc and the haze agree with it.
 - The authored fog end stays the visibility limit (PR's view distance; the far plane and culling
   follow it): aerial perspective reaches full haze there.
+- The authored dome and fog are brighter than a physical sky under the authored sun (by day the
+  horizon needs 2.7x on Muttrah City, 3.1x on Saaremaa, 5.1x on Fallujah West; 0.11x at night),
+  and a full physical fit (Rayleigh and Mie densities free) ran to its bounds on Fallujah West. The
+  sky keeps physics for its shape and colour and takes a per-level sky gain, partly applied, set by
+  `renderer.skyGainBlend` (task 2).
 - Bloom stays in milestone 12. The sun's glow and specular glints read fully only then, and are
   judged here knowing that. (Delegated, 2026-11-20.)
 
@@ -187,8 +197,10 @@ vehicles), and at Muttrah City's views `high` and `mountain`:
   s0–s7. s9–s12 and s14 are free: the atlas, the sky cube and the split-sum BRDF table each get a
   reserved slot (no analytic fit needed).
 
-D3D9 limits: there is no compute and no rendering into volume textures, so the lookup tables are
-pixel passes. The aerial-perspective volume is a 2D atlas of depth slices, blended between
+D3D9 limits: there is no compute and no rendering into volume textures. The load-time tables are
+built on the CPU (pixel passes were tried first: loops the game's D3DX compiler leaves as loops
+came out wrong under DXVK, the multiple-scattering table 10x low); per-frame passes unroll their
+loops. The aerial-perspective volume is a 2D atlas of depth slices, blended between
 neighbouring slices by hand; particles read it per vertex, so its format must allow vertex texture
 fetch (checked in task 2). Frame resources read by every lit shader get reserved samplers like s13
 and s15: the atlas, the sky cube, and the split-sum BRDF table if task 1 finds a third free slot
