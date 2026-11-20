@@ -541,7 +541,10 @@ constexpr RaConstantMetadata kRaConstantMetadata[] =
     { "AccumulationMap",             640 },
     { "ClampMap",                    648 },
     { "AccumulationMapProjScale",    656 },
-    { "AccumulationMapProjOffset",   676 }
+    { "AccumulationMapProjOffset",   676 },
+    // [RENDER] Milestone 10, task 5: the same two records under renderer.terrainOnePass (Frame.cpp)
+    { "TerrainLightAtlasGrid",       656 },
+    { "TerrainLightAtlasGI",         676 }
 };
 
 constexpr bool raMetadataNamesRecords()

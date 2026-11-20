@@ -474,8 +474,10 @@ public:
     void  gatherShadowCasters(const Frustum& volume);
     void  drawShadowCasters(const float* viewProjection, const dx9rend::ShadowCascadeCull& cull);
     void  drawDepthPrepass();                                        // [RENDER] technique RaDepthPrepass
-    void  drawDetailPass();                                          // sub_100DF990  the ShaderVersion-1 detail/light pass [read - stops, see the body]
-    void  drawMaskLights();                                          // sub_100DE5B0  the point-light pass over getVisibleLightsByMask(2313) - LightManager +0x18, the frame's visible lights
+    // [RENDER] Milestone 10, task 5: `draw` false gathers the point lights per patch
+    // (renderer.terrainOnePass) without drawing them into the accumulation target.
+    void  drawDetailPass(bool draw = true);                                          // sub_100DF990  the ShaderVersion-1 detail/light pass [read - stops, see the body]
+    void  drawMaskLights(bool draw = true);                                          // sub_100DE5B0  the point-light pass over getVisibleLightsByMask(2313) - LightManager +0x18, the frame's visible lights
     void  drawFinal();                                               // sub_100DB680  the +0xBC arm's diffuse passes
     void  drawOnePass(const TerrainAtlases& atlases);                // [RENDER] milestone 10, task 4: technique RaTerrain
     void  drawSurrounding();                                         // sub_100E0F80  Shared_SurroundingTerrain over the ring

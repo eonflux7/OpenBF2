@@ -37,6 +37,7 @@
 #include "LightmapGeneration/ILightSampleable.h"  // the +0x30 table's interface (ILightSampling)
 #include "LightmapGeneration/MeshLightSampling.h" // the sampler createLightSampler makes
 #include "BoxCorners.h"                       // the eight-corner material box test
+#include "TerrainAtlas.h"                     // [RENDER] the road arm's lightmap atlas
 #include "MeshTemplate.h"                     // MeshBounds / meshBoundsFinalize
 #include "StaticMeshRenderer.h"               // the singleton's flags, counters and atlases
 #include "StaticMeshTemplate.h"               // the tail gate reads MeshTemplate::m_loaded
@@ -2477,7 +2478,12 @@ void StaticMesh::drawVanilla()
                                 sizeof(op.viewProjection.value));
                     dx9rend::EngineTexture* const scratch =
                         dx9rend::rendererGetHemiScratchTexture();                    // Renderer +0x774
-                    if (scratch)
+                    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): the terrain lightmap
+                    // atlas, looked up by world position, in place of the accumulation target.
+                    const TerrainAtlases* const atlases = terrainAtlases();
+                    if (dx9rend::rendererTerrainOnePass() && atlases && atlases->lightmap)
+                        staticMeshSwapD3DTexture(entry->lighting.lightMap.value, atlases->lightmap);
+                    else if (scratch)
                         staticMeshSwapD3DTexture(entry->lighting.lightMap.value, scratch->baseTexture);
 
                     dx9rend::Ra::RaShader* shader;
@@ -3020,7 +3026,12 @@ void staticMeshDrawExpansion(void* self)
                                 sizeof(op.viewProjection.value));
                     dx9rend::EngineTexture* const scratch =
                         dx9rend::rendererGetHemiScratchTexture();                    // Renderer +0x774
-                    if (scratch)
+                    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): the terrain lightmap
+                    // atlas, looked up by world position, in place of the accumulation target.
+                    const TerrainAtlases* const atlases = terrainAtlases();
+                    if (dx9rend::rendererTerrainOnePass() && atlases && atlases->lightmap)
+                        staticMeshSwapD3DTexture(entry->lighting.lightMap.value, atlases->lightmap);
+                    else if (scratch)
                         staticMeshSwapD3DTexture(entry->lighting.lightMap.value, scratch->baseTexture);
 
                     dx9rend::Ra::RaShader* shader;

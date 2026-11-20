@@ -27,6 +27,7 @@
 #include "../Geom/Rain/RainManager.h"
 #include "../Geom/ParticleSystem/ParticleSystemManager.h"
 #include "../Geom/Terrain.h"
+#include "../Geom/TerrainAtlas.h"
 #include "../Geom/SkyDome.h"
 #include "../Geom/ObjectDrawer.h"
 #include "../Geom/DecalSystem/DecalManager.h"
@@ -369,7 +370,10 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     stateManagerClear(D3DCLEAR_TARGET, 0, 1.0f, 0);
 
     // Terrain's depth is in already: its linear depth draws over it with EQUAL and no depth write.
-    if (drawTerrain && geom::g_Terrain)
+    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): not on that path; terrain draws its
+    // depth after the queues below.
+    const bool terrainDepth = drawTerrain && geom::g_Terrain && rendererTerrainOnePass();
+    if (drawTerrain && geom::g_Terrain && !terrainDepth)
     {
         gpuTimerMark("terrain depth");   // [DEV] BF2_GPU_TIMERS
         stateManagerSetPrepassedDraw(true);
@@ -388,6 +392,15 @@ void rendererDepthPrepass(bool drawTerrain, float time)
     renderQueuesDepthPrepass(key);
     if (coverage)
         stateManagerSetTransparencyAA(false);
+
+    // [RENDER] Milestone 10, task 5: terrain's depth and linear depth like any prepassed entry,
+    // last, so the depth test rejects what buildings and props in front of it already cover.
+    if (terrainDepth)
+    {
+        gpuTimerMark("terrain depth");   // [DEV] BF2_GPU_TIMERS
+        static_cast<geom::Terrain*>(geom::g_Terrain)->drawDepthPrepass();
+        gpuTimerMark("depth prepass");   // [DEV] BF2_GPU_TIMERS
+    }
 
     stateManagerSetRenderTarget(0, savedTarget);
     flushRenderTargetsSeam();
@@ -790,8 +803,15 @@ bool frameRender(const FrameInputs& in, IDirect3DSurface9*& overlayDepthStencil)
         static const Vec4 accumulationScale = { 0.5f, -0.5f, 1.0f, 1.0f };
         static const Vec4 accumulationOffset =
             { halfTexel.x + 0.5f, halfTexel.y + 0.5f, 0.0f, 0.0f };
-        raShaderConstantsSetAccumulationProjection(&accumulationScale.x,
-                                                   &accumulationOffset.x);
+        // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): the same two records carry the
+        // road shaders' terrain lightmap atlas grid and (GI colour, 1), TerrainLightAtlasGrid and
+        // TerrainLightAtlasGI.
+        float roadGrid[4], roadGI[4];
+        if (geom::terrainRoadLight(roadGrid, roadGI))
+            raShaderConstantsSetAccumulationProjection(roadGrid, roadGI);
+        else
+            raShaderConstantsSetAccumulationProjection(&accumulationScale.x,
+                                                       &accumulationOffset.x);
 
         geom::HemiMap* const hemiMap = geom::g_HemiMapManager->getBaseHemiMap();
         if (hemiMap)

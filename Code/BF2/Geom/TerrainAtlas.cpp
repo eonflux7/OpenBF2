@@ -28,6 +28,7 @@ TerrainAtlases g_atlases = { std::vector<IDirect3DTexture9*>(), std::vector<Terr
                              std::vector<TerrainAtlasEntry>(), 0, 0, 0 };
 // Engine texture records wrapping the detail atlases: effect parameters take a texture as one.
 std::vector<dx9rend::EngineTexture*> g_detailValues;
+dx9rend::EngineTexture g_lightmapValue;   // the lightmap atlas as an effect texture value
 bool g_built = false;
 Terrain* g_pending = 0;   // loaded, waiting for its textures (the texture manager's post-load sweep)
 
@@ -349,7 +350,14 @@ void buildLightmapAtlas(Terrain* terrain)
         {
             QuadPatch* const patch = terrain->m_patches[p];
             IDirect3DTexture9* const texture = patch ? d3dTexture(patch->lightmap) : 0;
-            const int x = p % count, z = p / count;
+            // The cell by the patch's grid position (centred on 0), so world position maps to it.
+            int x = p % count, z = p / count;
+            if (patch && patch->gridX + count / 2 >= 0 && patch->gridX + count / 2 < count
+                && patch->gridZ + count / 2 >= 0 && patch->gridZ + count / 2 < count)
+            {
+                x = patch->gridX + count / 2;
+                z = patch->gridZ + count / 2;
+            }
             unsigned char* const base = static_cast<unsigned char*>(dst.pBits);
             D3DSURFACE_DESC desc = {};
             if (texture)
@@ -381,6 +389,11 @@ void buildLightmapAtlas(Terrain* terrain)
     }
     g_atlases.lightmap = atlas;
     g_atlases.lightmapCell = static_cast<int>(cell);
+    g_atlases.lightmapGrid[0] = 1.0f / (static_cast<float>(terrain->m_patchSize) * terrain->m_primaryWorldScale.x);
+    g_atlases.lightmapGrid[1] = 1.0f / (static_cast<float>(terrain->m_patchSize) * terrain->m_primaryWorldScale.z);
+    g_atlases.lightmapGrid[2] = static_cast<float>(count);
+    g_atlases.lightmapGrid[3] = static_cast<float>(cell);
+    g_lightmapValue.baseTexture = atlas;
     ::renddx9abi::logf("[terrain.atlas] lightmap atlas: %s %ux%u m%u, %dx%d cells of %u (%d scaled up, "
                        "%d missing, %d of another format)",
                        formatName(format).c_str(), size, size, levels, count, count, cell, scaled, missing,
@@ -404,6 +417,7 @@ void terrainAtlasRelease()
         g_atlases.lightmap->Release();
     g_atlases.lightmap = 0;
     g_atlases.lightmapCell = 0;
+    g_lightmapValue.baseTexture = 0;
     g_atlases.patchCount = 0;
     g_built = false;
     g_pending = 0;
@@ -443,6 +457,26 @@ const void* terrainAtlasDetailValue(int index)
     if (!g_built || index < 0 || index >= static_cast<int>(g_detailValues.size()))
         return 0;
     return g_detailValues[index];
+}
+
+const void* terrainAtlasLightmapValue()
+{
+    return (g_built && g_atlases.lightmap) ? &g_lightmapValue : 0;
+}
+
+const void* terrainRoadLight(float grid[4], float giDirect[4])
+{
+    if (!dx9rend::rendererTerrainOnePass() || !g_built || !g_atlases.lightmap || !g_Terrain)
+        return 0;
+    for (int i = 0; i != 4; ++i)
+        grid[i] = g_atlases.lightmapGrid[i];
+    Vec3 gi;
+    static_cast<Terrain*>(g_Terrain)->getGIColorRaw(&gi);
+    giDirect[0] = gi.x;
+    giDirect[1] = gi.y;
+    giDirect[2] = gi.z;
+    giDirect[3] = 1.0f;
+    return &g_lightmapValue;
 }
 
 void terrainAtlasDump(const std::string& dir)

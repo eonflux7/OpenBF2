@@ -50,6 +50,10 @@ struct TerrainAtlases
     std::vector<TerrainAtlasEntry>   side;           // per detail record; equal to top when shared
     IDirect3DTexture9*               lightmap;       // patchCount x patchCount cells, or 0
     int                              lightmapCell;   // texels per patch side at level 0
+    // World position to the lightmap grid, for world-space lookups (roads): (1 / patch width in x,
+    // in z, patches a side, cell texels); grid = world.xz * (x, y) + patches / 2, the cell is
+    // floor(grid) and a patch's edge sits on its edge texels' centres.
+    float                            lightmapGrid[4];
     int                              patchCount;
 };
 
@@ -64,6 +68,13 @@ const TerrainAtlases* terrainAtlases();
 // Detail atlas `index` as an effect texture value (an engine texture record wrapping it, for
 // ShaderParameter::setValue), or 0.
 const void* terrainAtlasDetailValue(int index);
+// The lightmap atlas as an effect texture value, or 0.
+const void* terrainAtlasLightmapValue();
+// [RENDER] Roads' own light (render milestone 10, task 5): with renderer.terrainOnePass on and a
+// lightmap atlas built, the atlas as an effect texture value, `grid` = lightmapGrid and `giDirect` =
+// (the terrain's GI colour, 1); otherwise 0. The .w of 1 tells the road shaders to light from the
+// atlas (the old path's projection offset has .w 0) until the old path is deleted.
+const void* terrainRoadLight(float grid[4], float giDirect[4]);
 // [DEV] Console `terrain.atlasDump`: every atlas as a .dds under `dir`, and a log line per entry.
 void terrainAtlasDump(const std::string& dir);
 

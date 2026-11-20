@@ -549,7 +549,10 @@ void RoadCompiled::updateChunkVisibility(const Frustum* frustum)
 #endif
     if (m_versionMajor >= 1 && m_versionMinor >= 4)
     {
-        const float maxDistance = static_cast<float>(terrain()->m_culler->param18)
+        // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): no distance limit, roads draw
+        // to the view distance (the frustum's far plane).
+        const float maxDistance = dx9rend::rendererTerrainOnePass() ? 3.0e38f
+                                : static_cast<float>(terrain()->m_culler->param18)
                                 * roadCompiledRendererViewDistanceScale();
         m_anyChunkVisible = 0;
         for (unsigned int i = 0; i < m_chunkCount; ++i)

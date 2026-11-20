@@ -908,6 +908,28 @@ void Terrain::drawMain()
     // [RENDER] The sun shadow comes from the renderer's screen-space mask in the final passes;
     // retail's per-caster shadow pass (7) and its range gathering are not drawn.
 
+    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): terrain's depth is drawn by the depth
+    // prepass and roads light themselves from the lightmap atlas, so no pass 0 and no accumulation
+    // target; only the aux queues and the point-light gather for the lit pass's per-patch list.
+    if (dx9rend::rendererTerrainOnePass())
+    {
+        dx9rend::renderQueueFlush(0x44u, 1);
+        dx9rend::renderQueueFlush(0x54u, 1);
+        dx9rend::renderQueueFlush(0x64u, 1);
+        g_surveyLightPath = 0;                                            // [DEV] terrain.survey
+        g_patchLights.clear();
+        g_surveyLights = 0;
+        g_surveyLightNodes = 0;
+        if (dx9rend::rendererGetHemiRenderMode() != 4)
+        {
+            if (m_effect && *dx9rend::effectShaderVersion(m_effect) == 1)
+                drawDetailPass(false);
+            else
+                drawMaskLights(false);
+        }
+        return;
+    }
+
     if (!isMultisampleActive())
     {
         lightManagerSetRenderTargetTexture(0, dx9rend::rendererGetHemiScratchTexture());   // sub_10005920(0, +0x774, 0, 0x7FFFFFFF)
@@ -1098,13 +1120,16 @@ float terrainScaledInverseRangeSquared(float radius, float scale)
 // draw over each static light's gathered patches. Retail also drew the dynamic shadow ranges and,
 // for spot lights, only lights with shadow records; outside the expansion pack those lists were
 // always empty, so neither draw was ever issued for PR.
-void Terrain::drawDetailPass()
+void Terrain::drawDetailPass(bool draw)
 {
-    dx9rend::effectBeginPass(m_effect, 16);
-    if (!dx9rend::rendererPerformanceFlag(11))
-        dx9rend::stateManagerSetRenderState(27, 0);
-    dx9rend::stateManagerSetRenderState(168, 15);
-    dx9rend::indexBufferBind(m_lodIndexBuffer);
+    if (draw)
+    {
+        dx9rend::effectBeginPass(m_effect, 16);
+        if (!dx9rend::rendererPerformanceFlag(11))
+            dx9rend::stateManagerSetRenderState(27, 0);
+        dx9rend::stateManagerSetRenderState(168, 15);
+        dx9rend::indexBufferBind(m_lodIndexBuffer);
+    }
 
     const std::vector<XpLight*>& pointLights = xpStaticFrameLights();
     for (XpLight* const* light = pointLights.data(); light != pointLights.data() + pointLights.size(); ++light)
@@ -1126,6 +1151,8 @@ void Terrain::drawDetailPass()
         ++g_surveyLights;
         g_surveyLightNodes += static_cast<unsigned int>(gathered->size());
         addGatheredLight(gathered, point.position, point.inverseRange, point.color);   // [RENDER]
+        if (!draw)
+            continue;
         param(terrainShadowArrayParameter(3))->setInt(0);
         TerrainCullerNode** first = gathered->data();
         TerrainCullerNode** const end = gathered->data() + gathered->size();
@@ -1138,7 +1165,7 @@ void Terrain::drawDetailPass()
 // Draws visible dynamic point lights on gathered terrain patches.
 // Attenuation uses dynamicLightRangeScale, while the gather radius remains unscaled.
 
-void Terrain::drawMaskLights()
+void Terrain::drawMaskLights(bool draw)
 {
     static std::vector<world::LightSource*> s_lights;                     // unk_102592A4 (the once-only seed and atexit)
     s_lights.clear();                                                     // sub_100E1C20(0, 0)
@@ -1171,6 +1198,8 @@ void Terrain::drawMaskLights()
         ++g_surveyLights;
         g_surveyLightNodes += static_cast<unsigned int>(list->size());
         addGatheredLight(list, record.position, record.invRangeSq, record.color);   // [RENDER]
+        if (!draw)
+            continue;
         TerrainCullerNode** it = list->data();
         while (it != list->data() + list->size())
             (*it)->patch->drawPointLight(it);                            // sub_1018C7F0, advances `it`

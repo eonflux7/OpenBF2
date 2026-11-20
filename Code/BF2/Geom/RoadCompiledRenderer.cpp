@@ -14,6 +14,7 @@
 #include "RoadCompiledTemplate.h"
 #include "QuadPatch.h"                          // TerrainCuller
 #include "Terrain.h"                            // Terrain, terrainOriginScratch
+#include "TerrainAtlas.h"                       // terrainRoadLight
 #include "XpLightManager.h"                     // lightManagerSetRenderTargetTexture (sub_10005920)
 #include "HemiMapManager/HemiMapDependencies.h"
 
@@ -581,7 +582,7 @@ void RoadCompiledRenderer::drawAll()
         const float distance = std::sqrt((dz * dz + dy * dy) + dx * dx);
         const float limit = static_cast<float>(m_terrain->m_culler->param18) * m_viewDistanceScale
                           + road->m_radius;
-        if (limit < distance)
+        if (limit < distance && !dx9rend::rendererTerrainOnePass())   // [RENDER] milestone 10, task 5
             continue;
 
         if (!last || last != tmpl)
@@ -696,6 +697,22 @@ void RoadCompiledRenderer::updateFrameConstants()
     m_paramSinglePointColor->setValue(raConstantAt(kRaSinglePointColor), 0);
     m_paramTexLayer2->setValue(dx9rend::rendererGetHemiScratchTexture(), 0);
 
+    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): the road lights itself from the
+    // terrain lightmap atlas by world position, TEXPROJSCALE = the atlas grid, TEXPROJOFFSET = (GI
+    // colour, 1), and draws to the view distance with no fade.
+    {
+        float grid[4], giDirect[4];
+        if (const void* const atlas = terrainRoadLight(grid, giDirect))
+        {
+            m_paramTexLayer2->setValue(atlas, 0);
+            m_paramTexProjScale->setValue(grid, 0);
+            m_paramTexProjOffset->setValue(giDirect, 0);
+            m_fadeOut[0] = 0.0f;
+            m_fadeOut[1] = 0.0f;
+            m_paramFadeOut->setValue(m_fadeOut, 0);
+        }
+    }
+
     {
         const float* const holder = reinterpret_cast<const float*>(
             raConstantAt(kRaAmbientIlluminationRange));
@@ -779,6 +796,11 @@ void* roadCompiledRendererListener()
 // StateManager as their bit patterns. Unguarded; roadQueuePass tests the singleton first.
 const float* roadCompiledRendererFadeOut()
 {
+    // [RENDER] Milestone 10, task 5 (renderer.terrainOnePass): roads draw to the view distance with
+    // no fade (terrain is LOD 0 everywhere, so no lower LOD rises over them); (0, 0) fades nothing.
+    static const float s_noFade[2] = { 0.0f, 0.0f };
+    if (dx9rend::rendererTerrainOnePass())
+        return s_noFade;
     return static_cast<RoadCompiledRenderer*>(static_cast<void*>(g_RoadCompiledRenderer))->m_fadeOut;
 }
 
