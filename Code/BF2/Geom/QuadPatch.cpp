@@ -2076,7 +2076,7 @@ void QuadPatch::draw(TerrainCullerNode**& it)
 }
 
 // [RENDER] See QuadPatch.h.
-void QuadPatch::drawNodes(TerrainCullerNode**& it, bool nearNodes)
+void QuadPatch::drawNodes(TerrainCullerNode**& it)
 {
     static unsigned int s_vertexCount = 0;
     Terrain* const t = terrain;
@@ -2090,8 +2090,6 @@ void QuadPatch::drawNodes(TerrainCullerNode**& it, bool nearNodes)
     for (; it != end && (*it)->patch == this; ++it)
     {
         const TerrainCullerNode* const node = *it;
-        if ((node->detailNear != 0) != nearNodes)
-            continue;
         const unsigned int nodeStart = lodStart(node);
         const unsigned int nodeCount = lodCount(node);
         if (count && nodeStart == start + count)

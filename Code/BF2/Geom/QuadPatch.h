@@ -112,10 +112,10 @@ public:
     void beginCasterDraw();
     void drawCasterNode(const TerrainCullerNode* node);
     void draw(TerrainCullerNode**& it);                              // 0x1018BE20  the Hi_/Low_Terrain pass-0 draw (accumulation target)
-    // [RENDER] Render milestone 10, task 4 (renderer.terrainOnePass): the patch's visible nodes
-    // whose detailNear equals `nearNodes`, each over its whole LOD 0 range on the bound LOD index
-    // buffer, adjacent ranges merged, in the current pass. Advances `it` past the patch.
-    void drawNodes(TerrainCullerNode**& it, bool nearNodes);
+    // [RENDER] Render milestone 10, tasks 4 and 6 (renderer.terrainOnePass): the patch's visible
+    // nodes, near and far alike, each over its whole LOD 0 range on the bound LOD index buffer,
+    // adjacent ranges merged, in the current pass. Advances `it` past the patch.
+    void drawNodes(TerrainCullerNode**& it);
     void drawFinal(TerrainCullerNode**& it);                         // 0x1018C910  the diffuse passes: detail layers on near nodes, then the low-detail pass
     void drawWater(TerrainCullerNode**& it, std::vector<TerrainCullerNode*>* list,
                    void* materialParameters, void* objectParameters); // 0x1018D800  the Ra water submit - see the body

@@ -1305,8 +1305,8 @@ void Terrain::drawFinal()
     // [RENDER] Milestone 10, task 3 (renderer.terrainOnePass): the lit passes read the patch's
     // lightmap on Tex1 and its point lights as constants; off, Tex1 is the accumulation target.
     const bool direct = dx9rend::rendererTerrainOnePass();
-    // Task 4: with the atlases built, the near nodes draw technique RaTerrain, every layer in one
-    // pass, and the far nodes Hi_Terrain's LowDiffuse pass as before (until task 6).
+    // Tasks 4 and 6: with the atlases built, every visible node draws technique RaTerrain, every
+    // layer in one pass, at any distance.
     const TerrainAtlases* const atlases = direct ? terrainAtlases() : 0;
     if (atlases && !atlases->detail.empty() && dx9rend::effectHasTechnique(m_effect, onePassTechniqueName()))
     {
@@ -1355,34 +1355,31 @@ void Terrain::drawOnePass(const TerrainAtlases& atlases)
     for (int i = 0; i < 3; ++i)
         param(m_onePass.atlas[i])->setValue(terrainAtlasDetailValue(i < atlasCount ? i : 0), 0);
 
-    for (int nearNodes = 1; nearNodes >= 0; --nearNodes)
+    // Task 6: every visible node at full detail, near or far; detailNear is not read here.
+    dx9rend::effectSetTechniqueByName(m_effect, onePassTechniqueName());
+    dx9rend::effectBegin(m_effect);
+    dx9rend::indexBufferBind(m_lodIndexBuffer);
+    dx9rend::effectBeginPass(m_effect, 0u);
+    m_currentPass = 0;
+    TerrainCullerNode** it = begin;
+    while (it != end)
     {
-        dx9rend::effectSetTechniqueByName(m_effect, nearNodes ? onePassTechniqueName() : std::string("Hi_Terrain"));
-        dx9rend::effectBegin(m_effect);
-        dx9rend::indexBufferBind(m_lodIndexBuffer);
-        dx9rend::effectBeginPass(m_effect, nearNodes ? 0u : 3u);
-        m_currentPass = nearNodes ? 0 : 3;
-        TerrainCullerNode** it = begin;
-        while (it != end)
+        QuadPatch* const patch = (*it)->patch;
+        param(m_hTexLayer[0])->setValue(patch->colormap, 0);
+        param(m_hTexLayer[1])->setValue(patch->lightmap, 0);
+        param(m_hTexLayer[5])->setValue(patch->lowDetailmap, 0);
+        const PatchLights* const lights = findPatchLights(patch);
+        const int count = lights ? lights->count : 0;
+        param(m_hRaTerrainLightCount)->setInt(count);
+        if (count)
         {
-            QuadPatch* const patch = (*it)->patch;
-            param(m_hTexLayer[0])->setValue(patch->colormap, 0);
-            param(m_hTexLayer[1])->setValue(patch->lightmap, 0);
-            param(m_hTexLayer[5])->setValue(patch->lowDetailmap, 0);
-            const PatchLights* const lights = findPatchLights(patch);
-            const int count = lights ? lights->count : 0;
-            param(m_hRaTerrainLightCount)->setInt(count);
-            if (count)
-            {
-                param(m_hRaTerrainLightPos)->setValue(lights->position, static_cast<unsigned int>(count));
-                param(m_hRaTerrainLightCol)->setValue(lights->color, static_cast<unsigned int>(count));
-            }
-            if (nearNodes)
-                setOnePassPatch(this, patch, atlases);
-            patch->drawNodes(it, nearNodes != 0);                         // advances `it`
+            param(m_hRaTerrainLightPos)->setValue(lights->position, static_cast<unsigned int>(count));
+            param(m_hRaTerrainLightCol)->setValue(lights->color, static_cast<unsigned int>(count));
         }
-        dx9rend::effectEnd(m_effect);
+        setOnePassPatch(this, patch, atlases);
+        patch->drawNodes(it);                                             // advances `it`
     }
+    dx9rend::effectEnd(m_effect);
 }
 
 
