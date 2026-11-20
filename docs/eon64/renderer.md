@@ -27,8 +27,9 @@ is in [renderer-pipeline.md](renderer-pipeline.md).
 | 9. Draw submission | Accepted | `2eb902ce`, `0a623df8`, `e87543df`, `f3515fb4`, `7bdd3a77`, `4bc56ff8`, `e9b6a8a4`, `965bb8bf`, `c2f7ef33`, `3c745649`, `2002788d` |
 | 10. Terrain in one pass | Accepted | `2eb4d02d`, `c21a012e`, `0d9e15a6`, `57fa2899`, `3b9da48c`, `6fd523bb`, and the deletion ("milestone 10 accepted") |
 | 11. Atmosphere, sky IBL, water reflections | In progress | — |
-| 12. HDR bloom + auto-exposure | Not started | — |
-| 13. GTAO + lightmap channel ownership | Not started | — |
+| 12. Volumetric clouds | Not started | — |
+| 13. HDR bloom + auto-exposure | Not started | — |
+| 14. GTAO + lightmap channel ownership | Not started | — |
 
 The owner accepts each milestone in game before the next starts. From milestone 9 on that is done
 against the `tools` lane's reference views and benchmark paths ([tools.md](tools.md)), with the GPU
@@ -38,7 +39,7 @@ against the previous milestone's baseline; a regression stands only if the owner
 explicitly, and is recorded with the milestone in [renderer-pipeline.md](renderer-pipeline.md).
 
 Order: draw submission comes before terrain and the atmosphere, so the new terrain draw is written
-once on the new path and the parameters milestones 11–13 add cost nothing per draw. Terrain comes
+once on the new path and the parameters milestones 11–14 add cost nothing per draw. Terrain comes
 before the atmosphere, so aerial perspective and sky reflections are written once into a single
 terrain pass. Bloom and auto-exposure depend only on the HDR scene and can move earlier if night
 layers need them sooner.
@@ -78,7 +79,7 @@ reference views. What should change on screen, and so what to look at:
 - **Distance.** Far terrain and buildings lose contrast and take on the sky's colour with distance,
   so ridges separate into layers. Valleys hold more haze than ridgelines; the haze is brighter and
   warmer toward the sun, bluer away from it. Retail fog is one colour by distance.
-- **Sky.** The sky comes from the model, under the level's clouds, and its horizon meets the haze over the terrain without a
+- **Sky.** The sky comes from the model (clear until milestone 12's clouds), and its horizon meets the haze over the terrain without a
   seam. The sun has a disc and a forward-scattering glow from the same model.
 - **Sky light.** Surfaces are lit by the sky from its direction: blue from above, darker and
   ground-tinted from below, brighter toward the sun, instead of one flat colour.
@@ -114,7 +115,7 @@ Design:
   the terrain's mean height) built on the CPU with the fit (the sun does not move), by the same
   code the fit evaluates, into managed textures that survive device resets. Per frame only the
   aerial-perspective atlas, a pixel pass, with cascade shadowing per slice for the shafts.
-- **Sky cube.** Upper half: the model's sky and the dome's clouds. Lower half: the ground, the terrain
+- **Sky cube.** Upper half: the model's sky (and milestone 12's clouds once they exist). Lower half: the ground, the terrain
   colormap's mean colour lit by the authored sun and sky, under the haze at the horizon (sky alone
   below the horizon makes every glossy surface look chrome). Prefiltered GGX, one mip per
   roughness; its irradiance as 9 spherical-harmonic coefficients, taken at load.
@@ -142,11 +143,11 @@ Design:
   it the regression rule applies.
 
 Decisions (owner, 2026-11-20):
-- The model draws the whole sky; the level's cloud layers stay, drawn over it, and the painted
-  dome's gradient is not shown (owner, 2026-11-20, at task 3: faithfulness to each level is not
-  the goal, its mood is kept by the zenith tint, fog, sun colour and clouds). The dome texture's
-  zenith colour stays a fitting input. Earlier decisions kept the painted dome, first down to the
-  horizon, then above 20°.
+- The model draws the whole sky; the painted dome and its cloud layers are not shown (owner,
+  2026-11-20, at task 3: a modern sky, not constrained by the game's approach; faithfulness to
+  each level is not the goal). The sky is clear until volumetric clouds (milestone 12). The dome
+  texture's zenith colour stays a fitting input. Earlier decisions kept the painted dome, first
+  down to the horizon, then above 20°, then its cloud layers.
 - The authored sun colour (`Lightmanager.staticSunColor`) stays the sunlight at the ground, and lit
   surfaces keep using it. The model works backwards from it to the sunlight above the atmosphere,
   so the sky, the sun disc and the haze agree with it.
@@ -157,7 +158,7 @@ Decisions (owner, 2026-11-20):
   and a full physical fit (Rayleigh and Mie densities free) ran to its bounds on Fallujah West. The
   sky keeps physics for its shape and colour and takes a per-level sky gain, partly applied, set by
   `renderer.skyGainBlend` (task 2).
-- Bloom stays in milestone 12. The sun's glow and specular glints read fully only then, and are
+- Bloom stays in milestone 13. The sun's glow and specular glints read fully only then, and are
   judged here knowing that. (Delegated, 2026-11-20.)
 
 Survey (task 1, `tools.survey`, [tools.md](tools.md#survey)), 2026-11-20, at the spawn camera of
@@ -208,7 +209,27 @@ and s15: the atlas, the sky cube, and the split-sum BRDF table if task 1 finds a
 (otherwise an analytic fit). The water scene texture and the sky's transmittance table are effect
 parameters. Each task that adds to what the shaders may rely on raises the contract version (6 on).
 
-### 12. HDR bloom + auto-exposure
+### 12. Volumetric clouds
+
+Decided by the owner, 2026-11-20, at milestone 11 task 3: the levels' painted cloud layers are
+replaced by modern clouds, not constrained by the game's approach; the sky is clear until then.
+Outline, to be planned in full when milestone 11 is accepted:
+
+- Raymarched cloud volume in a layer above the level (Schneider, Horizon Zero Dawn / Nubis): shape
+  and detail from tiling Perlin-Worley noise volumes built on the CPU at load (D3D9 samples volume
+  textures but cannot render into them), a weather map for coverage and type, height gradients
+  per cloud type.
+- Lit by milestone 11's model: sunlight through the atmosphere's transmittance, a short march
+  toward the sun for self-shadowing, a dual-lobe phase and multiple-scattering approximation, the
+  sky-view table as ambient; aerial perspective over distant clouds.
+- Marched at quarter resolution with temporal reprojection for the clouds alone (the scene stays
+  without TAA, milestone 8), upsampled against the depth; loops unrolled (the compiler's loops go
+  wrong under DXVK).
+- Shadows on the ground (a cloud shadow map from the sun) and into the sky cube.
+- Per-level coverage and type: picked per level outside this tree, a default otherwise.
+- Budget: about 1–2 ms at 1920x1080, measured on the benchmark paths at acceptance.
+
+### 13. HDR bloom + auto-exposure
 
 An energy-conserving bloom without threshold, and exposure that adapts between interiors and open
 terrain, both before the frame grade. Night layers need it: with the fixed exposure (−1.25 stops)
@@ -227,7 +248,7 @@ in an engine-owned pixel register, the resolve expands in the depth rebuild's fu
 every pass blending before the resolve (decals, particles, water, first-person transparents,
 additive light passes) blends compressed values, with additive sums clamped at the expansion.
 
-### 13. GTAO + lightmap channel ownership
+### 14. GTAO + lightmap channel ownership
 
 GTAO for small-scale occlusion. Lightmaps are kept, with one owner per channel: inside cascade
 range the cascades own sun visibility and the baked sun term is only the fallback beyond the last

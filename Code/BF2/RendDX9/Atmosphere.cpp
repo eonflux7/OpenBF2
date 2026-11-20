@@ -1055,7 +1055,7 @@ void rendererAtmosphereBindSky(void* effect, const float* domeToWorld)
 
         // The sun disc: the authored sun (the sunlight at the ground, which the fit keeps) spread
         // over the disc's solid angle, so the disc's irradiance is the sun's; its luminance capped
-        // so the MSAA resolve of its edge stays within a pixel (bloom, milestone 12, reads it).
+        // so the MSAA resolve of its edge stays within a pixel (bloom, milestone 13, reads it).
         const double radius = kSunAngularRadius * kPi / 180.0;
         const double solidAngle = 2.0 * kPi * (1.0 - std::cos(radius));
         V3 disc = v3(g.inputs.sun[0], g.inputs.sun[1], g.inputs.sun[2]) * (kPi / solidAngle);

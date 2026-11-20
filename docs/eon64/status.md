@@ -82,8 +82,8 @@ tried on Muttrah City by an agent: a view shot before the HUD and one with `tool
 
 ## Current: `render` milestone 11, atmosphere, sky IBL, water reflections
 
-The goal is a visibly more realistic image; plan, design and decisions (the model's sky under
-the dome's clouds; authored sun colour kept; fog end stays the visibility limit):
+The goal is a visibly more realistic image; plan, design and decisions (the model's sky, clear
+until milestone 12's clouds; authored sun colour kept; fog end stays the visibility limit):
 [renderer.md](renderer.md#11-atmosphere-sky-ibl-water-reflections). One A/B console variable per
 part while in development (`renderer.atmosphere`, `renderer.lightShafts`, `renderer.skyIbl`,
 `renderer.waterSsr`); old paths and the variables are deleted at acceptance. Intermediate tasks:
@@ -127,8 +127,8 @@ Tasks (1 done 2026-11-20: survey, reference views and their baseline shots):
    blend change, no crash. The fit run natively on the survey's inputs for all four levels (gains
    2.7, 3.1, 5.1, 0.11 at night). Not yet seen by the owner (the Atmosphere tab); nothing on screen
    changes until task 3.
-3. Sky and sun: the model's sky under the dome's cloud layers (the painted gradient not shown,
-   owner 2026-11-20); the sun disc and its forward-scattering glow from the model, the flare's
+3. Sky and sun: the model draws the whole sky, clear (the painted dome and its cloud layers not
+   shown; volumetric clouds are render milestone 12, owner 2026-11-20); the sun disc and its forward-scattering glow from the model, the flare's
    occlusion test kept. The dim dome (open since milestone 2) settled against the model here. Look
    for: no seam where terrain meets the sky; the horizon brighter and warmer toward the sun.
 4. Aerial perspective: `Ra_ApplyFog` replaced by one function (transmittance and in-scatter from the
