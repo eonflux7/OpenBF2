@@ -1023,6 +1023,15 @@ void SkyDome::onRenderPathNotification(int unused)
     const Mat4* const viewMatrix = view->getViewMatrixPtr();
     const Vec3* const cameraPosition = reinterpret_cast<const Vec3*>(&viewMatrix->m[12]);
 
+    // [RENDER] The model's sky (render milestone 11): one full-screen pass in place of the dome
+    // mesh, its cloud layers and the under-water fill. The dome below draws only while the model
+    // does not (renderer.atmosphere 0); it goes when the milestone is accepted.
+    if (dx9rend::rendererAtmosphereDrawSky(m_effect, cameraPosition->y < waterLevel))
+    {
+        dx9rend::QueueProfiler::end();
+        return;
+    }
+
     if (cameraPosition->y < waterLevel)
     {
         dx9rend::effectSetTechniqueByName(m_effect, std::string("SkyDomeUnderWater"));
@@ -1070,16 +1079,6 @@ void SkyDome::onRenderPathNotification(int unused)
     scale.y = m_domeScale;
     scale.z = m_domeScale;
     rendmath::scaleColumns(world, scale);
-
-    // [RENDER] The model's sky (render milestone 11): the dome's vertices to world directions from
-    // the camera. rotMult below keeps the translation in view space, so it is turned to world here.
-    {
-        Mat4 domeToWorld = world;
-        const float* const v = drawView->getViewMatrixPtr()->m;   // camera to world
-        for (int k = 0; k < 3; ++k)
-            domeToWorld.m[12 + k] = world.m[12] * v[0 + k] + world.m[13] * v[4 + k] + world.m[14] * v[8 + k];
-        dx9rend::rendererAtmosphereBindSky(m_effect, domeToWorld.m);
-    }
 
     const Mat4 inverseView = *drawView->getInverseViewMatrixPtr();
     const Mat4 worldBeforeRotate = world;

@@ -6,7 +6,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Milestones 1–10 accepted | Milestone 11, atmosphere, sky IBL, water reflections: task 2 built (owner's look pending), then task 3, sky and sun | [renderer.md](renderer.md#roadmap) |
+| `render` | Milestones 1–10 accepted | Milestone 11, atmosphere, sky IBL, water reflections: task 2 built (owner's look pending), task 3 (sky and sun) in progress: the full-screen sky pass | [renderer.md](renderer.md#roadmap) |
 | `tools` | Milestone 1: tasks 1–3 | Milestone 3 cut to the benchmark path; milestone 1 tasks 4–5 built | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
@@ -129,8 +129,15 @@ Tasks (1 done 2026-11-20: survey, reference views and their baseline shots):
    changes until task 3.
 3. Sky and sun: the model draws the whole sky, clear (the painted dome and its cloud layers not
    shown; volumetric clouds are render milestone 12, owner 2026-11-20); the sun disc and its forward-scattering glow from the model, the flare's
-   occlusion test kept. The dim dome (open since milestone 2) settled against the model here. Look
-   for: no seam where terrain meets the sky; the horizon brighter and warmer toward the sun.
+   occlusion test kept. The sky is one full-screen pass at the far plane (`RaSky`, contract 7) in
+   the dome's place, filling what nothing covers; under water it fills the water's fog colour, and
+   thermals keep their heat gradient. The dome mesh draws only with `renderer.atmosphere 0`; at
+   acceptance it and its techniques are deleted, and the sky moves to an effect of its own. Built:
+   the sky and disc seen by the owner on Muttrah City on the dome (2026-11-20, "looks good",
+   `renderer.skyGainBlend 0.5`); the full-screen pass replacing it, to check in game. Open:
+   banding in the dark blue (dither at the tonemap), the glow strength (physical until bloom,
+   milestone 13). Look for: no seam where terrain meets the sky; the horizon brighter and warmer
+   toward the sun; the sky correct under water and in thermals.
 4. Aerial perspective: `Ra_ApplyFog` replaced by one function (transmittance and in-scatter from the
    atlas by direction and distance) in the 18 effects that fog; particles per vertex, blending
    neighbouring slices by hand; the exponential haze curve, full haze at fog end, fog start unused.

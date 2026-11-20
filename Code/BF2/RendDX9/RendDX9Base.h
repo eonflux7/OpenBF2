@@ -829,13 +829,13 @@ float& rendererSkyGainBlend();
 void rendererAtmosphereFrame();
 void rendererAtmosphereRelease();
 // Whether the model draws the sky (renderer.atmosphere on and the sky-view table built). While it
-// does, the sky dome draws the model's sky and sun disc under its clouds (the painted dome is not
-// shown) and the retail flare sprite is not drawn
-// (its occlusion test is kept).
+// does, the sky is one full-screen pass (rendererAtmosphereDrawSky) and the painted dome, its cloud
+// layers and the retail flare sprite are not drawn (the flare's occlusion test is kept).
 bool rendererAtmosphereDrawsSky();
-// Sets the sky dome effect's constants (contract 7): RaSky, RaAtmosphere, RaSkyViewTable and
-// RaSkyDomeToWorld, the dome's vertices to world directions from the camera (a row-major 4x4).
-void rendererAtmosphereBindSky(void* effect, const float* domeToWorld);
+// Draws the model's sky with the sky dome's effect (contract 7, technique RaSky) into the bound
+// target, at the far plane; under water, the water's fog colour. False, drawing nothing, while the
+// model does not draw the sky.
+bool rendererAtmosphereDrawSky(void* effect, bool underWater);
 // The fit and the tables, for the debug menu.
 struct AtmosphereInfo
 {
