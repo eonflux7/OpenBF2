@@ -6,7 +6,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Milestones 1–9 accepted | Milestone 10, terrain in one pass | [renderer.md](renderer.md#roadmap) |
+| `render` | Milestones 1–9 accepted | Milestone 10, terrain in one pass: 8 tasks planned | [renderer.md](renderer.md#roadmap) |
 | `tools` | Milestone 1: tasks 1–3 | Milestone 3 cut to the benchmark path; milestone 1 tasks 4–5 built | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
@@ -82,7 +82,43 @@ tried on Muttrah City by an agent: a view shot before the HUD and one with `tool
 
 ## Next: `render` milestone 10, terrain in one pass
 
-Plan: [renderer.md](renderer.md#10-terrain-in-one-pass). Not broken into tasks yet.
+Plan: [renderer.md](renderer.md#10-terrain-in-one-pass), with what the current passes do and the
+constraints found while planning. A/B switch while in development: `renderer.terrainOnePass`
+(new path on by default once task 4 draws; deleted on acceptance with the old path).
+
+Tasks (planned 2026-11-20; none started):
+1. Survey on the three maps: patches by detail-layer count, planar, environment-mapped and layer-6
+   (underwater) layers; detail texture sizes and formats; which point-light path runs (pass 16 is
+   past the technique's last pass) and how many lights reach terrain; terrain's GPU span and draws
+   at the reference views and on the benchmark paths (the baseline). Recorded in renderer.md.
+2. Sampler layout, decided from the survey, for the owner. Recommended: per-level detail and side
+   texture atlases built at load (same format and size per atlas, wrap in the shader with
+   `tex2Dgrad` for the mips, padded), leaving about 11 samplers fixed. Alternative: per-patch
+   variants by layer count, splitting patches with more layers than fit. The same decision covers
+   the lightmaps: one terrain lightmap atlas lets roads look up by world position across patches.
+3. Lighting without the accumulation target: the lit pass reads the patch lightmap at its own UV,
+   unpacked (no `[0,1]` packing); point lights come from a per-patch constant list (nearest N from
+   the culler's sphere gather) instead of an additive pass; sun cascades and thermals as now.
+4. The one pass: one draw per visible node over LOD 0, every layer blended by its weight
+   (planar and environment-mapped layers by per-layer constants), the colormap and low-detail
+   texture blended in by distance for variation, fog once. Terrain depth moves into the depth
+   prepass like other entries and the lit pass tests EQUAL. Layer 6 folded in or drawn as a second
+   pass on the patches that have it, decided from the survey.
+5. Roads' own lit path: road effects and road static meshes read the terrain lightmap by world
+   position (task 2's layout) and light themselves; they no longer blend into a target.
+6. Full detail at every distance: `detailNear`, pass 3 and the far-node path go;
+   `lodSwitchDistance` becomes the roads' view distance, which settles the open item on roads
+   fading at 130 m. GPU cost measured on the three maps.
+7. Compressed resolve: one shared output function in the opaque shaders writes colour times
+   1 / (1 + luma); the resolve output is expanded before the transparents and post. Water: moved
+   after the expansion or written in the same space, decided here.
+8. Acceptance: A/B shots at the reference views on the three maps (a fogged slope where layers
+   overlap, a road, a thermals view), benchmark frame times against milestone 9's
+   ([renderer-pipeline.md](renderer-pipeline.md#submission)), terrain GPU span and draws. On the
+   owner's acceptance, deleted in one change: the switch and old passes, the accumulation target and
+   its constants, `drawMain`'s clear and copy, `drawDetailPass`/`drawMaskLights`, the
+   `m_lowQuality`/`m_lowQualityB` branches and the terrain-quality option hook (`BF2Render.cpp`),
+   the `+0x368` index buffer with its lock and unlock, and the unused `Hi_Terrain` passes.
 
 Milestone 9 (draw submission) accepted by the owner, 2026-11-20; the D3DX path and
 `renderer.submit`, `renderer.instancing` and `renderer.casterCull` deleted. Its

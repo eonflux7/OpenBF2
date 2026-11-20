@@ -67,6 +67,23 @@ expanded back to linear before the transparent pass and post. Water draws in the
 the resolve, so it blends over compressed values; it moves after the expansion or writes in the
 same space, decided then.
 
+Found while planning (2026-11-20):
+- Today's passes: `drawMain` draws pass 0 (`ZFillLightMap`: depth and the packed lightmap into the
+  accumulation target, `+0x774`) per visible node, then the point lights (`drawDetailPass`, pass 16,
+  when the effect's shader version is 1, which is past the last pass of `Hi_Terrain` (15);
+  otherwise `drawMaskLights`, pass 1). `drawFinal` → `QuadPatch::drawFinal` then draws, per patch,
+  each detail layer on its own index buffer (pass 4, 5 for planar "mounten" layers, 11 with the
+  environment map, 14 for layer 6) on the `detailNear` nodes, and pass 3 (`LowDiffuse`) on the far
+  ones. Each detail pass reads the accumulation target projected (`tex2Dproj`) and fogs.
+- Sampler budget: a detail layer needs its detail texture and, when planar, its side texture; six
+  layers, their two weight maps, the colormap, lightmap, low-detail texture and low-detail weights,
+  the environment cube and the engine's s13 (cascades) and s15 (linear depth) come to more than
+  ps_3_0's 16 samplers. The one pass needs another layout (task 2).
+- Only terrain and roads read the accumulation target: `rashaderroad.fx`, `roadcompiled.fx` and
+  road static meshes (`StaticMesh.cpp`, the `m_isRoad` arm). Once both read lightmaps directly, the
+  target and its constants (`raShaderConstantsSetAccumulationMap`, `Frame.cpp`) go. Lightmaps are
+  per patch, and a road crosses patches.
+
 ### 11. Atmosphere, sky IBL, water reflections
 
 - One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial
