@@ -703,8 +703,10 @@ void RoadCompiledRenderer::updateFrameConstants()
         m_paramAmbientIlluminationRange->setValue(range, 0);
     }
 
-    dx9rend::stateManagerSetRenderState(195u, floatBits(m_depthBias));                       // D3DRS_DEPTHBIAS
-    dx9rend::stateManagerSetRenderState(175u, floatBits(m_slopeScaleDepthBias));             // D3DRS_SLOPESCALEDEPTHBIAS
+    // [RENDER] Retail set m_depthBias / m_slopeScaleDepthBias here. A constant bias is a fixed
+    // step in reversed float depth, metres at range, so far roads drew over buildings; the road
+    // shaders pull themselves toward the camera instead. The values stay for the editable roads
+    // (RoadEditable::draw), the console and the renderer's road-bias slots.
 }
 
 

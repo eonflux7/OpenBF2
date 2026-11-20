@@ -51,8 +51,6 @@ extern IBase* g_RoadCompiledRenderer;
 extern IBase* g_RoadEditableRenderer;
 extern IBase* g_Terrain;
 const float* roadCompiledRendererFadeOut();
-unsigned int roadCompiledRendererDepthBiasBits();
-unsigned int roadCompiledRendererSlopeScaleDepthBiasBits();
 void* roadCompiledRendererListener();
 }
 
@@ -633,8 +631,7 @@ void frameRoadPass(const FrameInputs& in)
     postProductionUpdateFog(underwaterDepth());
 
     stateManagerPush();
-    stateManagerSetRenderState(195u, geom::roadCompiledRendererDepthBiasBits());            // D3DRS_DEPTHBIAS
-    stateManagerSetRenderState(175u, geom::roadCompiledRendererSlopeScaleDepthBiasBits());  // slopescaledepthbias
+    // [RENDER] No depth bias: road shaders pull themselves toward the camera (docs/eon64/renderer-pipeline.md#reversed-z).
     renderQueueFlush(0x24, 1);                                                               // RSMTRoad
     stateManagerPop();
 }

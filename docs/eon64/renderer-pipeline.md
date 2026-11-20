@@ -201,6 +201,14 @@ A span includes the GPU's idle time while the CPU is the bottleneck; that usuall
 - XpLightManager marks shadow-map depth buffers as standard depth.
 - It needs float depth. DXVK refuses `D24FS8`; `d3d9.useD32forD24 = True` backs `D24S8` with
   `D32_SFLOAT_S8_UINT`.
+- Roads take no depth bias. A constant bias is a fixed step in reversed float depth, which is
+  centimetres near the camera and metres at range: with the road static meshes' bias (-1e-4) the
+  dirt overlays drew over rooftops about 100 m away on Muttrah City. The road shaders (compiled
+  roads and road static meshes) scale clip z by 1 + 0.001 instead, which moves the surface 0.1 %
+  of its distance toward the camera along the view ray (2 cm at 20 m, 20 cm at 200 m) and leaves
+  its screen position alone. The engine no longer sets the road bias for them; the stored value
+  (`renderer.roadDepthBias`, `renderer.roadSlopeScaleDepthBias`, the renderer's road-bias slots)
+  is read only by the editable roads.
 
 ## Sun shadows
 

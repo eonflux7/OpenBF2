@@ -229,7 +229,6 @@ extern IBase* g_Terrain;
 // (+0xB0/+0xB4) and the two depth-bias words (+0x90/+0x94) as their bit patterns.
 const float* roadCompiledRendererFadeOut();
 unsigned int roadCompiledRendererDepthBiasBits();
-unsigned int roadCompiledRendererSlopeScaleDepthBiasBits();
 float roadCompiledRendererViewDistanceScale();     // +0x8C, unguarded
 void roadCompiledRendererSetViewDistanceScale(float value);
 void roadCompiledRendererSetDepthBias(float value);
@@ -3927,8 +3926,8 @@ void rendererRenderOrthoTopDown(IDirect3DSurface9* target, IDirect3DSurface9* de
     if (reinterpret_cast<RendDX9Base*>(renderer)->flag102)
     {
         renderer->renderScene(0.0, &flags, 0);       // +0x2C; 0x10029F77 pushes a zero dword
-        stateManagerSetRenderState(195u, geom::roadCompiledRendererDepthBiasBits());   // depthbias
-        stateManagerSetRenderState(175u, geom::roadCompiledRendererSlopeScaleDepthBiasBits());
+        // [RENDER] Retail set the road depth bias here for the editable roads below; they set it
+        // themselves (RoadEditable::draw).
         // `mov edx, g_Renderer; cmp byte ptr [edx+6A4h], 0` - the same object, reached as the global.
         if (static_cast<Renderer*>(static_cast<void*>(g_Renderer))->sw(1700) &&
             geom::g_RoadEditableRenderer)
@@ -4905,8 +4904,7 @@ void Renderer::roadScenePass()
     postProductionUpdateFog(underwaterDepth());                                   // sub_1004FDA0
 
     stateManagerPush();
-    stateManagerSetRenderState(195u, geom::roadCompiledRendererDepthBiasBits());            // D3DRS_DEPTHBIAS
-    stateManagerSetRenderState(175u, geom::roadCompiledRendererSlopeScaleDepthBiasBits());  // slopescaledepthbias
+    // [RENDER] No depth bias: road shaders pull themselves toward the camera (docs/eon64/renderer-pipeline.md#reversed-z).
     renderQueueFlush(0x24, 1);                                                    // RSMTRoad
     stateManagerPop();
 }
