@@ -84,6 +84,13 @@ const unsigned int kMultiScatterSize = 32;
 const unsigned int kSkyViewW = 192, kSkyViewH = 108;
 const unsigned int kApTiles = 32, kApSlices = 32;
 
+// The sky dome (task 3). Below this elevation the dome's texture blends into the model's sky,
+// fully the model at the horizon.
+const double kSkyBlendElevation = 20.0;     // degrees
+const double kSunAngularRadius = 0.27;      // degrees, the real sun's
+const double kSunDiscEdge = 0.15;           // the disc's soft edge, as a share of its radius
+const double kSunDiscMaxLuminance = 100.0;  // scene units (the physical disc is ~46000x the sun colour)
+
 struct V3
 {
     double x, y, z;
@@ -1018,6 +1025,54 @@ AtmosphereInfo rendererAtmosphereInfo()
     i.atlasVertexFilter = g.atlasVertexFilter;
     i.atlasFloat32 = g.atlasFormat == D3DFMT_A32B32G32R32F;
     return i;
+}
+
+bool rendererAtmosphereDrawsSky()
+{
+    return g_enabled && g.fitted && g.skyView && !g.skyViewDirty;
+}
+
+// The sky dome's constants (contract 7, SkyDome.fx): RaAtmosphere as for the atlas pass, the
+// sky-view table, the dome's transform and RaSky. RaSky[0].x is 0 while the model does not draw the
+// sky (renderer.atmosphere off, no fit yet): the dome then draws as authored.
+void rendererAtmosphereBindSky(void* effect, const float* domeToWorld)
+{
+    ID3DXEffect* const d3dx = static_cast<ID3DXEffect*>(effectD3dxHandle(effect));
+    if (!d3dx)
+        return;
+    const D3DXHANDLE skyHandle = d3dx->GetParameterBySemantic(0, "RaSky");
+    if (!skyHandle)
+        return;
+    float sky[2][4] = {};
+    if (rendererAtmosphereDrawsSky())
+    {
+        float c[16][4];
+        fillConstants(c);
+        if (const D3DXHANDLE h = d3dx->GetParameterBySemantic(0, "RaAtmosphere"))
+            d3dx->SetVectorArray(h, reinterpret_cast<const D3DXVECTOR4*>(c), 16);
+        if (const D3DXHANDLE h = d3dx->GetParameterBySemantic(0, "RaSkyViewTable"))
+            d3dx->SetTexture(h, g.skyView);
+        if (const D3DXHANDLE h = d3dx->GetParameterBySemantic(0, "RaSkyDomeToWorld"))
+            d3dx->SetMatrix(h, reinterpret_cast<const D3DXMATRIX*>(domeToWorld));
+
+        // The sun disc: the authored sun (the sunlight at the ground, which the fit keeps) spread
+        // over the disc's solid angle, so the disc's irradiance is the sun's; its luminance capped
+        // so the MSAA resolve of its edge stays within a pixel (bloom, milestone 12, reads it).
+        const double radius = kSunAngularRadius * kPi / 180.0;
+        const double solidAngle = 2.0 * kPi * (1.0 - std::cos(radius));
+        V3 disc = v3(g.inputs.sun[0], g.inputs.sun[1], g.inputs.sun[2]) * (kPi / solidAngle);
+        const double lum = luminance(disc);
+        if (lum > kSunDiscMaxLuminance)
+            disc = disc * (kSunDiscMaxLuminance / lum);
+        sky[0][0] = 1.0f;
+        sky[0][1] = static_cast<float>(std::sin(kSkyBlendElevation * kPi / 180.0));
+        sky[0][2] = static_cast<float>(std::cos(radius));
+        sky[0][3] = static_cast<float>(std::cos(radius * (1.0 + kSunDiscEdge)));
+        sky[1][0] = static_cast<float>(disc.x);
+        sky[1][1] = static_cast<float>(disc.y);
+        sky[1][2] = static_cast<float>(disc.z);
+    }
+    d3dx->SetVectorArray(skyHandle, reinterpret_cast<const D3DXVECTOR4*>(sky), 2);
 }
 
 } // namespace dx9rend

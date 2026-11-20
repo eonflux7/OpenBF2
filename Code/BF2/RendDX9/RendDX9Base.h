@@ -807,7 +807,7 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 // needs a newer contract stops with #error instead of running against an engine without it. Raised
 // whenever the engine changes what the shaders may rely on; docs/eon64/renderer-pipeline.md lists
 // what each version adds.
-#define RA_CONTRACT_VERSION 6
+#define RA_CONTRACT_VERSION 7
 #define RA_CONTRACT_TEXT_(v) #v
 #define RA_CONTRACT_TEXT(v) RA_CONTRACT_TEXT_(v)
 
@@ -828,6 +828,13 @@ bool& rendererAtmosphereEnabled();
 float& rendererSkyGainBlend();
 void rendererAtmosphereFrame();
 void rendererAtmosphereRelease();
+// Whether the model draws the sky (renderer.atmosphere on and the sky-view table built). While it
+// does, the sky dome draws the model's sky and sun disc and the retail flare sprite is not drawn
+// (its occlusion test is kept).
+bool rendererAtmosphereDrawsSky();
+// Sets the sky dome effect's constants (contract 7): RaSky, RaAtmosphere, RaSkyViewTable and
+// RaSkyDomeToWorld, the dome's vertices to world directions from the camera (a row-major 4x4).
+void rendererAtmosphereBindSky(void* effect, const float* domeToWorld);
 // The fit and the tables, for the debug menu.
 struct AtmosphereInfo
 {

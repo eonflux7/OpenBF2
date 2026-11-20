@@ -1071,6 +1071,16 @@ void SkyDome::onRenderPathNotification(int unused)
     scale.z = m_domeScale;
     rendmath::scaleColumns(world, scale);
 
+    // [RENDER] The model's sky (render milestone 11): the dome's vertices to world directions from
+    // the camera. rotMult below keeps the translation in view space, so it is turned to world here.
+    {
+        Mat4 domeToWorld = world;
+        const float* const v = drawView->getViewMatrixPtr()->m;   // camera to world
+        for (int k = 0; k < 3; ++k)
+            domeToWorld.m[12 + k] = world.m[12] * v[0 + k] + world.m[13] * v[4 + k] + world.m[14] * v[8 + k];
+        dx9rend::rendererAtmosphereBindSky(m_effect, domeToWorld.m);
+    }
+
     const Mat4 inverseView = *drawView->getInverseViewMatrixPtr();
     const Mat4 worldBeforeRotate = world;
     rendmath::rotMult(world, worldBeforeRotate, inverseView);   // PE 0x10078180
@@ -1375,7 +1385,10 @@ void SkyDome::drawFlare(int mode)
         }
 
         m_paramFlareParams->setValue(&flareParams, 0);
-        submitFlarePass();
+        // [RENDER] The sky dome draws the model's sun disc (render milestone 11); the sprite stays
+        // only while the model is off. The occlusion test above is kept.
+        if (!dx9rend::rendererAtmosphereDrawsSky())
+            submitFlarePass();
         view->setFarPlane(savedFarPlane);
         return;
     }
