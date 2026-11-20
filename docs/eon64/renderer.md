@@ -62,12 +62,6 @@ At range the detail textures tile
 visibly, so the one pass blends the low-detail colormap in by distance for variation, not instead of
 the detail layers.
 
-The compressed resolve, moved here from milestone 8: once terrain is one pass, opaque shaders write
-colour compressed by 1 / (1 + luma) through one shared output function, and the resolve output is
-expanded back to linear before the transparent pass and post. Water draws in the MSAA scene before
-the resolve, so it blends over compressed values; it moves after the expansion or writes in the
-same space, decided then.
-
 Found while planning (2026-11-20):
 - Today's passes: `drawMain` draws pass 0 (`ZFillLightMap`: depth and the packed lightmap into the
   accumulation target, `+0x774`) per visible node, then the point lights (`drawDetailPass`, pass 16,
@@ -221,6 +215,15 @@ The Falklands night terrain reaches the tonemap at about 0.0155, and Khronos Neu
 upper limit so night stays dark (about retail's level), and the toe may need softening for what
 stays below 0.08. Night particles (milestone 7) are checked here, on The Falklands night layer
 (`gpm_cq 32`), once night exposure is settled.
+
+The compressed (Karis) resolve, moved here from milestone 10 (owner, 2026-11-20), decided by an A/B
+once auto-exposure runs: at a window seen from a dark interior and at foliage against the sky. It
+pays only where an edge's samples straddle the tonemap's shoulder, which at today's fixed exposure
+(−1.25 stops, Neutral linear to about 0.8) is little beyond the sky and specular glints (milestone
+11 handles those). Cost found in a first attempt: every scene pixel shader encodes through a flag
+in an engine-owned pixel register, the resolve expands in the depth rebuild's full-screen pass, and
+every pass blending before the resolve (decals, particles, water, first-person transparents,
+additive light passes) blends compressed values, with additive sums clamped at the expansion.
 
 ### 13. GTAO + lightmap channel ownership
 

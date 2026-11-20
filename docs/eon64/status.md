@@ -6,7 +6,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Milestones 1–9 accepted | Milestone 10, terrain in one pass: 8 tasks planned | [renderer.md](renderer.md#roadmap) |
+| `render` | Milestones 1–9 accepted | Milestone 10, terrain in one pass: acceptance (task 8) next | [renderer.md](renderer.md#roadmap) |
 | `tools` | Milestone 1: tasks 1–3 | Milestone 3 cut to the benchmark path; milestone 1 tasks 4–5 built | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
@@ -132,9 +132,10 @@ Tasks (planned 2026-11-20; 1–6 done):
    detailed. Not yet seen by the owner: whether the pop is gone in motion and whether the far
    tiling reads well. The old path still reads `detailNear` and `lodSwitchDistance`, so they go
    in task 8. GPU cost not measured (owner: not needed).
-7. Compressed resolve: one shared output function in the opaque shaders writes colour times
-   1 / (1 + luma); the resolve output is expanded before the transparents and post. Water: moved
-   after the expansion or written in the same space, decided here.
+7. Dropped 2026-11-20 (owner): the compressed resolve. At the fixed exposure few edges cross the
+   tonemap's shoulder, and every pass blending before the resolve (decals, particles, water,
+   first-person transparents, additive light passes) would blend compressed values. Moved to
+   milestone 12, decided there by an A/B under auto-exposure ([renderer.md](renderer.md#12-hdr-bloom--auto-exposure)).
 8. Acceptance: A/B shots at the reference views on the three maps (a fogged slope where layers
    overlap, a road, a thermals view), benchmark frame times against milestone 9's
    ([renderer-pipeline.md](renderer-pipeline.md#submission)), terrain GPU span and draws. On the
