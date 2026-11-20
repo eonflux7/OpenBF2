@@ -76,6 +76,10 @@ are listed in [renderer-pipeline.md](renderer-pipeline.md#sun-shadows).
   server). The file is the owner's, outside this repository; without it the tab says where it is
   looked for and what it holds.
 - **Shadows:** the `renderer.sunShadow*` variables.
+- **Atmosphere** (render milestone 11, while in development): `renderer.atmosphere` and
+  `renderer.skyGainBlend`, the fit against its targets, the atlas format's vertex fetch check, and
+  the four tables drawn opaque and read as data (linear, no exposure). The same, as files:
+  `tools.atmosphere` ([tools.md](tools.md#atmosphere)).
 - **Renderer:** every other `renderer.*` set/get property, with a filter.
 - **Settings:** the overlay, the console height, the menu key, and the paths of the two files.
 

@@ -439,7 +439,7 @@ void drawVariableTable(const char* id, const char* prefix, const char* filter, b
     for (size_t i = 0; i < g_variables.size(); ++i)
     {
         ConsoleObject* const o = g_variables[i];
-        const bool hasPrefix = _strnicmp(o->getFunctionName(), prefix, prefixLength) == 0;
+        const bool hasPrefix = prefixLength && _strnicmp(o->getFunctionName(), prefix, prefixLength) == 0;
         if (hasPrefix != prefixOnly || !containsNoCase(o->getFunctionName(), filter))
             continue;
         drawVariableRow(o, prefixOnly ? prefix : 0);
@@ -661,6 +661,75 @@ void drawShadowsTab()
 {
     if (ImGui::BeginChild("##shadows", ImVec2(0.0f, 0.0f)))
         drawVariableTable("##sunvars", "sunShadow", "", true);
+    ImGui::EndChild();
+}
+
+// [UI] Render milestone 11's atmosphere: renderer.atmosphere, the fit and its tables as drawn.
+// Linear values shown as they are (no exposure), opaque: the multiple-scattering table is dark.
+void atmosphereRgb(const char* label, const float* v)
+{
+    ImGui::Text("%-18s %.4f %.4f %.4f", label, v[0], v[1], v[2]);
+}
+
+// Tables are drawn opaque (the atlas's alpha is its transmittance, not coverage) and read as data:
+// the backend leaves sRGB decode as the scene left stage 0.
+void atmosphereOpaque(const ImDrawList*, const ImDrawCmd*)
+{
+    base()->device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    base()->device->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+}
+
+void atmosphereTable(const char* label, IDirect3DTexture9* texture, float width, float height)
+{
+    ImGui::TextDisabled("%s", label);
+    if (!texture)
+    {
+        ImGui::TextDisabled("  not drawn");
+        return;
+    }
+    const float scale = std::min(1.0f, ImGui::GetContentRegionAvail().x / width);
+    ImDrawList* const list = ImGui::GetWindowDrawList();
+    list->AddCallback(atmosphereOpaque, 0);
+    ImGui::Image(static_cast<ImTextureID>(reinterpret_cast<intptr_t>(texture)),
+                 ImVec2(width * scale, height * scale));
+    list->AddCallback(ImGui::GetPlatformIO().DrawCallback_ResetRenderState, 0);
+}
+
+void drawAtmosphereTab()
+{
+    if (!ImGui::BeginChild("##atmosphere", ImVec2(0.0f, 0.0f)))
+    {
+        ImGui::EndChild();
+        return;
+    }
+    drawVariableTable("##atmosvars", "", "atmosphere", false);   // full names: no prefix
+    drawVariableTable("##skygain", "", "skyGainBlend", false);
+    const AtmosphereInfo a = rendererAtmosphereInfo();
+    if (!a.fitted)
+        ImGui::TextDisabled("No fit yet: it runs once a level with a sky dome and fog has drawn.");
+    else
+    {
+        ImGui::Text("fit %.0f ms, reference height %.1f m, fog end %.0f m", a.fitMs, a.refHeight,
+                    a.fogEnd);
+        atmosphereRgb("rayleigh tint", a.rayleigh);
+        ImGui::Text("%-18s %.2f, applied %.2f", "sky gain", a.skyGain, a.skyGainApplied);
+        atmosphereRgb("sun above", a.sunTop);
+        atmosphereRgb(a.haveZenith ? "zenith target" : "zenith (unread)", a.zenithTarget);
+        atmosphereRgb("zenith model", a.zenithModel);
+        atmosphereRgb("horizon target", a.horizonTarget);
+        atmosphereRgb("horizon model", a.horizonModel);   // before the gain
+        atmosphereRgb("ground albedo", a.groundAlbedo);
+        ImGui::Text("%-18s %.3e /m", "haze density", a.hazeDensity);
+        atmosphereRgb("haze albedo", a.hazeAlbedo);
+        ImGui::Text("atlas %s: vertex fetch %s, filtered %s", a.atlasFloat32 ? "A32B32G32R32F" : "A16B16G16R16F",
+                    a.atlasVertexFetch ? "yes" : "no", a.atlasVertexFilter ? "yes" : "no");
+        ImGui::Separator();
+        atmosphereTable("transmittance (x: view angle, y: altitude)", a.transmittance, 512.0f, 128.0f);
+        atmosphereTable("multiple scattering (x: sun angle, y: altitude)", a.multiScatter, 128.0f, 128.0f);
+        atmosphereTable("sky view (x: azimuth from the sun, y: zenith to nadir)", a.skyView, 384.0f, 216.0f);
+        atmosphereTable("aerial perspective (32 slices near to far; rgb in-scatter)", a.perspective,
+                        1024.0f, 32.0f);
+    }
     ImGui::EndChild();
 }
 
@@ -1385,6 +1454,11 @@ void uiDebugDrawMenu()
         if (ImGui::BeginTabItem("Shadows"))
         {
             drawShadowsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Atmosphere"))
+        {
+            drawAtmosphereTab();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Renderer"))
