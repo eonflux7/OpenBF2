@@ -6,7 +6,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Milestones 1–9 accepted | Milestone 10, terrain in one pass: acceptance (task 8) next | [renderer.md](renderer.md#roadmap) |
+| `render` | Milestones 1–9 accepted | Milestone 10, terrain in one pass: acceptance (task 8), benches done, shots next | [renderer.md](renderer.md#roadmap) |
 | `tools` | Milestone 1: tasks 1–3 | Milestone 3 cut to the benchmark path; milestone 1 tasks 4–5 built | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
@@ -145,6 +145,15 @@ Tasks (planned 2026-11-20; 1–6 done):
    the `+0x368` index buffer with its lock and unlock, the unused `Hi_Terrain` passes, and
    `detailNear` with the culler's detail distance, `drawGatheredNodes`' far pass and the
    `lodSwitchDistance` console property (its roads reader went in task 5).
+   Benches done 2026-11-20 (agent, engine `6fd523bb`, Conquest 64, 1920x1080 4x, 3 runs each,
+   same session per map, one-pass / old / one-pass again; no GPU timers): Muttrah City `bench1`
+   8.02 / 7.81 / 7.92 ms, draws 3465 / 3324, Mprims 2.91 / 3.18; Fallujah West `bench` 15.17 /
+   14.92 / 15.27 ms, draws 4489 / 4481, Mprims 2.75 / 2.88; Saaremaa `bench1` 5.20 / 5.18 /
+   5.21 ms, draws 1630 / 1640, Mprims 2.29 / 2.56, frame GPU span 4.38 / 4.74 / 4.48 ms (the one
+   map where the GPU span sits below the frame time). Every frame CPU bound: the one pass costs
+   0–2 % CPU frame time (Muttrah and Fallujah up to 2 %, near the run spread of 1–3 %), cuts
+   primitives 5–10 % and the GPU span about 6 % where it shows. Left: the A/B shots at the
+   reference views, terrain's per-pass GPU span (`GPU=1`) if the owner wants it, acceptance.
 
 Milestone 9 (draw submission) accepted by the owner, 2026-11-20; the D3DX path and
 `renderer.submit`, `renderer.instancing` and `renderer.casterCull` deleted. Its
