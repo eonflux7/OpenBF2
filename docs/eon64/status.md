@@ -86,7 +86,7 @@ Plan: [renderer.md](renderer.md#10-terrain-in-one-pass), with what the current p
 constraints found while planning. A/B switch while in development: `renderer.terrainOnePass`
 (new path on by default once task 4 draws; deleted on acceptance with the old path).
 
-Tasks (planned 2026-11-20; 1–5 done):
+Tasks (planned 2026-11-20; 1–6 done):
 1. Done 2026-11-20, results in renderer.md (no point lights or environment-mapped layers on terrain;
    layer 6 folded in). Survey on the three maps: patches by detail-layer count, planar, environment-mapped and layer-6
    (underwater) layers; detail texture sizes and formats; which point-light path runs (pass 16 is
@@ -126,11 +126,12 @@ Tasks (planned 2026-11-20; 1–5 done):
    faded them because far terrain dropped to lower LODs under them. Terrain is LOD 0 everywhere
    since milestone 8, so roads draw to the view distance: the cull limit and the fade pair go.
    Checked for z-fighting far out and for the cost on Fallujah West.
-6. Full detail at every distance: `detailNear`, pass 3 and the far-node path go, and with them
-   the texture pop the owner sees on terrain (2026-11-20): each culler node switches between the
-   detail layers and the low-detail pass at `lodSwitchDistance`. Any pop left after this is
-   looked for elsewhere (mips, streaming). `lodSwitchDistance` has no reader left and goes. GPU
-   cost measured on the three maps.
+6. Done 2026-11-20, behind `renderer.terrainOnePass` (results in renderer.md). Every visible node
+   draws `RaTerrain` with its detail layers at any distance; the low-detail map only modulates.
+   Muttrah City A/B at views `mountain` and `high`: near terrain the same, far slopes now
+   detailed. Not yet seen by the owner: whether the pop is gone in motion and whether the far
+   tiling reads well. The old path still reads `detailNear` and `lodSwitchDistance`, so they go
+   in task 8. GPU cost not measured (owner: not needed).
 7. Compressed resolve: one shared output function in the opaque shaders writes colour times
    1 / (1 + luma); the resolve output is expanded before the transparents and post. Water: moved
    after the expansion or written in the same space, decided here.
@@ -140,7 +141,9 @@ Tasks (planned 2026-11-20; 1–5 done):
    owner's acceptance, deleted in one change: the switch and old passes, the accumulation target and
    its constants, `drawMain`'s clear and copy, `drawDetailPass`/`drawMaskLights`, the
    `m_lowQuality`/`m_lowQualityB` branches and the terrain-quality option hook (`BF2Render.cpp`),
-   the `+0x368` index buffer with its lock and unlock, and the unused `Hi_Terrain` passes.
+   the `+0x368` index buffer with its lock and unlock, the unused `Hi_Terrain` passes, and
+   `detailNear` with the culler's detail distance, `drawGatheredNodes`' far pass and the
+   `lodSwitchDistance` console property (its roads reader went in task 5).
 
 Milestone 9 (draw submission) accepted by the owner, 2026-11-20; the D3DX path and
 `renderer.submit`, `renderer.instancing` and `renderer.casterCull` deleted. Its

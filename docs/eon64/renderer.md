@@ -185,6 +185,15 @@ reach roads (none reach terrain on the three maps). Roads have no distance cull
 If the prepass does not run (no linear depth target, or the world pass off), terrain has no
 depth and its lit pass draws nothing.
 
+Full detail (task 6, 2026-11-20; `renderer.terrainOnePass`): `drawOnePass` draws `RaTerrain` over
+every visible node; `detailNear` is not read on this path, so no node switches to the low-detail
+pass at the culler's detail distance (75 m at zoom 1, while the shader faded detail out over 300 m:
+the pop). `RaTerrain` keeps the detail layers at every distance; the low-detail map modulates them,
+fading in with distance as before, instead of replacing them past 300 m. Muttrah City A/B at views
+`mountain` and `high`: near terrain the same; far slopes show their detail (the planar side
+textures' strata on the cliffs) where they were flat low-detail colour. GPU cost not measured
+(owner: GPU timers not needed on intermediate tasks).
+
 ### 11. Atmosphere, sky IBL, water reflections
 
 - One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial
