@@ -19,6 +19,7 @@
 #include "../RendMisc/IRendererTools.h"
 #include "ToolsBench.h"
 #include "ToolsSurvey.h"
+#include "ToolsAtmosphere.h"
 
 #include <cstdio>
 #include <string>
@@ -219,6 +220,12 @@ public:
     virtual int toolsSurveyState(const char*& message) const
     {
         return dx9rend::toolsSurveyState(message);
+    }
+
+    // ToolsAtmosphere.cpp
+    virtual bool toolsWriteAtmosphere(const char* base, const char*& message)
+    {
+        return dx9rend::toolsWriteAtmosphere(base, message);
     }
 };
 

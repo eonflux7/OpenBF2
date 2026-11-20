@@ -392,3 +392,24 @@ One line per fact, tagged by section:
 
 Textures are read from their managed copies (DXT1–5, A8R8G8B8, X8R8G8B8); default-pool textures
 and other formats are reported unread.
+
+## Atmosphere
+
+`tools.atmosphere [NAME]` (render milestone 11, task 2; `tools(atmosphere)`) writes
+`<outputDir>/<map>/atmosphere/<NAME>.txt` at the console call, NAME as for `tools.survey`, from
+`RendDX9/ToolsAtmosphere.cpp`: the atmosphere's fit and its tables as drawn, for reading without
+the debug menu. Fails while `renderer.atmosphere` is 0 or before the first fit.
+
+- `[fit]`: fit time, reference height, fog end; Rayleigh tint; sky gain and the applied share
+  (`renderer.skyGainBlend`); sunlight above the atmosphere; zenith and horizon targets against the
+  model (before the gain); ground albedo; haze density and albedo. `[atlas]`: its format and the
+  vertex texture fetch check.
+- Per table (`transmittance`, `multiscatter`, `skyview`, `perspective`): size; per channel min,
+  max, mean and the count of non-finite values; a PNG `<NAME>-<table>.png` with rgb scaled to the
+  table's maximum (the scale is in the line); samples on a grid, each row's and column's meaning
+  given.
+- `[perspective]`: also `<NAME>-perspective-transmittance.png`, and per slice its distance and,
+  at four tiles (screen centre, top centre, left and right of the middle row), in-scatter rgb |
+  transmittance.
+
+The managed tables are locked where they are; the atlas is read back from its render target.

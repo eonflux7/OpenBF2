@@ -60,6 +60,12 @@ public:
     virtual void toolsRequestSurvey(const char* path) = 0;
     virtual int toolsSurveyState(const char*& message) const = 0;
 
+    // Atmosphere (docs/eon64/tools.md#atmosphere): writes render milestone 11's fit and tables to
+    // base.txt and base-<table>.png (base absolute, its directory exists), at once. False when
+    // nothing or not everything was written; the message is the file written or what failed.
+    // Valid until the next call.
+    virtual bool toolsWriteAtmosphere(const char* base, const char*& message) = 0;
+
 protected:
     ~IRendererTools() {}
 };

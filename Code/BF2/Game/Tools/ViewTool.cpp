@@ -981,6 +981,32 @@ std::string toolsLastSurvey()
     return g_survey.last.empty() ? std::string("none") : g_survey.last;
 }
 
+// tools.atmosphere [NAME] (render milestone 11): <outputDir>\<map>\atmosphere\<NAME>.txt and
+// <NAME>-<table>.png, written at once: the atmosphere's fit and its tables as drawn. NAME defaults
+// to the active view's name, else "camera".
+std::string toolsAtmosphere(const std::string& requested)
+{
+    dx9rend::IRendererTools* const tools = rendererTools();
+    if (!tools)
+        return "tools.atmosphere: the renderer has no tools";
+    std::string map = game ? game->getCurrentMapName() : std::string();
+    if (map.empty())
+        return "tools.atmosphere: no map loaded";
+    for (size_t i = 0; i < map.size(); ++i)
+        map[i] = static_cast<char>(tolower(static_cast<unsigned char>(map[i])));
+    const std::string name = requested.empty()
+        ? (g_state.view.empty() ? std::string("camera") : g_state.view) : requested;
+    if (!validShotName(name))
+        return "tools.atmosphere: a name has only letters, digits, '_', '-' and '.'";
+    const std::string dir = outputDirectory() + "\\" + map + "\\atmosphere";
+    if (!makeDirectories(dir))
+        return "tools.atmosphere: cannot create " + dir;
+    const char* message = "";
+    const bool ok = tools->toolsWriteAtmosphere((dir + "\\" + name).c_str(), message);
+    return std::string(ok ? "tools.atmosphere: wrote " : "tools.atmosphere: failed: ")
+         + (message ? message : "");
+}
+
 // Once per frame while a survey is pending.
 void surveyStep()
 {
@@ -1663,6 +1689,8 @@ BF2_CONSOLE_PROPERTY_FN(shotWidth, int, true, g_shotWidth, g_shotWidth =, kViewT
 BF2_CONSOLE_METHOD_0_1_RET_ACTIVE(survey, toolsSurvey, std::string, true, std::string, std::string(),
                                   kViewToolConsoleTag)
 BF2_CONSOLE_METHOD_0_RET_ACTIVE(lastSurvey, toolsLastSurvey, std::string, true, kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_0_1_RET_ACTIVE(atmosphere, toolsAtmosphere, std::string, true, std::string,
+                                  std::string(), kViewToolConsoleTag)
 
 dx9rend::IUiViewTool* viewToolUi()
 {
