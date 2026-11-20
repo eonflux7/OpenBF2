@@ -168,6 +168,23 @@ alpha-test threshold. The effect compiler in use rejects HLSL flow attributes (`
 `[branch]`), so it chooses the flow. Muttrah City at view `mountain`: the same image as the
 per-layer passes.
 
+Depth and roads (task 5, 2026-11-20; `renderer.terrainOnePass`): terrain's depth is drawn by the
+depth prepass with its `RaDepthPrepass` states (depth write), after the queued entries so the depth
+test drops terrain behind buildings; `RaTerrain` tests EQUAL against it. `drawMain` draws nothing
+on this path: it flushes the aux queues and gathers the point lights for task 3's per-patch list
+(`drawMaskLights(false)`), with no pass 0, light passes or accumulation target. Roads light
+themselves: compiled roads (`roadcompiled.fx`) and road static meshes (`rashaderroad.fx`) sample
+the lightmap atlas by world position (`Ra_SampleTerrainLightAtlas`: grid = world xz / patch width +
+patches / 2, the cell its floor, a patch's edge on its edge texels' centres, gradients from the
+continuous grid) and light with `Ra_GetTerrainLight` and the sun cascades. The atlas now places
+each cell by the patch's grid position. The grid and the GI colour travel in the accumulation
+projection records (Ra names `TerrainLightAtlasGrid`/`TerrainLightAtlasGI`, `.w` 1 selects the
+path; compiled roads get them on `TEXPROJSCALE`/`TEXPROJOFFSET`). Dynamic point lights no longer
+reach roads (none reach terrain on the three maps). Roads have no distance cull
+(`RoadCompiled::updateChunkVisibility`, the renderer's loop) and no fade (`RoadFadeOut` (0, 0)).
+If the prepass does not run (no linear depth target, or the world pass off), terrain has no
+depth and its lit pass draws nothing.
+
 ### 11. Atmosphere, sky IBL, water reflections
 
 - One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial

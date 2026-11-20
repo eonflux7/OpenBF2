@@ -86,7 +86,7 @@ Plan: [renderer.md](renderer.md#10-terrain-in-one-pass), with what the current p
 constraints found while planning. A/B switch while in development: `renderer.terrainOnePass`
 (new path on by default once task 4 draws; deleted on acceptance with the old path).
 
-Tasks (planned 2026-11-20; 1–4 done):
+Tasks (planned 2026-11-20; 1–5 done):
 1. Done 2026-11-20, results in renderer.md (no point lights or environment-mapped layers on terrain;
    layer 6 folded in). Survey on the three maps: patches by detail-layer count, planar, environment-mapped and layer-6
    (underwater) layers; detail texture sizes and formats; which point-light path runs (pass 16 is
@@ -113,7 +113,11 @@ Tasks (planned 2026-11-20; 1–4 done):
    tests nothing here. Thermals and GPU time not measured (owner: not needed).
    Moved to task 5: terrain depth into the depth prepass. Pass 0 still draws the accumulation
    target roads read, so its depth goes with it.
-5. Terrain depth into the depth prepass like other entries (the lit pass already tests EQUAL),
+5. Done 2026-11-20, behind `renderer.terrainOnePass` (results in renderer.md). Muttrah City A/B
+   at views `roadbug` and `high`: road surfaces the same; the differences are wind and far road
+   edges, which the old path faded past 130 m. No z-fighting on the far roads at `high`. Cost on
+   Fallujah West not measured (owner: GPU timers not needed). Planned:
+   Terrain depth into the depth prepass like other entries (the lit pass already tests EQUAL),
    with pass 0 and the light passes gone once roads no longer read the target. Roads' own lit path and no fade (owner, 2026-11-20, "roads are cheap, draw them at all
    times"): road effects and road static meshes read the terrain lightmap by world position
    (task 2's atlas) and light themselves, no longer blending into a target. Compiled roads are
@@ -154,7 +158,7 @@ Open from milestones 8 and 9:
   distance (shaders); loaded on Saaremaa, not yet seen.
 - The default video profile picks 8x antialiasing (log) while the scene runs 4x. Settle with fixed
   4x (a single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
-- Roads fading at 130 m: taken into milestone 10, task 5.
+- Roads fading at 130 m: no fade on the new path (milestone 10, task 5); goes with the old path.
 - Road overlays (road static meshes) drawn over buildings at range: fixed 2026-11-20 (`51c0b38e`
   and shaders), roads pull 0.1 % of their distance toward the camera instead of a depth bias; seen
   fixed by an agent at the owner's view `roadbug` (Muttrah City); seen fixed by the owner.
