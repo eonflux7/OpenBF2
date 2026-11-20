@@ -6,7 +6,7 @@ an open issue added or closed. When a milestone is accepted, its section here mo
 
 | Lane | Done | Next | Detail |
 |---|---|---|---|
-| `render` | Milestones 1–10 accepted | Milestone 11, atmosphere, sky IBL, water reflections: task 1 | [renderer.md](renderer.md#roadmap) |
+| `render` | Milestones 1–10 accepted | Milestone 11, atmosphere, sky IBL, water reflections: task 1 (reference views left) | [renderer.md](renderer.md#roadmap) |
 | `tools` | Milestone 1: tasks 1–3 | Milestone 3 cut to the benchmark path; milestone 1 tasks 4–5 built | [tools.md](tools.md#milestones) |
 | `ui` | Milestones 1–4 accepted | — | [ui.md](ui.md#milestones) |
 | `perf` (load) | Trace, caches, prefetch, worker compiles; flags retired | — | [perf-load.md](perf-load.md#state) |
@@ -92,7 +92,7 @@ game, on the plan's list of what should change; a task that works but does not l
 done. Every task that adds a frame resource is tried across device resets (`renderer.vsync`
 toggled while it draws).
 
-Tasks (none done):
+Tasks (1 under way: survey tool and surveys done, reference views and baseline shots left):
 1. Survey, three maps and one night layer (The Falklands, `gpm_cq 32`), by a `tools` console command
    `tools.survey` (its own commit): sky dome technique and textures (how much is painted into the
    dome; its horizon and zenith colours against the fog colour), fog colour, start and end, sun and
@@ -105,6 +105,10 @@ Tasks (none done):
    horizon toward and away from the sun, ridges and a valley at range, a glossy vehicle, glass,
    water, a street with sun between buildings. Baseline: milestone 10's benches and shots of those
    views.
+   Done 2026-11-20: `tools.survey` (`tools(survey)` commit, in game) run on the three maps, the night layer and
+   test_bootcamp; findings in [renderer.md](renderer.md#11-atmosphere-sky-ibl-water-reflections).
+   Left: the reference views (saved with `view.save`; glossy vehicles and glass on test_bootcamp,
+   which holds most vehicles, owner 2026-11-20; water on Saaremaa) and their baseline shots.
 2. Atmosphere model (contract 6): the two layers and the fit at load as in the plan; the
    transmittance, multiple-scattering and sky-view tables at load and after a device reset, the
    aerial-perspective atlas per frame, all pixel passes; the atlas format checked for vertex
@@ -132,7 +136,7 @@ Tasks (none done):
    authored sky colour's luminance; gloss to roughness; the material class table (F0, roughness
    range; the PR mapping outside this tree); specular anti-aliasing (roughness widened by the
    normal's screen-space derivatives, Toksvig from the mipped normal's length). `renderer.skyIbl`.
-8. Bundled meshes: vehicles, cockpits and first-person models; the env map leaves albedo and becomes
+8. Bundled meshes (judged on test_bootcamp, which holds most vehicles): vehicles, cockpits and first-person models; the env map leaves albedo and becomes
    specular; class per material; occlusion by the hemi map, first-person models by the sky
    visibility under the camera (the terrain lightmap's sky channel copied to memory at load, read
    under the camera, smoothed over about 0.3 s). Look for: paint and glass reflecting the sky,

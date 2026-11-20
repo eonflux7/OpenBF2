@@ -149,6 +149,44 @@ Decisions (owner, 2026-11-20):
 - Bloom stays in milestone 12. The sun's glow and specular glints read fully only then, and are
   judged here knowing that. (Delegated, 2026-11-20.)
 
+Survey (task 1, `tools.survey`, [tools.md](tools.md#survey)), 2026-11-20, at the spawn camera of
+Muttrah City, Saaremaa, Fallujah West, The Falklands (`gpm_cq 32`, night) and test_bootcamp (for its
+vehicles), and at Muttrah City's views `high` and `mountain`:
+- **Sky dome.** One 2048-wide texture with no mips, a painted gradient from zenith (top row) to
+  horizon (bottom row), plus one or two cloud layers; the technique drawn is the sun-flare one on all
+  five. The bottom row sits a little darker and bluer than the authored fog colour (Muttrah City
+  158 186 206 against fog 181 203 206; Saaremaa 172 184 188 against 176 187 189), so the dome
+  already meets the fog roughly; its top row is the zenith input to the fit.
+- **Fog.** End 490–1000 m by day, 2900 m on the night layer; start 0–1 m except at night (1000 m).
+  Fog colours run from near white (Fallujah West 208 211 213) to near black at night (4 8 12).
+- **Sun.** Elevation 23–43°; the night layer's "sun" (the moon) stands at 36° with colour 0.07.
+  Static sun and sky colours differ a lot by level (Fallujah West's static sky 0.79 is brighter
+  than its sun 0.48), which the irradiance scaling to the authored sky luminance keeps.
+- **Terrain.** 512² DXT1 colormaps per patch; their mean colour is read at load in the survey's way
+  (a level at most 16 wide). The Falklands' file heights read 0–0 over 4 patches: the ground term's
+  height cannot come from the file there; take it from the patches or the camera.
+- **Water.** All levels pick the high-end technique; water's env map is the level's
+  `Water/envmap` or `Envmaps/EnvMap0` (the Falklands: a generated cube). Water covers 39 % of the
+  screen at Saaremaa's spawn camera, 10 % on the Falklands; Muttrah City's views show almost none.
+- **Retail environment maps.** Each level has 1–132 placed 128² DXT1 cubes (`Envmaps/*.dds`, read
+  by `EnvironmentMapInfo.emi` at load; generated only in the editor); no env-map templates. Per
+  frame the manager picks the cube nearest the camera, and only bundled-mesh materials whose state
+  has the env flag sample it, through `CubeMap`; water binds its own cube. Both go when the sky cube
+  replaces them (tasks 8 and 11).
+- **Materials.** Bundled states sort by technique name and flags: env-mapped opaque and blended
+  techniques (paint and glass candidates), colour-map gloss (gloss in the colour map's alpha),
+  alpha test, cockpit. Static materials carry only combo bits (base, detail, dirt, crack, normal
+  detail, parallax), no gloss or env source; `SpecularPower`, `StaticGloss` and `Reflectivity` are
+  defaults on almost every material. The class table therefore keys on the technique name and
+  flags.
+- **Normal maps.** 193 of 200 sampled (DXT1 and DXT5) keep |n| ≥ 0.95 down to their smallest mip:
+  the mips were renormalized, so Toksvig has no length to read. Specular anti-aliasing uses the
+  screen-space normal derivatives alone.
+- **Samplers.** The 21 legacy effects use s0–s8 (s8 by one) plus s13 and s15; the 611 Ra effects
+  keep no bytecode (they are created not-cloneable), and their sampler parameters bound them to
+  s0–s7. s9–s12 and s14 are free: the atlas, the sky cube and the split-sum BRDF table each get a
+  reserved slot (no analytic fit needed).
+
 D3D9 limits: there is no compute and no rendering into volume textures, so the lookup tables are
 pixel passes. The aerial-perspective volume is a 2D atlas of depth slices, blended between
 neighbouring slices by hand; particles read it per vertex, so its format must allow vertex texture
