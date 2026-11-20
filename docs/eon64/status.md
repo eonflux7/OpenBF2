@@ -100,8 +100,8 @@ Tasks (planned 2026-11-20; 1–3 done):
    the mips, padded), leaving about 11 samplers fixed; the survey only sizes them. One terrain
    lightmap atlas the same way, so roads look up by world position across patches.
 3. Done 2026-11-20, behind `renderer.terrainOnePass` (contract 4; results in renderer.md). Muttrah
-   City A/B at view `high`, normal and thermals: same image (25 and 59 pixels over 3 %); Fallujah
-   West and Saaremaa not yet checked; no point light on terrain to see on the three maps.
+   City A/B at view `high`, normal and thermals: same image (25 and 59 pixels over 3 %); no point
+   light on terrain to see on the three maps (the other two maps are checked at acceptance).
    Lighting without the accumulation target: the lit pass reads the patch lightmap at its own UV,
    unpacked (no `[0,1]` packing); point lights come from a per-patch constant list (nearest N from
    the culler's sphere gather) instead of an additive pass; sun cascades and thermals as now.
