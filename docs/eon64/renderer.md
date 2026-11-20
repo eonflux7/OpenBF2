@@ -26,7 +26,7 @@ is in [renderer-pipeline.md](renderer-pipeline.md).
 | 8. Anti-aliasing | Accepted | `28487a35`, `65760125`, `f11bdfe3`, `b47ac87f`, `0f10eb41`, `f9086318`, `ee0e7ed8`, `98165f0b`, `b3e44a8d`, `a7d9e0e1`, `1e7a1c89`, `680d8890` |
 | 9. Draw submission | Accepted | `2eb902ce`, `0a623df8`, `e87543df`, `f3515fb4`, `7bdd3a77`, `4bc56ff8`, `e9b6a8a4`, `965bb8bf`, `c2f7ef33`, `3c745649`, `2002788d` |
 | 10. Terrain in one pass | Accepted | `2eb4d02d`, `c21a012e`, `0d9e15a6`, `57fa2899`, `3b9da48c`, `6fd523bb`, and the deletion ("milestone 10 accepted") |
-| 11. Atmosphere, sky IBL, water reflections | Not started | — |
+| 11. Atmosphere, sky IBL, water reflections | In progress | — |
 | 12. HDR bloom + auto-exposure | Not started | — |
 | 13. GTAO + lightmap channel ownership | Not started | — |
 
@@ -86,6 +86,20 @@ path, measured with `GPU=1`.
 - Water: screen-space reflections. The opaque scene is resolved to a texture before water draws
   (also the source for refraction); water marches against the prepass depth and falls back to the
   prefiltered sky where the ray leaves the screen.
+
+Decisions (owner, 2026-11-20):
+- The painted dome and its cloud layers stay. The atmosphere is fitted to them at load: the dome's
+  horizon and zenith colours and the authored fog colour set its density and tint, and the dome's
+  horizon blends into the model's haze so terrain meets the sky.
+- The authored sun colour (`Lightmanager.staticSunColor`) stays the sunlight at the ground, and lit
+  surfaces keep using it. The model works backwards from it to the sunlight above the atmosphere,
+  so the sky, the sun disc and the haze agree with it.
+- The authored fog end stays the visibility limit (PR's view distance; the far plane and culling
+  follow it): aerial perspective reaches full haze there.
+
+D3D9 limits: there is no compute and no rendering into volume textures, so the lookup tables are
+pixel passes and the aerial-perspective volume is a 2D atlas of depth slices. The new frame
+resources need reserved samplers like s13 and s15; task 1 finds which slots no effect uses.
 
 ### 12. HDR bloom + auto-exposure
 
