@@ -299,6 +299,7 @@ and add its row here.
 | 2 | Material depth states by semantic: `RaAlphaTest`, `RaAlphaRef`, `RaDepthWrite` (render milestone 9, [Submission](#submission)) |
 | 3 | Instanced static meshes: a vertex shader input `TEXCOORD8`–`TEXCOORD11` is the instance record (the world transform's three columns, the lightmap offset); positions from the instance parameter `ViewProjection`; the sun in world space by semantic `RaSunDirection`, `RaSunColor` ([Instancing](#instancing)) |
 | 4 | Terrain lit passes (render milestone 10, in development): `RaTerrainDirectLight` (`bool`, `renderer.terrainOnePass`): `TEXLAYER1` is the patch lightmap, read at the colormap's UV, instead of the accumulation target; the point lights reaching the patch in `RaTerrainLightPos` (`float4[4]`, position and 1 / range²), `RaTerrainLightCol` (`float4[4]`, authored colour), `RaTerrainLightCount` (`int`) |
+| 5 | Terrain in one pass (render milestone 10, in development): technique `RaTerrain` (pass 0, depth EQUAL, no blend) on the terrain effect; per patch `RaTerrainLayerCount` (`int`), `RaTerrainLayerTop`, `RaTerrainLayerSide` (`float4[6]`, atlas cell scale and offset), `RaTerrainLayerTiling` (`float4[6]`, side tiling, top tiling, side y offset), `RaTerrainLayerWeight0`/`1` (`float4[6]`, channel in weight map 0 or 1), `RaTerrainLayerAtlas` (`float4[6]`, top atlas, side atlas, planar), `RaTerrainUnderWater` (`bool`); textures `RaTerrainAtlas0`–`2` (detail atlases, wrapped in the shader), `RaTerrainWeight0`/`1` |
 
 Samplers 13 and 15 are reserved for renderer frame resources, and pixel registers c200–c221 for
 `RASM`. No effect may use them for anything else.
@@ -324,6 +325,7 @@ Techniques the engine looks up by name:
 |---|---|---|
 | `RaDepthPrepass` | Ra mesh effects, terrain | Linear depth to COLOR0 |
 | `RaShadowDepth` | Ra mesh effects, terrain | Light depth into the atlas, with `RaShadowViewProj` |
+| `RaTerrain` | Terrain | Every detail layer in one pass (`renderer.terrainOnePass`, contract 5) |
 
 Passes the submission layer draws (`RaDepthPrepass` and `RaShadowDepth` of the Ra mesh effects)
 take every render and sampler state as a constant, except three a material decides, which follow

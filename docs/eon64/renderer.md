@@ -153,6 +153,21 @@ until task 5, also collect each gathered light per patch, and the lit passes add
 sun's luminance (the packed target stored it relative to the sun); it is absolute, as on
 undergrowth. Muttrah City at view `high`: the same image within the old target's 8-bit steps.
 
+One pass (task 4, 2026-11-20; `renderer.terrainOnePass`, contract 5): `drawFinal` →
+`drawOnePass` draws technique `RaTerrain` per patch over its near nodes (`QuadPatch::drawNodes`,
+whole LOD 0 ranges on the LOD index buffer, adjacent ranges merged), then the far nodes with
+`Hi_Terrain` pass 3 until task 6. Per patch (`setOnePassPatch`): up to six layers in layer order,
+each its atlas cells (top, side), tiling, weight-map channel and planar flag; the two weight maps;
+layer 6 as a flag. The shader computes the low-detail modulation once, then per layer with weight
+above zero samples the atlas (`tex2Dgrad` with gradients taken before the loop, so the branch may
+skip samples) and adds the decoded detail times its weight. Fog is applied once to the
+weight-normalised colour, which is then scaled by the weight sum: the same sum the additive passes
+made, including where weights add up to less than 1. Thermals use the weighted albedo (the heat is
+affine in it). Layer 6 blends the water colour by depth over the result, without the old pass's
+alpha-test threshold. The effect compiler in use rejects HLSL flow attributes (`[loop]`,
+`[branch]`), so it chooses the flow. Muttrah City at view `mountain`: the same image as the
+per-layer passes.
+
 ### 11. Atmosphere, sky IBL, water reflections
 
 - One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial

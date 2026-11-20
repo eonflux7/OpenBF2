@@ -86,7 +86,7 @@ Plan: [renderer.md](renderer.md#10-terrain-in-one-pass), with what the current p
 constraints found while planning. A/B switch while in development: `renderer.terrainOnePass`
 (new path on by default once task 4 draws; deleted on acceptance with the old path).
 
-Tasks (planned 2026-11-20; 1–3 done):
+Tasks (planned 2026-11-20; 1–4 done):
 1. Done 2026-11-20, results in renderer.md (no point lights or environment-mapped layers on terrain;
    layer 6 folded in). Survey on the three maps: patches by detail-layer count, planar, environment-mapped and layer-6
    (underwater) layers; detail texture sizes and formats; which point-light path runs (pass 16 is
@@ -105,12 +105,16 @@ Tasks (planned 2026-11-20; 1–3 done):
    Lighting without the accumulation target: the lit pass reads the patch lightmap at its own UV,
    unpacked (no `[0,1]` packing); point lights come from a per-patch constant list (nearest N from
    the culler's sphere gather) instead of an additive pass; sun cascades and thermals as now.
-4. The one pass: one draw per visible node over LOD 0, every layer blended by its weight
-   (planar and environment-mapped layers by per-layer constants), the colormap and low-detail
-   texture blended in by distance for variation, fog once. Terrain depth moves into the depth
-   prepass like other entries and the lit pass tests EQUAL. Layer 6 folded in or drawn as a second
-   pass on the patches that have it, decided from the survey.
-5. Roads' own lit path and no fade (owner, 2026-11-20, "roads are cheap, draw them at all
+4. Done 2026-11-20, behind `renderer.terrainOnePass` (contract 5; results in renderer.md).
+   Technique `RaTerrain`: one draw per patch over its near nodes' LOD 0 ranges, every layer from
+   the atlases blended by its weight, fog once, layer 6 folded in. Muttrah City A/B at the owner's
+   view `mountain` (planar slopes): same image (130 and 21 pixels over 3 % and 10 %); the draw
+   stats show `RaTerrain` drawing and no per-layer pass. View `high` has no near node, so it
+   tests nothing here. Thermals and GPU time not measured (owner: not needed).
+   Moved to task 5: terrain depth into the depth prepass. Pass 0 still draws the accumulation
+   target roads read, so its depth goes with it.
+5. Terrain depth into the depth prepass like other entries (the lit pass already tests EQUAL),
+   with pass 0 and the light passes gone once roads no longer read the target. Roads' own lit path and no fade (owner, 2026-11-20, "roads are cheap, draw them at all
    times"): road effects and road static meshes read the terrain lightmap by world position
    (task 2's atlas) and light themselves, no longer blending into a target. Compiled roads are
    their own meshes over the terrain, culled at 1.3 x `lodSwitchDistance`
