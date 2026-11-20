@@ -232,7 +232,8 @@ Outline, to be planned in full when milestone 11 is accepted:
 ### 13. HDR bloom + auto-exposure
 
 An energy-conserving bloom without threshold, and exposure that adapts between interiors and open
-terrain, both before the frame grade. Night layers need it: with the fixed exposure (−1.25 stops)
+terrain, both before the frame grade. The tonemap's output dithered before its 8-bit encode: the sky's dark blue
+bands without it (milestone 11). Bloom spreads the sun disc (luminance capped at 100) into its glare. Night layers need it: with the fixed exposure (−1.25 stops)
 The Falklands night terrain reaches the tonemap at about 0.0155, and Khronos Neutral's toe
 (6.25·x² below 0.08) shows it at 5/255, where retail drew about 30/255. The adaptation needs an
 upper limit so night stays dark (about retail's level), and the toe may need softening for what
