@@ -15,6 +15,7 @@
 #include "UiLayer.h"     // [UI] docs/eon64/ui.md
 #include "ToolsCapture.h" // [TOOLS] docs/eon64/tools.md
 #include "ToolsBench.h"   // [TOOLS] docs/eon64/tools.md
+#include "ToolsSurvey.h"  // [TOOLS] tools.survey
 #include "../RendMisc/IRenderer.h"
 #include "../GeomMisc/Debug.h"
 #if defined(_WIN32)
@@ -293,6 +294,8 @@ bool rendererPresent(unsigned int mode)
     uiLayerPresented(); // [UI] the overlay's frame timing
     drawStatsFrame();   // [DEV] BF2_DRAW_STATS
     gpuTimersFrame(toolsBenchPresented());   // [DEV] BF2_GPU_TIMERS; [TOOLS] the benchmark's record
+    if (g_toolsSurveyOn)
+        toolsSurveyPresented();              // [TOOLS] tools.survey's report
     return true;
 }
 

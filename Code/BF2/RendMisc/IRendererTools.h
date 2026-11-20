@@ -53,6 +53,13 @@ public:
     virtual const char* toolsBenchSpanName(unsigned int span) const = 0;
     virtual float toolsBenchSpanMs(unsigned int frame, unsigned int span) const = 0;
 
+    // Survey (docs/eon64/tools.md#survey): the next frame's water area is measured, then the
+    // report on the loaded level is written to path (absolute; its directory exists). Replaces a
+    // request not yet served; null cancels it. State: 0 waiting, 1 written, -1 failed; the
+    // message is the path written or what failed. Valid until the next request.
+    virtual void toolsRequestSurvey(const char* path) = 0;
+    virtual int toolsSurveyState(const char*& message) const = 0;
+
 protected:
     ~IRendererTools() {}
 };

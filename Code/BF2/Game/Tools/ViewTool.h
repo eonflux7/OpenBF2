@@ -23,11 +23,13 @@ extern bool g_viewToolFlying;
 extern bool g_viewToolShooting;
 // True while bench.run runs, until its files are written.
 extern bool g_viewToolBenching;
+// True while tools.survey waits for its report.
+extern bool g_viewToolSurveying;
 // True while bench.run draws uncapped: BF2Engine's frame limiter is skipped.
 extern bool g_viewToolUncapped;
 
 // BF2Render::render, after the game has set the view and the far plane, before the frame is drawn,
-// while g_viewToolActive, g_viewToolShooting or g_viewToolBenching: replaces the view's camera
+// while g_viewToolActive, g_viewToolShooting, g_viewToolBenching or g_viewToolSurveying: replaces the view's camera
 // and FOV with the tool's, and moves a pending shot and a benchmark along.
 void viewToolFrame(dx9rend::IRenderView* view);
 

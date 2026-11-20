@@ -356,3 +356,39 @@ frame over `tools.hitchMs`; and a perf map of one map is produced.
 Accepted when: a view with soldier mode on shows the first-person model and a vehicle view shows
 its cockpit, both deterministic under the milestone 1 check; `view.capture` writes a capture
 unattended; and a settings matrix run produces one report per profile.
+
+## Survey
+
+`tools.survey [NAME]` (render milestone 11, task 1; `tools(survey)`) writes
+`<outputDir>/<map>/survey/<NAME>.txt`, NAME defaulting to the held view's name (or `camera`);
+`tools.lastSurvey` gives the result. The request waits for the next frame: an occlusion query wraps
+that frame's water flush (`RSMTWater`), and once its result is in, the renderer
+(`RendDX9/ToolsSurvey.cpp`) writes the whole report in one go. Idle, it costs one flag test at the
+water flush and one after Present. Run it once at each reference view: the level sections repeat,
+and the water area is the view's own.
+
+One line per fact, tagged by section:
+- `[camera]`: whether the camera is under water (then the fog constants hold the water fog).
+- `[sky]`: dome template, texture and cloud textures, lighting colour and blend, the effect's
+  current technique, and an 8x8 grid of the dome texture's mean colours (top row first).
+- `[fog]`: the console fog colour, start, end and base decoded from the `FogRange` constant, and
+  the water fog.
+- `[light]`: sun direction, elevation (`asin(-y)`) and azimuth; static and dynamic sun, sky,
+  specular, ambient, high/low, effect and tree colours.
+- `[terrain]`: file and patch heights, colormap formats, the colormaps' mean colour (a level at most
+  16 wide, averaged over patches).
+- `[water]`: the four water techniques, the water env map (and whether it is the level's
+  `Envmaps/EnvMap0`), and water's share of the screen's samples.
+- `[envmaps]`: the env-map system's switches, maps (position, texture) and templates.
+- `[bundled]`, `[static]`: loaded templates, and materials grouped by technique, alpha mode, state
+  flags (normal, env, colour-map gloss, alpha test, cockpit) or combo bits, with the range of
+  specular power, static gloss and reflectivity and example diffuse textures.
+- `[normalmaps]`: per normal map (first 40), the mean length of the decoded normal per mip level
+  from the first level at most 256 wide; lengths that fall with the level mean the mips were not
+  renormalized.
+- `[effects]`: per compiled effect (legacy and Ra caches), the pixel and vertex sampler registers
+  its shaders use (from their constant tables), cube samplers and cube texture parameters; then
+  how many effects use each pixel sampler.
+
+Textures are read from their managed copies (DXT1–5, A8R8G8B8, X8R8G8B8); default-pool textures
+and other formats are reported unread.

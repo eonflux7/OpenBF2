@@ -12,6 +12,7 @@
 #include "RendDX9Base.h"
 #include "Frame.h"
 #include "GpuTimers.h"                    // [DEV] BF2_GPU_TIMERS
+#include "ToolsSurvey.h"                  // [TOOLS] tools.survey
 #include "PostProductionFrameWork.h"
 #include "QueueProfiler.h"
 #include "ShaderParameter.h"
@@ -892,7 +893,11 @@ bool frameRender(const FrameInputs& in, IDirect3DSurface9*& overlayDepthStencil)
     // [RENDER] Milestone 8: water adds its linear depth before it draws, so the depth rebuilt
     // after the resolve keeps the transparents behind it.
     rendererLinearDepthWater();
+    if (g_toolsSurveyOn)
+        toolsSurveyWaterBegin();                     // [TOOLS] tools.survey: water's area
     renderQueueFlush(0x28, -1);                      // RSMTWater
+    if (g_toolsSurveyOn)
+        toolsSurveyWaterEnd();
 
     // [RENDER] Milestone 8: the first-person passes draw here, into the 4x scene, where retail
     // drew them last (after the world transparents and the glow). They prepass like the

@@ -1085,6 +1085,19 @@ void shaderManagerClearEffectTextureBindings(void* shaderManager)
     }
 }
 
+// [TOOLS] tools.survey (ToolsSurvey.cpp): every cached effect's name and compiled ID3DXEffect.
+void shaderManagerForEachEffect(void (*visit)(const std::string& name, void* d3dxEffect, void* context),
+                                void* context)
+{
+    ShaderManager* const sm = static_cast<ShaderManager*>(g_shaderManager);
+    if (!sm)
+        return;
+    for (std::map<std::string, Effect*>::iterator node = sm->effectCache.begin();
+         node != sm->effectCache.end(); ++node)
+        if (void* const d3dx = effectD3dxHandle(node->second))
+            visit(node->first, d3dx, context);
+}
+
 
 // PE 0x10022390 (listing read). Unreachable in 1.50: no code or data references (the _r build's copy,
 // RendDX9_r 0x10068CA0, is reached only through an unreferenced incremental-link thunk). The retail

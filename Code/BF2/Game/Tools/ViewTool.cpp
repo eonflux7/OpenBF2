@@ -80,6 +80,7 @@ bool g_viewToolActive = false;
 bool g_viewToolFlying = false;
 bool g_viewToolShooting = false;
 bool g_viewToolBenching = false;
+bool g_viewToolSurveying = false;
 bool g_viewToolUncapped = false;
 
 namespace {
@@ -922,6 +923,89 @@ void shotStep()
     g_viewToolShooting = false;
 }
 
+// tools.survey [NAME] (render milestone 11, task 1): <outputDir>\<map>\survey\<NAME>.txt, the
+// renderer's report on the loaded level and the current view's water area (IRendererTools.h).
+// NAME defaults to the held view's name (or "camera"); an existing file is overwritten.
+struct Survey
+{
+    bool        pending;
+    int         frames;     // hooks since requested
+    std::string path;
+    std::string last;       // the last survey's result, for tools.lastSurvey
+};
+
+Survey g_survey = { false, 0, std::string(), std::string() };
+
+const int kSurveyTimeoutFrames = 120;
+
+void surveyFinished(const std::string& result)
+{
+    g_survey.pending = false;
+    g_survey.last = result;
+    g_viewToolSurveying = false;
+    if (io::mainConsole)
+        io::mainConsole->output(result + "\n");
+}
+
+std::string toolsSurvey(const std::string& requested)
+{
+    if (g_survey.pending)
+        return "tools.survey: a survey is still pending (" + g_survey.path + ")";
+    dx9rend::IRendererTools* const tools = rendererTools();
+    if (!tools)
+        return "tools.survey: the renderer does not survey";
+    std::string map = game ? game->getCurrentMapName() : std::string();
+    if (map.empty())
+        return "tools.survey: no map loaded";
+    for (size_t i = 0; i < map.size(); ++i)
+        map[i] = static_cast<char>(tolower(static_cast<unsigned char>(map[i])));
+    const std::string name = requested.empty()
+        ? (g_state.view.empty() ? std::string("camera") : g_state.view) : requested;
+    if (!validShotName(name))
+        return "tools.survey: a name has only letters, digits, '_', '-' and '.'";
+    const std::string dir = outputDirectory() + "\\" + map + "\\survey";
+    if (!makeDirectories(dir))
+        return "tools.survey: cannot create " + dir;
+    g_survey.path = dir + "\\" + name + ".txt";
+    g_survey.pending = true;
+    g_survey.frames = 0;
+    tools->toolsRequestSurvey(g_survey.path.c_str());
+    g_viewToolSurveying = true;
+    return "tools.survey: queued " + g_survey.path;
+}
+
+std::string toolsLastSurvey()
+{
+    if (g_survey.pending)
+        return "pending " + g_survey.path;
+    return g_survey.last.empty() ? std::string("none") : g_survey.last;
+}
+
+// Once per frame while a survey is pending.
+void surveyStep()
+{
+    dx9rend::IRendererTools* const tools = rendererTools();
+    if (!tools)
+    {
+        surveyFinished("tools.survey: failed: the renderer does not survey");
+        return;
+    }
+    const char* message = "";
+    const int state = tools->toolsSurveyState(message);
+    if (state == 0)
+    {
+        if (++g_survey.frames < kSurveyTimeoutFrames)
+            return;
+        tools->toolsRequestSurvey(0);    // cancels it
+        surveyFinished("tools.survey: failed: no report after " +
+                       std::to_string(kSurveyTimeoutFrames) + " frames");
+    }
+    else if (state > 0)
+        surveyFinished("tools.survey: wrote " + g_survey.path);
+    else
+        surveyFinished("tools.survey: failed: " + std::string(message ? message : ""));
+}
+
 // bench.run PATH [runs] [label] (milestone 3): one warm-up pass of the path, then `runs` passes
 // back to back, each frame tagged with its pass for the renderer's recorder (0 for the warm-up,
 // which is not recorded). Vsync is turned off and BF2Engine's frame limiter skipped for the
@@ -1486,6 +1570,8 @@ void viewToolFrame(dx9rend::IRenderView* view)
         shotStep();
     if (g_viewToolBenching)
         benchStep();
+    if (g_viewToolSurveying)
+        surveyStep();
     if (!view || !g_viewToolActive)
         return;
     if (g_state.seedFromGame)
@@ -1574,6 +1660,9 @@ BF2_CONSOLE_PROPERTY_FN(flyKey, int, true, g_flyKey, g_flyKey =, kViewToolConsol
 BF2_CONSOLE_PROPERTY_FN(outputDir, std::string, true, g_outputDir, g_outputDir =, kViewToolConsoleTag)
 BF2_CONSOLE_PROPERTY_FN(shotHud, int, true, g_shotHud, g_shotHud =, kViewToolConsoleTag)
 BF2_CONSOLE_PROPERTY_FN(shotWidth, int, true, g_shotWidth, g_shotWidth =, kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_0_1_RET_ACTIVE(survey, toolsSurvey, std::string, true, std::string, std::string(),
+                                  kViewToolConsoleTag)
+BF2_CONSOLE_METHOD_0_RET_ACTIVE(lastSurvey, toolsLastSurvey, std::string, true, kViewToolConsoleTag)
 
 dx9rend::IUiViewTool* viewToolUi()
 {

@@ -101,6 +101,12 @@ public:
     virtual int  getCurrentRenderPath() const;                       // +0x10
     virtual std::string getRenderPathListenerName() const;          // +0x14
 
+    // [TOOLS] tools.survey (ToolsSurvey.cpp) reads the dome's texture and effect.
+    dx9rend::EngineTexture* surveySkyTexture() const { return m_skyTextureTex; }
+    dx9rend::EngineTexture* surveyCloudTexture(int layer) const
+    { return layer ? m_cloudTexture2Tex : m_cloudTextureTex; }
+    dx9rend::Effect* surveyEffect() const { return m_effect; }
+
 private:
     // Retail inlines this bind-and-submit sequence at both of drawFlare's two draw sites
     // (0x10139E4B.. and 0x10139F77..); they are byte-for-byte the same. One helper, two calls.

@@ -360,8 +360,8 @@ bool BF2Render::render(double frameTime, DemoRecorder* recorder)
     m_renderer->getRenderView()->setFarPlane(farPlane);             // +0x38
 
     // [TOOLS] The view tool's camera replaces the game's here, before anything culls or draws;
-    // view.shot asks the renderer for this frame; bench.run tags it.
-    if (g_viewToolActive || g_viewToolShooting || g_viewToolBenching)
+    // view.shot asks the renderer for this frame; bench.run tags it; tools.survey polls its report.
+    if (g_viewToolActive || g_viewToolShooting || g_viewToolBenching || g_viewToolSurveying)
         viewToolFrame(m_renderer->getRenderView());
 
     // : ordinarily one pass. A demo carrying the VTune flag suspends the profiler around

@@ -288,6 +288,8 @@ public:
     void setDisableVsPs20(unsigned char value) { if (m_disableVsPs20 != value) { m_disableVsPs20 = value; resetEffects(); } }
     // PE 0x10033220: stores the device pointer (+0x38) without AddRef.
     void setDevice(IDirect3DDevice9* device) { m_device = device; }
+    // [TOOLS] tools.survey walks the cache (effectManagerForEachEffect).
+    const RaEffectCache& effectCache() const { return m_effectCache; }
 
 private:
     void clearMetaFx();
@@ -968,6 +970,19 @@ Ra::MetaFx* effectManagerGetMetaFx(const std::string& name)
 void* effectManagerGetEffect(const std::string& path)
 {
     return static_cast<Ra::EffectManager*>(Ra::g_effectManager)->getEffect(path);
+}
+
+// [TOOLS] tools.survey (ToolsSurvey.cpp): every compiled Ra effect and its cache name.
+void effectManagerForEachEffect(void (*visit)(const std::string& name, void* d3dxEffect, void* context),
+                                void* context)
+{
+    Ra::EffectManager* const manager = static_cast<Ra::EffectManager*>(Ra::g_effectManager);
+    if (!manager)
+        return;
+    const Ra::RaEffectCache& cache = manager->effectCache();
+    for (Ra::RaEffectCache::const_iterator node = cache.begin(); node != cache.end(); ++node)
+        if (node->second)
+            visit(node->first, node->second, context);
 }
 
 

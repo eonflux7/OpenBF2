@@ -18,6 +18,7 @@
 #include "RendDX9Base.h"
 #include "../RendMisc/IRendererTools.h"
 #include "ToolsBench.h"
+#include "ToolsSurvey.h"
 
 #include <cstdio>
 #include <string>
@@ -211,6 +212,13 @@ public:
     virtual float toolsBenchSpanMs(unsigned int frame, unsigned int span) const
     {
         return dx9rend::toolsBenchSpanMs(frame, span);
+    }
+
+    // ToolsSurvey.cpp
+    virtual void toolsRequestSurvey(const char* path) { dx9rend::toolsRequestSurvey(path); }
+    virtual int toolsSurveyState(const char*& message) const
+    {
+        return dx9rend::toolsSurveyState(message);
     }
 };
 
