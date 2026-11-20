@@ -779,6 +779,10 @@ bool rendererCasterCaptureActive();   // a shadow pass is capturing (draw() subm
 // in pixels, below which a static mesh is not drawn; 0 turns the cull off.
 float rendererContributionCullPixels();
 void rendererSetContributionCullPixels(float pixels);
+// [RENDER] Render milestone 10's A/B switch while in development (renderer.terrainOnePass): the
+// terrain's lit passes read the patch lightmap and a per-patch point light list instead of the
+// accumulation target. Deleted with the old path on acceptance.
+bool& rendererTerrainOnePass();
 std::vector<ShadowCaster>& rendererShadowCasters();
 // Gives every caster captured from index `first` on the world sphere (centre, radius).
 void rendererSetCasterBounds(size_t first, const float sphere[4]);
@@ -808,7 +812,7 @@ void renderQueuesDrawShadowCasters(unsigned int key, const float* viewProjection
 // needs a newer contract stops with #error instead of running against an engine without it. Raised
 // whenever the engine changes what the shaders may rely on; docs/eon64/renderer-pipeline.md lists
 // what each version adds.
-#define RA_CONTRACT_VERSION 3
+#define RA_CONTRACT_VERSION 4
 #define RA_CONTRACT_TEXT_(v) #v
 #define RA_CONTRACT_TEXT(v) RA_CONTRACT_TEXT_(v)
 

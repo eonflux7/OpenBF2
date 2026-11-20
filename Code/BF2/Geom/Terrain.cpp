@@ -440,6 +440,8 @@ Terrain::Terrain()
     m_hFarTexTiling = 0; m_hStFarTexTiling = 0; m_hNearTexTiling = 0;
     m_hLightViewProj = 0; m_hLightViewProjOrtho = 0; m_hViewportMap = 0; m_hStTransXZ = 0;
     m_hPointLight = 0; m_hSpotLight = 0;
+    m_hRaTerrainDirectLight = 0; m_hRaTerrainLightCount = 0;          // [RENDER]
+    m_hRaTerrainLightPos = 0; m_hRaTerrainLightCol = 0;
     m_hLightPos1 = 0; m_hLightAttSqrInv1 = 0;
     m_hColorLightTex = 0;
     m_surroundingDeclaration = 0;
@@ -807,6 +809,10 @@ void Terrain::init()
     TERRAIN_PARAM(m_hViewportMap,               "VIEWPORTMAP");
     TERRAIN_PARAM(m_hStTransXZ,                 "STTRANSXZ");
     TERRAIN_PARAM(m_hPointLight,                "POINTLIGHT");
+    TERRAIN_PARAM(m_hRaTerrainDirectLight,      "RaTerrainDirectLight");   // [RENDER] contract 4
+    TERRAIN_PARAM(m_hRaTerrainLightCount,       "RaTerrainLightCount");
+    TERRAIN_PARAM(m_hRaTerrainLightPos,         "RaTerrainLightPos");
+    TERRAIN_PARAM(m_hRaTerrainLightCol,         "RaTerrainLightCol");
     TERRAIN_PARAM(m_hSpotLight,                 "SPOTLIGHT");
     TERRAIN_PARAM(m_hTerrainWaterColor,         "TerrainWaterColor");
     TERRAIN_PARAM(m_hWaterHeight,               "WaterHeight");
@@ -2498,6 +2504,10 @@ Terrain::~Terrain()
     releaseParameter(m_hViewportMap);                    // +0x25C
     releaseParameter(m_hStTransXZ);                      // +0x260
     releaseParameter(m_hPointLight);                     // +0x264
+    releaseParameter(m_hRaTerrainDirectLight);           // [RENDER]
+    releaseParameter(m_hRaTerrainLightCount);
+    releaseParameter(m_hRaTerrainLightPos);
+    releaseParameter(m_hRaTerrainLightCol);
     releaseParameter(m_hSpotLight);                      // +0x268
     releaseParameter(m_hWaterHeight);                    // +0x280
     releaseParameter(m_hCameraToWater);                  // +0x284

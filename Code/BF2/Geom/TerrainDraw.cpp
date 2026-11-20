@@ -813,6 +813,92 @@ static int g_surveyLightPath = 0;
 static unsigned int g_surveyLights = 0;
 static unsigned int g_surveyLightNodes = 0;
 
+// [RENDER] Render milestone 10, task 3 (renderer.terrainOnePass): the point lights reaching each
+// patch, gathered by the light passes of drawMain (the same culler sphere gather that picks their
+// nodes) and handed to the lit passes as constants (RaTerrainLightPos/Col), nearest to the patch
+// centre first when more than kPatchLights reach it.
+namespace {
+
+const int kPatchLights = 4;   // RA_TERRAIN_MAX_LIGHTS in the terrain shader
+
+struct PatchLights
+{
+    QuadPatch* patch;
+    int        count;
+    float      distance[kPatchLights];     // squared, light to patch centre
+    float      position[kPatchLights][4];  // xyz, 1 / range^2
+    float      color[kPatchLights][4];     // authored colour
+};
+
+std::vector<PatchLights> g_patchLights;
+
+void addPatchLight(QuadPatch* patch, const Vec3& position, float inverseRangeSquared, const Vec3& color)
+{
+    PatchLights* entry = 0;
+    for (size_t i = 0; i != g_patchLights.size(); ++i)
+        if (g_patchLights[i].patch == patch)
+        {
+            entry = &g_patchLights[i];
+            break;
+        }
+    if (!entry)
+    {
+        PatchLights fresh = {};
+        fresh.patch = patch;
+        g_patchLights.push_back(fresh);
+        entry = &g_patchLights.back();
+    }
+    const float distance = patch->getSquaredDistance(position);
+    int slot = entry->count;
+    if (slot == kPatchLights)
+    {
+        slot = 0;
+        for (int i = 1; i < kPatchLights; ++i)
+            if (entry->distance[i] > entry->distance[slot])
+                slot = i;
+        if (entry->distance[slot] <= distance)
+            return;
+    }
+    else
+        ++entry->count;
+    entry->distance[slot] = distance;
+    entry->position[slot][0] = position.x;
+    entry->position[slot][1] = position.y;
+    entry->position[slot][2] = position.z;
+    entry->position[slot][3] = inverseRangeSquared;
+    entry->color[slot][0] = color.x;
+    entry->color[slot][1] = color.y;
+    entry->color[slot][2] = color.z;
+    entry->color[slot][3] = 0.0f;
+}
+
+// One light over the nodes a sphere gather returned (consecutive nodes share a patch).
+void addGatheredLight(std::vector<TerrainCullerNode*>* gathered, const Vec3& position,
+                      float inverseRangeSquared, const Vec3& color)
+{
+    if (!dx9rend::rendererTerrainOnePass())
+        return;
+    QuadPatch* previous = 0;
+    for (size_t i = 0; i != gathered->size(); ++i)
+    {
+        QuadPatch* const patch = (*gathered)[i]->patch;
+        if (patch == previous)
+            continue;
+        previous = patch;
+        addPatchLight(patch, position, inverseRangeSquared, color);
+    }
+}
+
+const PatchLights* findPatchLights(const QuadPatch* patch)
+{
+    for (size_t i = 0; i != g_patchLights.size(); ++i)
+        if (g_patchLights[i].patch == patch)
+            return &g_patchLights[i];
+    return 0;
+}
+
+} // anonymous namespace
+
 void Terrain::drawMain()
 {
     std::vector<TerrainCullerNode*>* const list = m_culler->visiblePatches();
@@ -851,6 +937,7 @@ void Terrain::drawMain()
         ++terrainRendererStat(612);
     }
     g_surveyLightPath = 0;                                                // [DEV] terrain.survey
+    g_patchLights.clear();                                                // [RENDER] milestone 10
     g_surveyLights = 0;
     g_surveyLightNodes = 0;
     if (dx9rend::rendererGetHemiRenderMode() != 4)                        // sub_10009F00, base +0x20
@@ -1038,6 +1125,7 @@ void Terrain::drawDetailPass()
         g_surveyLightPath = 1;                                            // [DEV] terrain.survey
         ++g_surveyLights;
         g_surveyLightNodes += static_cast<unsigned int>(gathered->size());
+        addGatheredLight(gathered, point.position, point.inverseRange, point.color);   // [RENDER]
         param(terrainShadowArrayParameter(3))->setInt(0);
         TerrainCullerNode** first = gathered->data();
         TerrainCullerNode** const end = gathered->data() + gathered->size();
@@ -1082,6 +1170,7 @@ void Terrain::drawMaskLights()
         g_surveyLightPath = 2;                                            // [DEV] terrain.survey
         ++g_surveyLights;
         g_surveyLightNodes += static_cast<unsigned int>(list->size());
+        addGatheredLight(list, record.position, record.invRangeSq, record.color);   // [RENDER]
         TerrainCullerNode** it = list->data();
         while (it != list->data() + list->size())
             (*it)->patch->drawPointLight(it);                            // sub_1018C7F0, advances `it`
@@ -1109,12 +1198,33 @@ void Terrain::drawFinal()
     if (dx9rend::rendererGetHemiRenderMode() == 4)
         dx9rend::stateManagerClear(1u, 0x808080u, 0.0f, 0u);             // sub_100057E0(1, 8421504, ...)
     lightManagerRestoreRendererTarget0();
+    // [RENDER] Milestone 10, task 3 (renderer.terrainOnePass): the lit passes read the patch's
+    // lightmap on Tex1 and its point lights as constants; off, Tex1 is the accumulation target.
+    const bool direct = dx9rend::rendererTerrainOnePass();
+    param(m_hRaTerrainDirectLight)->setBool(direct ? 1 : 0);
+    if (!direct)
+    {
+        param(m_hTexLayer[1])->setValue(dx9rend::rendererGetHemiScratchTexture(), 0);
+        param(m_hRaTerrainLightCount)->setInt(0);
+    }
     TerrainCullerNode** it = list->data();
     while (it != list->data() + list->size())
     {
         QuadPatch* const patch = (*it)->patch;
         param(m_hTexLayer[0])->setValue(patch->colormap, 0);
         param(m_hTexLayer[5])->setValue(patch->lowDetailmap, 0);
+        if (direct)
+        {
+            param(m_hTexLayer[1])->setValue(patch->lightmap, 0);
+            const PatchLights* const lights = findPatchLights(patch);
+            const int count = lights ? lights->count : 0;
+            param(m_hRaTerrainLightCount)->setInt(count);
+            if (count)
+            {
+                param(m_hRaTerrainLightPos)->setValue(lights->position, static_cast<unsigned int>(count));
+                param(m_hRaTerrainLightCol)->setValue(lights->color, static_cast<unsigned int>(count));
+            }
+        }
         patch->drawFinal(it);                                             // sub_1018C910, advances `it`
     }
     dx9rend::effectEnd(m_effect);

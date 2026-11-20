@@ -741,6 +741,11 @@ public:
     int            m_fileOffsetDetail;      // +0x75C  reader.tell() before the detail records
     int            m_fileOffsetPatches;     // +0x760  reader.tell() before the patches
     int            m_unresolved764;         // +0x764  not touched
+    // [RENDER] Not retail: the lit passes' direct terrain light (render milestone 10, contract 4).
+    void*          m_hRaTerrainDirectLight; // RaTerrainDirectLight (bool)
+    void*          m_hRaTerrainLightCount;  // RaTerrainLightCount (int)
+    void*          m_hRaTerrainLightPos;    // RaTerrainLightPos (float4[4])
+    void*          m_hRaTerrainLightCol;    // RaTerrainLightCol (float4[4])
 };
 
 #if defined(_M_IX86)

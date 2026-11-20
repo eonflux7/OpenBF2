@@ -191,6 +191,7 @@ bool g_linearDepthFrame = false;    // this frame's prepass drew; water and firs
 bool g_transparentDepth = false;    // the rebuilt depth is bound for the world transparents
 float g_worldDepthProjection[2] = { 0.0f, 0.0f };   // the world view's P22, P32
 float g_softParticleDistance = 1.5f;   // m, renderer.softParticleDistance
+bool g_terrainOnePass = false;         // renderer.terrainOnePass (milestone 10, in development)
 
 void bindSampler(DWORD stage, IDirect3DTexture9* texture, D3DTEXTUREFILTERTYPE filter)
 {
@@ -303,6 +304,11 @@ void rendererBindParticleLighting(void* effect)
 float& softParticleDistance()
 {
     return g_softParticleDistance;
+}
+
+bool& rendererTerrainOnePass()
+{
+    return g_terrainOnePass;
 }
 
 IDirect3DTexture9* rendererLinearDepthTexture()
