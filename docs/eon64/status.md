@@ -147,7 +147,7 @@ Open from milestones 8 and 9:
 - Roads fading at 130 m: taken into milestone 10, task 5.
 - Road overlays (road static meshes) drawn over buildings at range: fixed 2026-11-20 (`51c0b38e`
   and shaders), roads pull 0.1 % of their distance toward the camera instead of a depth bias; seen
-  fixed by an agent at the owner's view `roadbug` (Muttrah City), not yet confirmed by the owner.
+  fixed by an agent at the owner's view `roadbug` (Muttrah City); seen fixed by the owner.
 - Cached static casters (owner, 2026-11-19, "most of the map is static"): the far cascades' static
   casters kept in their map while the snapped cascade holds still, moving objects drawn over a
   copy each frame. Not planned yet.
