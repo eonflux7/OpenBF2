@@ -86,8 +86,9 @@ Plan: [renderer.md](renderer.md#10-terrain-in-one-pass), with what the current p
 constraints found while planning. A/B switch while in development: `renderer.terrainOnePass`
 (new path on by default once task 4 draws; deleted on acceptance with the old path).
 
-Tasks (planned 2026-11-20; none started):
-1. Survey on the three maps: patches by detail-layer count, planar, environment-mapped and layer-6
+Tasks (planned 2026-11-20; 1 done):
+1. Done 2026-11-20, results in renderer.md (no point lights or environment-mapped layers on terrain;
+   layer 6 folded in). Survey on the three maps: patches by detail-layer count, planar, environment-mapped and layer-6
    (underwater) layers; detail texture sizes and formats; which point-light path runs (pass 16 is
    past the technique's last pass) and how many lights reach terrain; terrain's GPU span and draws
    at the reference views and on the benchmark paths (the baseline). Recorded in renderer.md.
@@ -144,6 +145,9 @@ Open from milestones 8 and 9:
 - The default video profile picks 8x antialiasing (log) while the scene runs 4x. Settle with fixed
   4x (a single-sample HUD back buffer, the scene's own 4x depth; touches device init and reset).
 - Roads fading at 130 m: taken into milestone 10, task 5.
+- Road overlays (road static meshes) drawn over buildings at range: fixed 2026-11-20 (`51c0b38e`
+  and shaders), roads pull 0.1 % of their distance toward the camera instead of a depth bias; seen
+  fixed by an agent at the owner's view `roadbug` (Muttrah City), not yet confirmed by the owner.
 - Cached static casters (owner, 2026-11-19, "most of the map is static"): the far cascades' static
   casters kept in their map while the snapped cascade holds still, moving objects drawn over a
   copy each frame. Not planned yet.

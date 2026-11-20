@@ -85,6 +85,38 @@ Found while planning (2026-11-20):
   target and its constants (`raShaderConstantsSetAccumulationMap`, `Frame.cpp`) go. Lightmaps are
   per patch, and a road crosses patches.
 
+Survey (task 1, 2026-11-20; console `terrain.survey` writes it to the log, GPU spans `terrain
+lightmap`, `terrain depth`, `terrain detail` and `roads` added in `Frame.cpp`):
+
+| | Muttrah City | Fallujah West | Saaremaa |
+|---|---|---|---|
+| Patches (128 m) | 8x8 | 4x4 | 8x8 |
+| By layer count 1/2/3/4/5/6/7 | 15/17/1/2/17/5/7 | 0/3/3/2/5/2/1 | 34/0/2/7/14/5/2 |
+| With planar / env / layer 6 | 46 / 0 / 39 | 16 / 0 / 4 | 30 / 0 / 56 |
+| Detail textures | 6, 512² m7, DXT1/DXT5; detail 0 planar | 6, 512² m7, DXT1/DXT5, all planar | 6, 512² m7, DXT1/DXT3/DXT5; detail 0 planar |
+| Weight maps | 256², R5G6B5 or DXT1, 1 mip | same | same |
+| Colormap / lightmap / low-detail | 512² DXT1 / 1024² DXT1 / 256² DXT1 | low-detail mode 3, 512² R5G6B5 | 512² DXT1 / 1024² DXT1 (32 patches 8x8 dummies) / 256² DXT1 |
+| Point lights on terrain | none (`drawMaskLights` path, shader version 0) | none | none |
+| `bench1`/`bench` frame | 10.66 ms | 20.51 ms | 6.34 ms |
+| GPU: lightmap / depth / detail | 0.398 / 0.168 / 0.337 ms | 0.490 / 0.200 / 0.623 ms | 0.312 / 0.145 / 0.321 ms |
+| GPU: roads | 0.095 ms | 0.102 ms | 0.014 ms |
+| Draws a frame: pass 0 / 3 / 4 / 5 / 14 | 12 / 13 / 18 / 3 / 3 | 9 / 6 / – / 24 / – | 18 / 17 / 2 / 1 / 3 (average) |
+
+Patches with one layer and no colormap are sea or off-map (Saaremaa's 34). Every bench run is CPU
+bound; terrain's three spans come to 0.8–1.3 ms of GPU.
+
+What this decides:
+- No environment-mapped layer and no point light reaches terrain on the three maps: pass 11, the
+  environment cube and the light passes (1, 13, 16) have no user to keep in the one pass. Lights
+  stay planned as a per-patch constant list (task 3) but are not on the critical path.
+- Layer 6 is on most patches of two maps (39 and 56 of 64): it is folded into the one pass, not a
+  second pass.
+- Detail textures are uniform (512², 7 mips) and come in at most three formats a level: one atlas
+  per format, at most 6 entries, plus planar side textures (all share the top texture on these
+  maps, "same").
+- Weight maps have one mip and two formats; low-detail mode 3 (Fallujah West) is a different
+  low-detail layout to carry.
+
 ### 11. Atmosphere, sky IBL, water reflections
 
 - One atmosphere model drives the sky dome, the sun's colour and disc, and distance fog with aerial
