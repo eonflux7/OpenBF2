@@ -110,7 +110,8 @@ Tasks (1 under way: survey tool and surveys done, reference views and baseline s
    Reference views (placed by the owner with `view.save`; baseline shots `m10-<view>` by `view.shot`):
    test_bootcamp done 2026-11-20 on `gpm_cq 16` (China vs Russia, modern vehicles): `gloss`, `gloss2`,
    `glass`. Muttrah City done 2026-11-20 (`gpm_skirmish 16`): `sun`, `antisun`, `ridges`, `valley`,
-   `street`. Left: Saaremaa (with `water`), Fallujah West, the same five. A view facing the sun has yaw = the survey's sun azimuth + 180°.
+   `street`. Saaremaa done 2026-11-20 (`gpm_skirmish 16`): `sun`, `antisun`, `ridges`, `valley`,
+   `water`. Left: Fallujah West, the Muttrah City five. A view facing the sun has yaw = the survey's sun azimuth + 180°.
 2. Atmosphere model (contract 6): the two layers and the fit at load as in the plan; the
    transmittance, multiple-scattering and sky-view tables at load and after a device reset, the
    aerial-perspective atlas per frame, all pixel passes; the atlas format checked for vertex
